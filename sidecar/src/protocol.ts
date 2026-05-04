@@ -90,6 +90,17 @@ export interface VersionMsg {
   sidecarVersion: string;   // semver
 }
 
+// Server-initiated error not paired with a client request (no requestId).
+// Used for connection-level errors: AEMultiClientRefused, AEParseError,
+// AEUnexpectedMsg. ErrorMsg requires requestId and is reserved for exec responses.
+export interface ServerErrorMsg {
+  type: "server.error";
+  code: string;
+  userMessage: string;
+  developerHint: string;
+  ctx?: Record<string, unknown>;
+}
+
 // ─── D3 approval gate (panel-side) ──────────────────────────────────
 
 export interface ApprovalRequestMsg {
@@ -115,6 +126,7 @@ export type Msg =
   | ExecMsg
   | ResultMsg
   | ErrorMsg
+  | ServerErrorMsg
   | CancelMsg
   | ProgressMsg
   | ResultChunkMsg

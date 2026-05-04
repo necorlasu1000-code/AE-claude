@@ -148,6 +148,48 @@ bolt-cep template이 만든 jsx 파일들이 **D8 per-tool collocation 규칙(`t
 
 **책임**: Phase 2 #5 또는 #8에서 직접 확인 후 결정. 1번이 가장 침투적 X 후보.
 
+## 2026-05-04 WS test helper — message listener race
+
+**문제**: `panelBridge.test.ts` 8/8 fail. `nextMessage`가 매 호출마다 새 listener 등록 → server가 `sys.version`을 client open 직후 송신했는데 listener 등록 전에 도착하면 메시지 drop.
+
+**Fix 패턴 (재사용)**: WS test client는 항상 connection 즉시 영구 listener 등록 + queue에 push. 검사 함수는 큐를 polling. listener 늦게 등록해서 메시지 놓치는 race 원천 차단.
+
+```typescript
+type Ws = WebSocket & { __queue: Msg[] };
+async function openWs(url): Promise<Ws> {
+  const ws = new WebSocket(url) as Ws;
+  ws.__queue = [];
+  ws.on("message", raw => { try { ws.__queue.push(JSON.parse(raw.toString())); } catch {} });
+  await /* once open */;
+  return ws;
+}
+async function nextMessage(ws, predicate, timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const idx = ws.__queue.findIndex(m => !predicate || predicate(m));
+    if (idx >= 0) return ws.__queue.splice(idx, 1)[0];
+    await delay(20);
+  }
+  throw new Error("timeout");
+}
+```
+
+## 2026-05-04 Promise.race + AbortSignal 패턴 (handler timeout 강제)
+
+**문제**: panelBridge에서 `await execHandler(...)`만 쓰면 handler가 AbortSignal 무시 시 timeout이 의미 없음 (handler 영원히 pending).
+
+**Fix 패턴**: handler vs abort-promise를 `Promise.race`. abort 시점에 우리 쪽이 reject → server가 강제로 error 응답 송신. handler가 abort 듣든 무시하든 server는 응답 보장.
+
+```typescript
+const abortPromise = new Promise<never>((_, reject) => {
+  if (signal.aborted) reject(new Error("__abort"));
+  else signal.addEventListener("abort", () => reject(new Error("__abort")), { once: true });
+});
+await Promise.race([handler(input, ctx), abortPromise]);
+```
+
+**언제 쓰나**: 외부 시스템(AE, native module)에 위임된 long-running work에서 timeout 보장 필요 시. 사용자 cancel + server timeout 모두 강제 가능.
+
 ## Phase 2 후속 / PtyHost.kill graceful shutdown ConPTY 호환성 검증
 
 **관찰**: Phase 2 #2 smoke test에서 `await pty.kill()` 호출이 hang → vitest 35s testTimeout 발동. 매칭(`hello` 2회)은 짧은 시간 내 성공 추정.
