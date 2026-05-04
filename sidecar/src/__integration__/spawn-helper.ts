@@ -8,6 +8,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { WebSocket } from "ws";
+import type { Msg } from "../protocol.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,8 +55,33 @@ export interface SpawnedSidecar {
   /**
    * Kill the sidecar. Sends `signal` (default SIGTERM), waits up to 5s for
    * graceful exit, then SIGKILL fallback. Resolves when process actually exits.
+   *
+   * NOTE: on Windows, process.kill(pid, "SIGTERM") is mapped to TerminateProcess
+   * — the sidecar's SIGTERM handler does NOT fire and lockfile cleanup is
+   * skipped. For graceful shutdown that runs the cleanup path, use
+   * `sendShutdown()` instead. `kill()` is fine for tests that don't depend on
+   * cleanup state.
    */
   kill(signal?: NodeJS.Signals): Promise<void>;
+
+  /**
+   * Graceful shutdown via WS `sys.shutdown` (Phase 2.5.5.0). Connects to the
+   * sidecar, sends sys.shutdown, waits for sys.shutting-down ack, closes the
+   * WS, and waits for the actual process exit. Runs the sidecar's full
+   * shutdown handler (releaseLock, bridge.stop, pty.kill).
+   *
+   * Use this in tests that depend on lockfile cleanup or other in-band
+   * graceful behavior. Default timeout 5s on the ack; total wait may be
+   * longer if shutdown itself is slow (10s SHUTDOWN_TIMEOUT_MS in index.ts).
+   */
+  sendShutdown(reason?: string, timeoutMs?: number): Promise<void>;
+
+  /**
+   * Force-kill via SIGKILL (TerminateProcess on Windows). Bypasses ALL
+   * cleanup — lockfile is left orphaned. **Use only to simulate sidecar
+   * crashes in tests** (e.g., stale-detection scenarios).
+   */
+  forceKill(): Promise<void>;
 }
 
 export interface SpawnSidecarOptions {
@@ -169,6 +196,56 @@ export async function spawnSidecar(opts: SpawnSidecarOptions = {}): Promise<Spaw
     clearTimeout(fallback);
   };
 
+  const sendShutdown = async (reason?: string, timeoutMs = 5_000): Promise<void> => {
+    if (state.exitCode !== null || state.exitSignal !== null) return;
+
+    const ws = new WebSocket(`ws://${ready.host}:${ready.port}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (err?: Error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          try { ws.close(); } catch { /* */ }
+          if (err) reject(err); else resolve();
+        };
+        const timer = setTimeout(() => {
+          finish(new Error(`sendShutdown timeout (${timeoutMs}ms): no sys.shutting-down ack`));
+        }, timeoutMs);
+
+        ws.once("open", () => {
+          const msg: Msg = reason !== undefined
+            ? { type: "sys.shutdown", reason }
+            : { type: "sys.shutdown" };
+          ws.send(JSON.stringify(msg));
+        });
+
+        ws.on("message", (raw: WebSocket.RawData) => {
+          try {
+            const parsed = JSON.parse(raw.toString()) as Msg;
+            if (parsed.type === "sys.shutting-down") finish();
+          } catch { /* ignore non-JSON */ }
+        });
+
+        ws.once("error", (e) => finish(e));
+      });
+    } catch (e) {
+      // ack-stage failure shouldn't strand the test — fall through to wait
+      // for exit anyway. Sidecar may already be in the middle of shutdown.
+      if (state.exitCode === null) throw e;
+    }
+
+    // Wait for actual graceful process exit.
+    await exitPromise;
+  };
+
+  const forceKill = async (): Promise<void> => {
+    if (state.exitCode !== null || state.exitSignal !== null) return;
+    try { proc.kill("SIGKILL"); } catch { /* may already be dead */ }
+    await exitPromise;
+  };
+
   return {
     port: ready.port,
     pid: ready.pid,
@@ -179,6 +256,8 @@ export async function spawnSidecar(opts: SpawnSidecarOptions = {}): Promise<Spaw
     get exitSignal() { return state.exitSignal; },
     exitPromise,
     kill,
+    sendShutdown,
+    forceKill,
   } satisfies SpawnedSidecar;
 }
 

@@ -228,6 +228,52 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
+## ✅ 2026-05-04 Windows process.kill SIGTERM = TerminateProcess (graceful 불가) — sys.shutdown으로 해결
+
+**문제**: Phase 2.5.5 통합 테스트에서 `process.kill(sidecarPid, "SIGTERM")` 호출 후 사이드카가 graceful shutdown 안 함 → lockfile 안 삭제됨.
+
+**Root cause**: Node.js Windows에서 `process.kill(pid, signal)`은 모든 signal을 SIGKILL과 동등하게 처리 → `TerminateProcess` Windows API 호출. 사이드카의 `process.on("SIGTERM", ...)` 핸들러는 **fire되지 않음**. POSIX SIGTERM 의미론(graceful) 자체가 Windows에 없음.
+
+**영향**:
+- 사이드카 측면: 어떤 OS signal로도 graceful shutdown trigger 불가능 (Windows)
+- production 시 panel close → AE death watchdog만 유일한 graceful 경로
+- 통합 테스트에서 lockfile cleanup 검증 불가능 (SIGTERM이 graceful path 안 트리거)
+
+**Fix (Phase 2.5.5.0)**: WS-level `sys.shutdown` 메시지 신설.
+- protocol.ts: `ShutdownRequestMsg` (`type: "sys.shutdown"`, primary client only) + `ShuttingDownMsg` (server broadcast ack)
+- panelBridge.ts: `onShutdownRequest` 콜백 옵션. WRITE_TYPES에 `sys.shutdown` 추가 (multi-client refusal 일관)
+- index.ts: 콜백을 `gracefulShutdown("panel-shutdown:<reason>")`에 wire
+- spawn-helper.ts: `sendShutdown(reason?)` API — 통합 테스트 cleanup용
+- production 의미: panel close 시 명시적 sys.shutdown 송신 → 사이드카 정리 보장
+
+**Phase 2.5.5.1 검증**: lockfile race 시나리오 6 통과 (sidecar1.sendShutdown → lockfile 삭제 → sidecar3 spawn 성공).
+
+**남은 한계 (mistake로 등록)**: Production에서 panel이 비정상 crash하면 sys.shutdown 못 보냄 → lockfile orphan. 이 케이스는 다음 사이드카 spawn 시 stale detection이 처리 (시나리오 6b로 검증 완료).
+
+## 2026-05-04 node-pty 'Signals not supported on windows' uncaughtException
+
+**관찰**: Phase 2.5.5 시나리오 6 디버깅 중 사이드카 stderr에서 발견:
+
+```
+{"type":"uncaught","message":"Signals not supported on windows.",
+ "stack":"...WindowsTerminal.<anonymous> windowsTerminal.ts:167..."}
+```
+
+**원인**: node-pty 1.x Windows에서 `pty.kill("SIGTERM")` 호출 시 내부 socket data 처리 path에서 비동기적으로 throw. PtyHost.kill의 `try { pty.kill("SIGTERM") } catch {}`는 동기 throw만 잡고 비동기 throw는 uncaughtException으로 olso.
+
+**영향**:
+- index.ts의 `process.on("uncaughtException")` 핸들러가 graceful shutdown 트리거 → 의도하지 않은 shutdown 가능
+- 단 안정성 직접 영향은 적음 — shutdown 자체는 정상 진행
+
+**임시 처리**: Phase 2.5.4 tree kill이 1초 후 OS-level taskkill을 발동하므로 graceful path 자체엔 의존 X. uncaughtException은 stderr 노이즈 + 부정한 shutdown trigger 가능성으로 남음.
+
+**근본 fix 후보 (Phase 4 후속)**:
+1. Windows에서 `pty.kill()` (signal 인자 없이) 사용 — node-pty가 내부적으로 안전하게 처리
+2. node-pty 호출 자체 skip — 1초 graceful 단계 건너뛰고 바로 tree kill
+3. node-pty 업스트림 fix 대기
+
+**Phase 4 검증 시 확인**: claude CLI를 PTY로 띄울 때 동일 문제 재현되는지. 재현되면 후보 1 또는 2 적용.
+
 ## ✅ PtyHost.kill ConPTY 호환성 — Phase 2.5.4에서 검증 + fix 적용 완료
 
 **가설 (Phase 2.2)**: ConPTY는 SIGTERM 무시 + node-pty의 5s SIGKILL fallback도 hang 가능.
