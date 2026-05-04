@@ -295,6 +295,45 @@ describe("PanelBridge", () => {
     ws.close();
   });
 
+  // ── 11 ───────────────────────────────────────────────────────────
+  it("scenario 11: sys.shutdown from primary triggers onShutdownRequest + broadcasts ack to all clients", async () => {
+    const onShutdownRequest = vi.fn();
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+      onShutdownRequest,
+    });
+    ({ port } = await bridge.start());
+
+    const wsA = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(wsA, (m) => m.type === "sys.version");
+    const wsB = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(wsB, (m) => m.type === "sys.version");
+
+    // Secondary client's sys.shutdown is refused (write authority).
+    send(wsB, { type: "sys.shutdown", reason: "from-secondary" });
+    const refused = await nextMessage(wsB, (m) => m.type === "server.error");
+    expect(refused.type).toBe("server.error");
+    if (refused.type === "server.error") expect(refused.code).toBe("AEMultiClientRefused");
+    expect(onShutdownRequest).not.toHaveBeenCalled();
+
+    // Primary's sys.shutdown: handler fires, BOTH clients receive ack.
+    send(wsA, { type: "sys.shutdown", reason: "from-primary" });
+
+    const ackA = await nextMessage(wsA, (m) => m.type === "sys.shutting-down");
+    const ackB = await nextMessage(wsB, (m) => m.type === "sys.shutting-down");
+    expect(ackA.type).toBe("sys.shutting-down");
+    expect(ackB.type).toBe("sys.shutting-down");
+    if (ackA.type === "sys.shutting-down") expect(ackA.reason).toBe("from-primary");
+
+    expect(onShutdownRequest).toHaveBeenCalledTimes(1);
+    expect(onShutdownRequest).toHaveBeenCalledWith("from-primary");
+
+    wsA.close();
+    wsB.close();
+  });
+
   // ── 8 ────────────────────────────────────────────────────────────
   it("multi-client: secondary's pty.in refused with AEMultiClientRefused", async () => {
     const wsA = await openWs(url);

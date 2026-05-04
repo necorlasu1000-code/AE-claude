@@ -47,6 +47,12 @@ export interface PanelBridgeOptions {
   watchdogIntervalMs?: number;      // default 5_000
   sidecarVersion?: string;          // default "0.1.0"
   replayLines?: number;             // default 1_000 (subset of ring buffer for reconnect)
+  /**
+   * Called when a primary client sends sys.shutdown. Wired in index.ts to
+   * trigger gracefulShutdown(). Bridge has already broadcast sys.shutting-down
+   * before this fires, so external code only needs to start the actual cleanup.
+   */
+  onShutdownRequest?: (reason?: string) => void;
 }
 
 // ─── Internal state ────────────────────────────────────────────────
@@ -70,6 +76,7 @@ const WRITE_TYPES: ReadonlySet<Msg["type"]> = new Set([
   "exec",
   "cancel",
   "approval.response",
+  "sys.shutdown",          // primary-only per Phase 2.5.5.0 design
 ]);
 
 // ─── PanelBridge ───────────────────────────────────────────────────
@@ -259,6 +266,14 @@ export class PanelBridge {
           `[panelBridge] approval.response received before Phase 4 wiring (requestId=${msg.requestId})`,
         );
         return;
+      case "sys.shutdown": {
+        // Primary-only (already gated by WRITE_TYPES). Broadcast ack first
+        // so all clients see the close-is-intentional signal, THEN notify
+        // external handler to start the actual shutdown sequence.
+        this.broadcast({ type: "sys.shutting-down", ts: Date.now(), reason: msg.reason });
+        try { this.opts.onShutdownRequest?.(msg.reason); } catch { /* never throw from router */ }
+        return;
+      }
       // Outgoing-only types: clients shouldn't send these.
       case "result":
       case "result.chunk":
@@ -268,6 +283,7 @@ export class PanelBridge {
       case "pty.out":
       case "pty.replay":
       case "sys.version":
+      case "sys.shutting-down":
       case "approval.request":
         this.sendTo(ws, {
           type: "server.error",

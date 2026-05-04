@@ -101,6 +101,25 @@ export interface ServerErrorMsg {
   ctx?: Record<string, unknown>;
 }
 
+// Client→Server: graceful shutdown request. Primary client only (write authority).
+// Production use: panel close → panel sends sys.shutdown → sidecar releases lockfile.
+// Test use: integration-lockfile.test.ts triggers sidecar shutdown without OS signals
+// (Windows has no graceful SIGTERM). See mistakes.md "node-pty Signals not supported"
+// + Phase 2.5.5.0 commit notes.
+export interface ShutdownRequestMsg {
+  type: "sys.shutdown";
+  reason?: string;          // free-form, logged on sidecar side
+}
+
+// Server→All clients: shutdown ack. Broadcast immediately on receipt of
+// sys.shutdown, BEFORE the actual shutdown sequence starts. Clients use
+// this to know the connection is about to close intentionally (vs error).
+export interface ShuttingDownMsg {
+  type: "sys.shutting-down";
+  ts: number;
+  reason?: string;
+}
+
 // ─── D3 approval gate (panel-side) ──────────────────────────────────
 
 export interface ApprovalRequestMsg {
@@ -136,6 +155,8 @@ export type Msg =
   | PtyReplayMsg
   | HeartbeatMsg
   | VersionMsg
+  | ShutdownRequestMsg
+  | ShuttingDownMsg
   | ApprovalRequestMsg
   | ApprovalResponseMsg;
 

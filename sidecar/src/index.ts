@@ -115,12 +115,20 @@ async function main(): Promise<void> {
     killHardCapMs: cfg.killHardCapMs,
   });
 
+  // Forward declare shutdown so PanelBridge can call it via onShutdownRequest.
+  // Actual implementation is set further down (after watchdog setup). The
+  // ref-cell pattern keeps the wiring clean without a class restructure.
+  const shutdownRef: { fn: (reason: string) => void } = {
+    fn: () => { /* replaced before PanelBridge can fire onShutdownRequest */ },
+  };
+
   const bridge = new PanelBridge({
     pty,
     execHandler: stubExecHandler,
     port: cfg.port,
     host: cfg.host,
     sidecarVersion: SIDECAR_VERSION,
+    onShutdownRequest: (reason) => shutdownRef.fn("panel-shutdown" + (reason ? ":" + reason : "")),
   });
 
   const { port: actualPort } = await bridge.start();
@@ -196,6 +204,12 @@ async function main(): Promise<void> {
     console.error(JSON.stringify({ type: "uncaught", message: e.message, stack: e.stack }));
     shutdown("uncaughtException");
   });
+
+  // Wire panelBridge.onShutdownRequest → real shutdown function. Until this
+  // line, the ref-cell holds a no-op placeholder, so a sys.shutdown received
+  // before this point would silently do nothing — but bridge.start() is
+  // already complete, the only window is between bridge.start and here.
+  shutdownRef.fn = shutdown;
 
   // ── AE PID watchdog ──────────────────────────────────────────────
   let watchdog: PidWatchdog | undefined;
