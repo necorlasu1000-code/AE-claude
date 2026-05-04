@@ -146,6 +146,22 @@ bolt-cep template이 만든 jsx 파일들이 **D8 per-tool collocation 규칙(`t
 - WS 레이어 (panel ↔ sidecar 사이 JSON over text frame)는 UTF-8 round-trip 보장 — `panelBridge.test.ts` 시나리오 9 (exec input/output Korean+emoji) + 시나리오 10 (pty.in Korean) 통과
 - 남은 위험은 PTY 레이어 (사이드카 ↔ claude CLI 사이) — Windows에서 OS code page 영향. 위 검증 시점에서 해결.
 
+**Phase 2.5.2 발견 — cmd.exe PTY 한글 round-trip은 CP949 환경에서도 자동 통과** (2026-05-04):
+- 검증 환경: Windows, `chcp` = `949` (CP949 ko_KR), Node 20.20.2, node-pty 1.x ConPTY 모드
+- 시나리오 4 (`echo 한글\r` → pty.out에서 '한글' 2회 등장) **fix 없이 649ms 안에 통과**
+- 가정 ('cmd.exe는 CP949라 한글 깨짐')과 결과 ('정상 round-trip')의 모순 해명:
+  - **ConPTY는 내부적으로 UTF-16** (Win32 Console API native)
+  - **node-pty는 OS code page와 독립적으로 UTF-16 → UTF-8 string 변환**
+  - cmd.exe의 chcp 949 설정은 cmd.exe 자체의 file/IO 인코딩에 영향, ConPTY 레이어 출력에는 영향 없음
+  - 사이드카 stderr의 경고 `Setting encoding on Windows is not supported`는 옵션 무시일 뿐 실제 동작은 UTF-8 string 전달
+- **결론**: fix 1순위 (`chcp 65001 prefix`) 적용 안 해도 cmd.exe 환경에서 한글 OK. 잠재적 보호 효과는 있으나 현재 미적용.
+
+**남은 미검증 영역 (Phase 4 후속 / claude CLI 한글 검증)**:
+- 본 검증은 cmd.exe spawn 기준. **Phase 4에서 PtyHost가 `claude --model claude-opus-4-7`로 교체됨**
+- claude CLI는 별도 binary (Rust 또는 Node). 자체 stdout 인코딩 정책이 다를 수 있음
+- 검증 케이스: 사이드카 PTY로 claude 띄움 → "한글로 답해줘" 입력 → 한글 응답이 panel xterm까지 깨짐 없이 도달하는지
+- 시점: Phase 4 첫 통합 (claude mcp add + PTY 진입) 직후. fail 시 fix 1순위 (`chcp 65001` prefix) 적용 검토.
+
 **해결 후보** (검증 결과에 따라):
 1. PTY spawn 전 `chcp 65001` (Windows): cmd.exe 시작 전 console code page를 UTF-8로
 2. `cmd.exe /U` 옵션: Unicode I/O mode
