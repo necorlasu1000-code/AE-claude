@@ -14,6 +14,7 @@
 // changes.
 
 import { spawn, type IPty } from "node-pty";
+import { spawn as cpSpawn } from "node:child_process";
 
 export interface PtyHostOptions {
   cmd: string;
@@ -118,26 +119,90 @@ export class PtyHost {
     this.pty.resize(cols, rows);
   }
 
-  /** Graceful kill: SIGTERM, then SIGKILL after 5s if still alive. */
+  /**
+   * ConPTY-safe graceful kill.
+   *
+   * Background (Phase 2.5.4 discovery): on Windows ConPTY, both SIGTERM and
+   * the SIGKILL fallback through node-pty's `pty.kill(signal)` are silently
+   * ignored — onExit never fires and the child stays alive indefinitely.
+   *
+   * Strategy:
+   *   1. SIGTERM via node-pty (works on bash; ignored by ConPTY — harmless)
+   *   2. After 1s, OS-level TREE kill (bypasses node-pty entirely):
+   *      - Windows: `taskkill /F /T /PID <pid>` — force, tree (children too)
+   *      - Unix: `process.kill(-pid, "SIGKILL")` — process group
+   *      Tree kill protects against Phase 4 (claude CLI may spawn its own
+   *      children — killing only the parent leaves zombies).
+   *   3. Hard cap (`killHardCapMs`, default 8s): resolve the Promise no
+   *      matter what, marking _alive=false defensively. Prevents shutdown
+   *      hangs even if both kill paths fail.
+   */
   async kill(): Promise<void> {
     if (!this._alive || !this.pty) return;
     const pty = this.pty;
+    const pid = pty.pid;
+    const hardCap = this.killHardCapMs ?? 8_000;
 
-    return new Promise((resolve) => {
-      const onExitOnce = this.onExit(() => {
-        clearTimeout(killTimer);
-        onExitOnce();
+    return new Promise<void>((resolve) => {
+      let resolved = false;
+      let treeKillTimer: NodeJS.Timeout | undefined;
+      let hardCapTimer: NodeJS.Timeout | undefined;
+
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
+        if (treeKillTimer) clearTimeout(treeKillTimer);
+        if (hardCapTimer) clearTimeout(hardCapTimer);
         resolve();
-      });
+      };
 
+      // 1. onExit subscriber — fires when child actually dies (any path).
+      const off = this.onExit(() => { off(); finish(); });
+
+      // 2. Graceful SIGTERM via node-pty.
       try { pty.kill("SIGTERM"); } catch { /* may already be dead */ }
 
-      const killTimer = setTimeout(() => {
-        if (this._alive) {
-          try { pty.kill("SIGKILL"); } catch { /* same */ }
-        }
-      }, 5_000);
+      // 3. After 1s, escalate to OS-level tree kill.
+      treeKillTimer = setTimeout(() => {
+        if (resolved || pid === undefined) return;
+        this.osTreeKill(pid);
+      }, 1_000);
+
+      // 4. Hard cap — guarantee resolve() so shutdown doesn't hang.
+      hardCapTimer = setTimeout(() => {
+        this._alive = false;
+        this.pty = undefined;
+        finish();
+      }, hardCap);
     });
+  }
+
+  /** OS-level tree kill. Best-effort: errors are swallowed — hard cap covers
+   *  the worst case. Spawned helper processes (taskkill) get their own 3s
+   *  timeout so they can't hang either. */
+  private osTreeKill(pid: number): void {
+    if (process.platform === "win32") {
+      try {
+        const tk = cpSpawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
+          windowsHide: true,
+          stdio: "ignore",
+          detached: false,
+        });
+        const tkSelfTimer = setTimeout(() => {
+          try { tk.kill("SIGKILL"); } catch { /* */ }
+        }, 3_000);
+        tkSelfTimer.unref();
+        tk.once("exit", () => clearTimeout(tkSelfTimer));
+        tk.on("error", () => { /* taskkill missing or already-dead pid — ignore */ });
+      } catch { /* spawn itself failed — hard cap will catch it */ }
+    } else {
+      // Negative pid = process group. node-pty puts the child in its own
+      // session, so killpg targets the shell + all its descendants.
+      try { process.kill(-pid, "SIGKILL"); } catch {
+        // Fallback: child may not be a group leader.
+        try { process.kill(pid, "SIGKILL"); } catch { /* already dead */ }
+      }
+    }
   }
 
   /** Last `maxLines` complete output lines. Used by panelBridge on reconnect (P1). */

@@ -228,20 +228,35 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
-## Phase 2 후속 / PtyHost.kill graceful shutdown ConPTY 호환성 검증
+## ✅ PtyHost.kill ConPTY 호환성 — Phase 2.5.4에서 검증 + fix 적용 완료
 
-**관찰**: Phase 2 #2 smoke test에서 `await pty.kill()` 호출이 hang → vitest 35s testTimeout 발동. 매칭(`hello` 2회)은 짧은 시간 내 성공 추정.
+**가설 (Phase 2.2)**: ConPTY는 SIGTERM 무시 + node-pty의 5s SIGKILL fallback도 hang 가능.
 
-**가설**: ConPTY는 Windows process tree에 SIGTERM POSIX signal을 전달하지 못함 (Windows는 SIGTERM 개념이 다름). node-pty의 `pty.kill("SIGTERM")`은 cmd.exe에 무시됨 → 5s 후 SIGKILL fallback이 발동해야 하나 ConPTY 통신이 막혀 그것도 hang.
+**Phase 2.5.4 검증 결과 (2026-05-04)**:
+- 가설 **확인** + **추가 발견**: SIGTERM뿐 아니라 node-pty 경유 `pty.kill("SIGKILL")`도 ConPTY에 무력. 12s 시험 동안 OS pid 23회 폴링 모두 ALIVE, node-pty `onExit` 영영 fire 안 함.
+- 즉 node-pty의 `pty.kill(signal)`은 Windows ConPTY child에 어떤 signal도 전달 못함.
 
-**임시 fix (테스트만)**: `pty.kill()`을 fire-and-forget 처리. graceful shutdown 의미는 production에서만 의미 있음. 테스트는 vitest 종료 시 OS가 child process 정리.
+**Fix 적용 (`sidecar/src/pty/ptyHost.ts` `kill()`)**:
+1. SIGTERM via `pty.kill()` — bash에선 graceful 종료, ConPTY에선 무시(harmless)
+2. **1초 후** OS-level **tree kill** (node-pty 우회):
+   - Windows: `child_process.spawn("taskkill", ["/F", "/T", "/PID", pid])` — taskkill 자체에 3s self-timeout
+   - Unix: `process.kill(-pid, "SIGKILL")` (process group), fallback `process.kill(pid)`
+3. **8초 hard cap** (`killHardCapMs` ENV로 override 가능): `onExit` 영영 안 와도 Promise resolve + `_alive=false` 강제 마킹
 
-**Phase 2 후속에서 확인**:
-1. PtyHost.kill을 ConPTY-aware하게 수정 — `pty.kill()` (signal 인자 없이) 또는 직접 `process.kill(pid, "SIGKILL")`
-2. node-pty 1.x ConPTY 모드의 정확한 kill 시맨틱 문서 검토
-3. Phase 2 #5 통합 테스트에서 graceful shutdown 검증 케이스 별도 작성
+**검증 결과**:
+- 시나리오 8 (`integration-conpty-kill.test.ts`): 12s hang → **2.1s resolve**로 단축
+- 타임라인: 0ms SIGTERM(무시) → 1000ms taskkill /F /T 발동 → 1524ms OS DEAD → 2139ms onExit fire → Promise resolve
+- 회귀 0: Phase 2.2 ptyHost smoke 포함 65 기존 테스트 모두 통과 유지
 
-**예방**: native module의 OS-specific 동작 (특히 process signal)을 production으로 보내기 전 OS 두 곳 (Win + Mac)에서 검증. Phase 7 distribution matrix(D9 = GitHub Actions Win/Mac)에서 자동.
+**Tree kill 선택 이유**:
+- Phase 4에서 PTY가 cmd.exe → claude CLI로 교체됨
+- claude CLI가 자식 프로세스 띄울 가능성 (HTTP client, MCP server, 등) — 부모 PID만 죽이면 자식이 좀비
+- `taskkill /T` (tree) + `killpg(-pid)`는 자식 포함 정리 → Phase 4 대비 보호적
+
+**Phase 4 후속 검증 (필수)**:
+- claude CLI로 PTY 교체 후 시나리오 8 재실행
+- claude가 자식 띄우는지 `tasklist` (Windows) / `ps` (Unix)로 확인
+- tree kill이 모든 자식까지 정리하는지 — 안 되면 추가 fix (예: `taskkill /T` 옵션 보강 또는 wmic 사용)
 
 ### Resolution + playbook (2026-05-04)
 
