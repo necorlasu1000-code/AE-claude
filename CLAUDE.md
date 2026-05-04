@@ -1,0 +1,241 @@
+# CLAUDE.md
+
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+## Project-Specific Guidelines — AE-Claude Panel
+
+이 프로젝트에서는 위 4원칙(Think / Simplicity / Surgical / Goal-driven)을 베이스로, 아래 결정과 규칙이 우선합니다.
+충돌 시 프로젝트 규칙 > Karpathy 베이스. (베이스의 의도를 거스르는 게 아니라 도메인 특수성으로 보강.)
+
+### What this project is
+
+AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 띄우고, MCP를 통해 자연어로 AE를 조작하는 CEP 확장.
+4-process 아키텍처: AE ↔ CEP Panel (React+xterm.js) ↔ Sidecar Node.js (PTY+MCP+WS) ↔ claude CLI.
+전체 비전·페이즈·MCP tool 카탈로그는 `plan.md` 참조. 본 파일은 코딩 시 게이트 역할.
+
+### Architectural Decisions (D1–D9, 결정 완료)
+
+| ID | Topic | Decision | 코드에서 의미 |
+|---|---|---|---|
+| D1 | Approach | In-Panel Terminal + Sidecar (full integration) | 패널 내부에 xterm 임베드, 외부 터미널 의존 X |
+| D2 | Review mode | HOLD SCOPE | 신규 기능 추가 금지 — plan.md §1-13 범위 내에서만 |
+| D3 | `ae_run_extendscript` 안전 | per-call approval + AST allow-list (FS/네트워크/system.callSystem 차단) | escape hatch는 항상 사용자 승인 + AST 검사 통과 후에만 실행 |
+| D4 | Undo + crash recovery | tool당 1 undoGroup + 세션 시작 자동저장 + 5 tool마다 incremental save | 모든 destructive tool은 `defineAETool` HOF로 wrapping |
+| D5 | Packaging | self-signed ZXP + Node 바이너리 동봉 | 첫 실행에 인터넷 의존 X, ZXPInstaller 우회 안내 |
+| D6 | WS 프로토콜 | typed envelope (discriminated union) + request_id + cancel/progress/chunking/heartbeat | `sidecar/src/protocol.ts`가 single source of truth, panel/sidecar 양쪽 import |
+| D7 | AST validator | acorn + adversarial test suite (30+ injection 골든셋, indirection/computed/eval/include 차단) | 새 ExtendScript 코드 추가 시 골든셋 통과 필수 |
+| D8 | Tool 코드 조직 | per-tool collocation: `tools/<ae_name>/{schema, handler, impl.jsx, test}` | tool 추가 = 1 디렉토리 추가. 도메인별 분할 금지 |
+| D9 | Distribution | portable Node 20 + node_modules + GitHub Actions Win/Mac matrix | `pkg`/`bun --compile`/SEA 사용 금지 — deprecation 위험 |
+
+### Validation Gates (코드 작성 시 자동 통과해야)
+
+이 게이트들은 PR/커밋 전에 통과해야 한다. 우회 금지.
+
+1. **Security gate** — `tools/_validateAst.test.ts`의 30+ adversarial 골든셋 통과 (D7).
+   새 `tools/<ae_name>/impl.jsx` 추가 시 validator를 통과하는 패턴인지 사전 확인.
+   `system.callSystem`/`File`/`Folder`/`Socket`/`eval`/`Function`/`#include`/computed member access는 사용 금지.
+
+2. **Undo gate** — destructive tool은 `defineAETool({destructive: true})` 명시 (D4).
+   handler 안에서 `app.beginUndoGroup` 직접 호출 금지 — wrapper가 처리.
+
+3. **Approval gate** — `ae_run_extendscript`만 `needsApproval: true` (D3).
+   다른 tool에 `needsApproval: true` 추가하지 말 것 — 사용자 마찰 누적.
+
+4. **Schema gate** — input/output 양쪽 zod schema 필수 (C2).
+   handler가 throw하면 `AEError` 서브클래스로만 — `code/userMessage/developerHint` 트리플.
+
+5. **Pagination gate** — 모든 `ae_list_*`: `limit: max(200).default(50)` + `{items, total, hasMore, nextOffset}` (P2).
+   list 결과 무제한 반환 금지 — Claude context 폭발 방지.
+
+6. **Localhost gate** — WebSocket binding은 `127.0.0.1` only.
+   `0.0.0.0` 사용 시 LAN 공격면. 미래 원격 접속은 인증 모듈 추가 후에만.
+
+7. **Mutex gate** — `ToolDispatcher`에서 in-flight tool call 1개 강제 (P4).
+   ExtendScript single-threaded이므로 panel 측 evalScript 큐는 FIFO.
+
+### Directory Rules (D8 collocation)
+
+```
+ae-claude-panel/
+├── sidecar/src/
+│   ├── protocol.ts                      # D6 typed envelope (panel과 공유)
+│   ├── tools/
+│   │   ├── _define.ts                   # defineAETool HOF (C1)
+│   │   ├── _validateAst.ts              # D7 AST validator
+│   │   ├── _validateAst.test.ts         # 30+ adversarial 골든셋
+│   │   ├── ae_create_comp/
+│   │   │   ├── schema.ts                # zod input/output
+│   │   │   ├── handler.ts               # sidecar handler
+│   │   │   ├── impl.jsx                 # ExtendScript impl
+│   │   │   ├── test.ts                  # mock-AE 단위 테스트
+│   │   │   └── README.md                # tool 1줄 설명 + example
+│   │   └── ae_*/...                     # 30개, 동일 shape
+│   ├── pty/, mcp/, ws/, utils/
+│   └── index.ts
+├── src/js/main/                         # CEP panel (React)
+│   └── (protocol.ts를 sidecar에서 import)
+├── src/jsx/                             # 빌드 시점에 tools/*/impl.jsx 합본
+│   └── _polyfills/json2.js              # ES3 JSON polyfill (C3)
+├── tests/_helpers/mockAe.ts             # WebSocket fixture responder (T1)
+├── evals/golden/                        # LLM eval suite (P3#19)
+├── .github/workflows/release.yml        # D9 Win/Mac matrix
+└── plan.md                              # 비전 + 페이즈 + GSTACK REVIEW REPORT
+```
+
+**금지 패턴:**
+- 도메인별 분할 (`src/jsx/aeft/comp.ts`, `sidecar/src/mcp/tools/comp.ts` 같이 흩기). plan.md §5의 원안은 D8로 폐기됨.
+- tool당 schema와 impl을 다른 폴더에 두기. 한 폴더에 collocate.
+- `tools/` 외부에 ae_* 함수 정의.
+
+### Phase Structure (plan.md §8 기반, 우선순위 순)
+
+| Phase | 산출물 | 검증 |
+|---|---|---|
+| 0 | bolt-cep 부팅, regedit `PlayerDebugMode=1`, AE script 권한 | 빈 패널이 AE에 뜨는지 |
+| 1 | `protocol.ts` (D6), `_define.ts` (C1), `_validateAst.ts` + 골든셋 (D7) | 단위 테스트 100%, adversarial 30+ 통과 |
+| 2 | 패널 ↔ 사이드카 WS 연결, xterm 마운트 | 패널에서 `ls` 명령 결과 보임, resize 동작 |
+| 3 | ExtendScript 브릿지 (`{type:'exec', tool, input}` ↔ jsx 함수 lookup) | 왕복 latency ≤100ms, 에러 path 검증 |
+| 4 | MCP 서버 + claude PTY, `ae_get_active_comp` 첫 tool | 패널에서 "현재 프로젝트 정보" → tool 호출 → 응답 |
+| 5 | MVP 5 tool (collocation 패턴 확립), 그 후 25 tool 병렬 | mock-AE 풀 스택 테스트 + manual 5 시나리오 |
+| 6 | UX (status bar 5 상태, "Recent AI ops" 카드, Stop 버튼, onboarding) | 매뉴얼 QA 체크리스트 |
+| 7 | ZXP 빌드 + GitHub Actions matrix (D9) + 릴리즈 | Win-x64/Mac-x64/Mac-arm64 ZXP 자동 생성 |
+
+**규칙**: Phase 1 (foundation)은 직렬. Phase 5는 lane 분할 가능 (D8 덕분에 25-tool 병렬 충돌 0).
+
+### Design Tokens (CEP panel UI, locked in plan-design-review)
+
+D11 결정 + 7-pass review 결과. plan.md "Design Review" 섹션의 와이어프레임 + 5상태 매트릭스 참조.
+
+- **Color**: AE host theme sync via CSInterface. CSS variables `--bg/--fg/--accent/--warn/--error/--muted/--border`. Fallback when host theme unavailable: dark (`#2d2d2d`/`#e8e8e8`) and light (`#f5f5f5`/`#1a1a1a`). Accent `#4a9eff`, warn `#f4b942`, error `#e85a5a`.
+- **Font**:
+  - Terminal: `JetBrains Mono` 14px, fallback `Consolas, Menlo, monospace`
+  - UI: `Source Sans 3` (Adobe bundled), fallback `-apple-system, sans-serif`
+  - **NEVER `system-ui` as primary** (AI Slop blacklist 11)
+- **Spacing scale**: 4 / 8 / 12 / 16 / 24 px. Component padding 12px default.
+- **Radius**: 4px (cards/buttons) / 8px (modals) / 0px (panel chrome). 균일 큰 radius 금지.
+- **Motion**: 150-200ms ease-out for state transitions. Status bar dot color 즉시 (no transition). `prefers-reduced-motion: reduce` 시 0ms.
+- **Iconography**: lucide-icons monochrome single-color, 16px default. **Emoji 디자인 금지** (이모지를 카드 아이콘에 사용 X).
+- **Status indicator** (색 + 모양 동시, 색맹 호환): ● 초록=OK, ○ 회색=idle, ◐ 노랑=partial, ◍ 빨강=error.
+
+### Information Architecture (panel layout, Pass 1)
+
+3-tier 시각 계층:
+1. **Header (24px, 지속적)**: status dots + actions (Stop/Restart/Logs)
+2. **Terminal (60-70%, 지배적)**: xterm 입출력 — 주 인터랙션
+3. **Recent AI ops cards (15%, 보조)**: 가로 스크롤, click=AE select
+
+이 비율을 깨지 말 것 — 카드가 터미널보다 커지면 visual hierarchy 무너짐.
+
+### UX Patterns (lock-in)
+
+- **Approval dialogs (D3)**: in-panel modal. ESC=Reject, Enter inert (실수 승인 방지). Focus default=Reject. "Don't ask again" 체크박스 **금지**.
+- **Empty states**: "No X yet. Try: '<예시 1>' or '<예시 2>'" 패턴 — warmth + 2 primary action examples.
+- **Error states**: actionable 메시지 — `❌ <문제>. <fix 방법> or [Action]`. 모호한 "Something went wrong" 금지.
+- **Status indication**: 색상만으로 의미 전달 금지. 항상 색 + 모양 + 텍스트(또는 aria-label) 트리플.
+- **Onboarding (D11=B)**: 성공 경로 조용 (1초 내 "Ready"), 실패 단계만 자세한 안내. 4-step wizard 만들지 말 것.
+
+### Responsive Breakpoints (panel)
+
+| Width | Behavior |
+|---|---|
+| < 320px | 미지원 (xterm < 40 col) |
+| 320-399px | Terminal only, Recent AI ops 카드 hide |
+| 400-479px | 카드 표시, 헤더 단축 (action 텍스트 → icon) |
+| ≥ 480px | 풀 UI, 헤더 텍스트 전체 |
+
+### Coding conventions
+
+- TypeScript strict mode, no `any` (사이드카+패널). ExtendScript는 ES3, types-for-adobe로 타입 보강.
+- Error 처리는 `AEError` 서브클래스로 (C2). 일반 `Error`/`throw "string"` 금지.
+- 로그는 구조화 JSON으로 `~/.ae-claude-panel/logs/{date}.jsonl` (CEO P1#6). `console.log` 직접 사용 금지.
+- `evalScript` 직접 호출 금지 — 항상 `defineAETool` HOF 거쳐야 (undo group + 에러 변환 일관성).
+- 새 tool 추가 시 `tests/_helpers/mockAe.ts`에 fixture 응답 추가 + `evals/golden/`에 1+ 골든 케이스.
+
+### Out of scope (v1.0에서 작성 금지)
+
+CEO HOLD scope (D2). 아래는 v1.5+ 항목:
+- Premiere Pro 지원 (Multi-host routing, E5)
+- 모바일/원격 접속 (인증 모듈 + WS 외부 노출)
+- Skill 시스템 (`/skills/` 워크플로우 라이브러리)
+- 음성 입력 (Web Speech API 통합)
+- SQLite 채팅 히스토리
+- UXP 마이그레이션 (CEO L1, v2.0)
+- 모델 ID UI 변경 (CEO P3#18)
+
+이 항목들은 코딩하지 말 것. 필요해 보이면 먼저 사용자에게 확인 (Karpathy 원칙 1).
+
+### Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+- Architecture / 구현 검증 → `/plan-eng-review`
+- 패널 UI 5상태 디자인 → `/plan-design-review` (아직 미실행)
+- 보안 감사 → `/cso`
+- 버그/에러 → `/investigate`
+- 코드 리뷰 → `/review`
+- Ship/release → `/ship` → `/land-and-deploy`
+- 진행 저장 → `/context-save`, 재개 → `/context-restore`

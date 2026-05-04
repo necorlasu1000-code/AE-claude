@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.zxp
+*.tsbuildinfo
+
+# Vite / dev server
+.vite/
+.cache/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Environment variables (contains secrets)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Bolt CEP / debug
+.debug
+debug.log
+
+# AE-Claude Panel runtime artifacts (user home, but defensive)
+.ae-claude-panel/
+
+# AI / scratch
+.scratch/
+*.tmp
+
+# Claude Code local settings (per-machine, never share)
+.claude/settings.local.json
+.claude/skills/
+# Note: .claude/settings.json (no .local.) is committable — team-shared settings
