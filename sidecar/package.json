@@ -1,0 +1,33 @@
+{
+  "name": "ae-claude-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sidecar Node.js process for AE-Claude Panel: PTY host + MCP server + WebSocket bridge",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "acorn": "^8.14.0",
+    "acorn-walk": "^8.3.4",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

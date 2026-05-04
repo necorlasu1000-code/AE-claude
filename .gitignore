@@ -40,6 +40,8 @@ Thumbs.db
 # Bolt CEP / debug
 .debug
 debug.log
+*.local
+.media
 
 # AE-Claude Panel runtime artifacts (user home, but defensive)
 .ae-claude-panel/
