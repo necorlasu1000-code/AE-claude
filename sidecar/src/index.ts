@@ -36,6 +36,10 @@ interface Config {
   aePid: number | undefined;
   debug: boolean;
   disableWatchdog: boolean;
+  watchdogIntervalMs: number;
+  // Reserved for Phase 2.5.4 — currently passed to PtyHost.killHardCapMs
+  // for storage only. Not consumed in PtyHost.kill yet.
+  killHardCapMs: number | undefined;
 }
 
 function parseConfig(): Config {
@@ -66,6 +70,12 @@ function parseConfig(): Config {
   const aePidRaw = argMap.get("ae-pid") ?? env.AE_CLAUDE_AE_PID;
   const aePid = aePidRaw && aePidRaw !== "true" ? Number(aePidRaw) : undefined;
 
+  const watchdogRaw = Number(env.AE_CLAUDE_WATCHDOG_INTERVAL_MS);
+  const watchdogIntervalMs = Number.isFinite(watchdogRaw) && watchdogRaw > 0 ? watchdogRaw : 60_000;
+
+  const killHardCapRaw = Number(env.AE_CLAUDE_KILL_HARD_CAP_MS);
+  const killHardCapMs = Number.isFinite(killHardCapRaw) && killHardCapRaw > 0 ? killHardCapRaw : undefined;
+
   return {
     port,
     host,
@@ -74,6 +84,8 @@ function parseConfig(): Config {
     aePid: aePid && Number.isFinite(aePid) && aePid > 0 ? aePid : undefined,
     debug: !!env.AE_CLAUDE_DEBUG,
     disableWatchdog: argMap.get("no-ae-watchdog") === "true" || !!env.AE_CLAUDE_DISABLE_WATCHDOG,
+    watchdogIntervalMs,
+    killHardCapMs,
   };
 }
 
@@ -100,6 +112,7 @@ async function main(): Promise<void> {
     args: cfg.shellArgs,
     cols: 80,
     rows: 24,
+    killHardCapMs: cfg.killHardCapMs,
   });
 
   const bridge = new PanelBridge({
@@ -189,11 +202,11 @@ async function main(): Promise<void> {
   if (cfg.aePid !== undefined && !cfg.disableWatchdog) {
     watchdog = new PidWatchdog({
       pid: cfg.aePid,
-      intervalMs: 60_000,
+      intervalMs: cfg.watchdogIntervalMs,
       onDeath: () => shutdown("ae-process-dead"),
     });
     watchdog.start();
-    logDebug(cfg, "watchdog started for AE pid", cfg.aePid);
+    logDebug(cfg, "watchdog started for AE pid", cfg.aePid, "interval", cfg.watchdogIntervalMs);
   }
 
   // PTY exit also triggers shutdown — claude process died.

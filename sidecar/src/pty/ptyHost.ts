@@ -22,6 +22,13 @@ export interface PtyHostOptions {
   rows?: number;
   cwd?: string;
   env?: Record<string, string>;
+  /**
+   * Hard cap (ms) on kill() resolution. Reserved for Phase 2.5.4 — when set,
+   * kill() resolves no later than killHardCapMs even if SIGTERM/SIGKILL fail
+   * to terminate the underlying ConPTY process. Default: undefined (graceful
+   * SIGTERM → SIGKILL after 5s only).
+   */
+  killHardCapMs?: number;
 }
 
 type DataCb = (data: string) => void;
@@ -40,6 +47,9 @@ export class PtyHost {
   private pty: IPty | undefined;
   private dataCbs = new Set<DataCb>();
   private exitCbs = new Set<ExitCb>();
+  // Reserved for Phase 2.5.4 kill semantics. Stored at construction; not
+  // consumed yet. Tests must not regress when this is set.
+  private readonly killHardCapMs: number | undefined;
 
   // Ring buffer + carry-over for incomplete trailing fragment.
   // Newlines split chunks into lines; the final segment of a chunk
@@ -50,6 +60,7 @@ export class PtyHost {
   private _alive = false;
 
   constructor(opts: PtyHostOptions) {
+    this.killHardCapMs = opts.killHardCapMs;
     this.pty = spawn(opts.cmd, opts.args ?? [], {
       name: "xterm-color",
       cols: opts.cols ?? 80,
