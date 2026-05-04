@@ -1,0 +1,150 @@
+// PtyHost — node-pty wrapper for the sidecar.
+//
+// Single responsibility: spawn a child process under a pseudo-terminal,
+// expose raw I/O (write / onData / resize / kill) plus a ring buffer
+// of recent output for panel reconnect replay (P1).
+//
+// Does NOT import protocol.ts — message wrapping is panelBridge's job.
+// This separation lets ptyHost be unit-tested without WebSocket plumbing
+// and lets panelBridge pick its own delivery semantics (chunking, batching).
+//
+// Windows: relies on ConPTY (Win10 1809+ / Win11). winpty fallback unused
+// per plan.md and CLAUDE.md. node-pty 1.0+ defaults to ConPTY on supported
+// builds; we set useConpty:true explicitly to guard against future default
+// changes.
+
+import { spawn, type IPty } from "node-pty";
+
+export interface PtyHostOptions {
+  cmd: string;
+  args?: string[];
+  cols?: number;
+  rows?: number;
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
+type DataCb = (data: string) => void;
+type ExitCb = (code: number, signal?: number) => void;
+
+export class PtyHost {
+  // Ring buffer of complete output lines. Sized at 10,000 lines per
+  // plan.md GSTACK REVIEW REPORT § Eng P1#6:
+  //   - xterm scrollback default = 1,000 → 10× headroom for reconnect replay
+  //   - average ~150 bytes/line → ~1.5MB worst-case memory footprint
+  //   - covers a 1-week continuous session without unbounded growth
+  // Lookup cost is O(1) for getRecentOutput (slice). Push cost amortized
+  // O(1); shift() at cap is O(n) but n=10K is negligible at PTY rates.
+  private static readonly MAX_LINES = 10_000;
+
+  private pty: IPty | undefined;
+  private dataCbs = new Set<DataCb>();
+  private exitCbs = new Set<ExitCb>();
+
+  // Ring buffer + carry-over for incomplete trailing fragment.
+  // Newlines split chunks into lines; the final segment of a chunk
+  // may be incomplete and is held until the next chunk arrives.
+  private buffer: string[] = [];
+  private pendingLine = "";
+
+  private _alive = false;
+
+  constructor(opts: PtyHostOptions) {
+    this.pty = spawn(opts.cmd, opts.args ?? [], {
+      name: "xterm-color",
+      cols: opts.cols ?? 80,
+      rows: opts.rows ?? 24,
+      cwd: opts.cwd,
+      env: opts.env ?? (process.env as Record<string, string>),
+      encoding: "utf8",
+      // ConPTY-only on Windows. winpty fallback is intentionally not used.
+      useConpty: true,
+    });
+
+    this._alive = true;
+
+    this.pty.onData((data) => {
+      this.appendToBuffer(data);
+      for (const cb of this.dataCbs) {
+        try { cb(data); } catch { /* subscriber error must not crash PTY */ }
+      }
+    });
+
+    this.pty.onExit(({ exitCode, signal }) => {
+      this._alive = false;
+      this.pty = undefined;
+      for (const cb of this.exitCbs) {
+        try { cb(exitCode, signal); } catch { /* same */ }
+      }
+    });
+  }
+
+  get pid(): number | undefined {
+    return this.pty?.pid;
+  }
+
+  get alive(): boolean {
+    return this._alive;
+  }
+
+  onData(cb: DataCb): () => void {
+    this.dataCbs.add(cb);
+    return () => { this.dataCbs.delete(cb); };
+  }
+
+  onExit(cb: ExitCb): () => void {
+    this.exitCbs.add(cb);
+    return () => { this.exitCbs.delete(cb); };
+  }
+
+  write(data: string): void {
+    if (!this._alive || !this.pty) return;
+    this.pty.write(data);
+  }
+
+  resize(cols: number, rows: number): void {
+    if (!this._alive || !this.pty) return;
+    this.pty.resize(cols, rows);
+  }
+
+  /** Graceful kill: SIGTERM, then SIGKILL after 5s if still alive. */
+  async kill(): Promise<void> {
+    if (!this._alive || !this.pty) return;
+    const pty = this.pty;
+
+    return new Promise((resolve) => {
+      const onExitOnce = this.onExit(() => {
+        clearTimeout(killTimer);
+        onExitOnce();
+        resolve();
+      });
+
+      try { pty.kill("SIGTERM"); } catch { /* may already be dead */ }
+
+      const killTimer = setTimeout(() => {
+        if (this._alive) {
+          try { pty.kill("SIGKILL"); } catch { /* same */ }
+        }
+      }, 5_000);
+    });
+  }
+
+  /** Last `maxLines` complete output lines. Used by panelBridge on reconnect (P1). */
+  getRecentOutput(maxLines: number = PtyHost.MAX_LINES): string[] {
+    const n = Math.min(maxLines, this.buffer.length);
+    return this.buffer.slice(this.buffer.length - n);
+  }
+
+  private appendToBuffer(chunk: string): void {
+    const combined = this.pendingLine + chunk;
+    const lines = combined.split(/\r?\n/);
+    // Last element may be a partial line with no terminating newline yet.
+    this.pendingLine = lines.pop() ?? "";
+    for (const line of lines) {
+      this.buffer.push(line);
+      if (this.buffer.length > PtyHost.MAX_LINES) {
+        this.buffer.shift();
+      }
+    }
+  }
+}

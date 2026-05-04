@@ -115,6 +115,54 @@ bolt-cep template이 만든 jsx 파일들이 **D8 per-tool collocation 규칙(`t
 
 **예방**: bolt-cep 같은 mono-repo / multi-context 프로젝트는 root tsc 사용 금지. 항상 `-p <specific-tsconfig>` 또는 프로젝트의 npm script 사용.
 
+## 2026-05-04 ConPTY 출력은 ANSI screen buffer (raw text 아님)
+
+**문제**: `ptyHost.test.ts`에서 `cmd.exe` spawn → `echo hello\r` write → 정규식 `/(^|\r|\n)hello(\r|\n|$)/`로 출력 매칭 시도 → fail. 30s timeout.
+
+**진단**: 받은 데이터 = `\r\nhello[7;1HC:\\...` — `hello` 뒤가 `\n`이 아니라 ANSI cursor 이동 escape (`ESC [7;1H` = 커서 좌표 7행 1열). **ConPTY(Windows 11/Win10 1809+)는 일반 PTY처럼 raw 텍스트 stream이 아니라 screen buffer 변경 사항을 ANSI escape sequence로 송출**. 일반 Unix PTY와 출력 의미가 다름.
+
+**Fix**: 라인 경계 매칭 대신 **단어 출현 횟수 매칭**. `cmd.exe`/bash 모두 명령 echo + 출력 결과로 `hello`가 최소 2번 등장 → `combined.match(/hello/g).length >= 2`로 견고하게 매칭.
+
+**예방**: PTY 출력 검증 시 newline-anchored regex 의존 금지. ConPTY는 `[...H` 커서 이동, `[?25h` 커서 표시, `[K` 라인 클리어 등을 자유롭게 섞음. 매칭은 단순한 substring 또는 단어 카운트가 안전.
+
+## Phase 2 후속 / 한글 인코딩 검증 필요
+
+**우려**: node-pty 사이드카에서 stderr 경고 `Setting encoding on Windows is not supported` 출력. Windows에선 `encoding: "utf8"` 옵션이 효력 없음. node-pty는 OS native code page (CP949 in ko_KR Windows) 사용.
+
+**예상 영향 범위**:
+- ASCII 명령/출력 (예: `echo hello`): 무영향. 모든 인코딩에서 동일 바이트.
+- **claude CLI 자체 출력 (UTF-8)**: 사이드카가 OS native로 디코딩하면 한글/이모지 깨질 수 있음. claude CLI는 `chcp 65001` 미적용 환경에서 UTF-8을 CP949로 잘못 디코딩.
+- **사용자가 한글 명령 입력**: 패널의 xterm은 UTF-8, 사이드카가 CP949로 PTY에 write하면 mismatch.
+
+**왜 지금 안 막음**: Phase 2 #2 검증 게이트는 단순 `echo hello` ASCII 케이스. 한글 인코딩 이슈는 노출 안 됨. 지금 추측 fix 적용은 위험 — 실제 깨짐 패턴 보지 않고 코드 추가하면 over-engineer.
+
+**검증 시점**:
+- **Phase 2 #5 단독 통합 테스트**: mock client → "한글 출력 명령" (예: `echo 한글`) write → onData 수신 → 깨짐 여부 확인
+- **Phase 2 #8 풀스택**: 패널 xterm에서 한글 입력 시 사이드카 → claude PTY 왕복 후 그대로 표시되는지
+
+**해결 후보** (검증 결과에 따라):
+1. PTY spawn 전 `chcp 65001` (Windows): cmd.exe 시작 전 console code page를 UTF-8로
+2. `cmd.exe /U` 옵션: Unicode I/O mode
+3. PowerShell로 spawn (Win 10+ 기본 UTF-8): `cmd: "powershell.exe"`
+4. node-pty 출력 Buffer를 직접 받아서 UTF-8 decode: `encoding: undefined` + `iconv-lite`로 수동 디코딩
+
+**책임**: Phase 2 #5 또는 #8에서 직접 확인 후 결정. 1번이 가장 침투적 X 후보.
+
+## Phase 2 후속 / PtyHost.kill graceful shutdown ConPTY 호환성 검증
+
+**관찰**: Phase 2 #2 smoke test에서 `await pty.kill()` 호출이 hang → vitest 35s testTimeout 발동. 매칭(`hello` 2회)은 짧은 시간 내 성공 추정.
+
+**가설**: ConPTY는 Windows process tree에 SIGTERM POSIX signal을 전달하지 못함 (Windows는 SIGTERM 개념이 다름). node-pty의 `pty.kill("SIGTERM")`은 cmd.exe에 무시됨 → 5s 후 SIGKILL fallback이 발동해야 하나 ConPTY 통신이 막혀 그것도 hang.
+
+**임시 fix (테스트만)**: `pty.kill()`을 fire-and-forget 처리. graceful shutdown 의미는 production에서만 의미 있음. 테스트는 vitest 종료 시 OS가 child process 정리.
+
+**Phase 2 후속에서 확인**:
+1. PtyHost.kill을 ConPTY-aware하게 수정 — `pty.kill()` (signal 인자 없이) 또는 직접 `process.kill(pid, "SIGKILL")`
+2. node-pty 1.x ConPTY 모드의 정확한 kill 시맨틱 문서 검토
+3. Phase 2 #5 통합 테스트에서 graceful shutdown 검증 케이스 별도 작성
+
+**예방**: native module의 OS-specific 동작 (특히 process signal)을 production으로 보내기 전 OS 두 곳 (Win + Mac)에서 검증. Phase 7 distribution matrix(D9 = GitHub Actions Win/Mac)에서 자동.
+
 ### Resolution + playbook (2026-05-04)
 
 **Fix**: `_validateAst.ts`에 `DANGEROUS_PROPS` set 추가 + `MemberExpression` visitor의 non-computed branch 신설.
