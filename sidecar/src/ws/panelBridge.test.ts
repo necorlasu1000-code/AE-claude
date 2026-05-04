@@ -248,6 +248,53 @@ describe("PanelBridge", () => {
     ws.close();
   }, 15_000);
 
+  // ── 9 ────────────────────────────────────────────────────────────
+  it("UTF-8 round-trip: Korean + emoji in exec input echoed byte-identical", async () => {
+    // Echo handler — returns input verbatim. Validates that JSON.stringify
+    // (panel side, simulated by send()) → text frame → JSON.parse (sidecar
+    // decode()) → handler echo → encode() → text frame → JSON.parse (test
+    // assertion) preserves multi-byte characters.
+    execHandler = vi.fn(async (_tool: string, input: unknown) => input) as ExecHandler;
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+    });
+    ({ port } = await bridge.start());
+    const ws = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(ws, (m) => m.type === "sys.version");
+
+    const payload = {
+      compName: "오프닝 타이틀_v3",
+      layerName: "배경 솔리드 #1",
+      emoji: "🎬✨",
+      mixed: "Logo - 로고 합성 - シーン1",
+    };
+    send(ws, { type: "exec", requestId: "r9", tool: "echo", input: payload });
+    const result = await nextMessage(ws, (m) => m.type === "result");
+    expect(result.type).toBe("result");
+    if (result.type === "result") {
+      expect(result.requestId).toBe("r9");
+      expect(result.data).toEqual(payload);
+    }
+    ws.close();
+  });
+
+  // ── 10 ───────────────────────────────────────────────────────────
+  it("UTF-8 pty.in: Korean string forwards to pty.write byte-identical", async () => {
+    const ws = await openWs(url);
+    await nextMessage(ws, (m) => m.type === "sys.version");
+    const koreanInput = "한글 입력 테스트\r";
+    send(ws, { type: "pty.in", data: koreanInput });
+    await delay(50);
+    // Sidecar must NOT mangle the string between WS decode and pty.write.
+    // (If pty.write itself drops bytes due to OS code page, that's a separate
+    // concern handled by the "Phase 2 후속 / 한글 인코딩 검증 필요" mistakes.md
+    // entry — verified at #5/#8 with real PTY.)
+    expect(pty.writes).toEqual([koreanInput]);
+    ws.close();
+  });
+
   // ── 8 ────────────────────────────────────────────────────────────
   it("multi-client: secondary's pty.in refused with AEMultiClientRefused", async () => {
     const wsA = await openWs(url);

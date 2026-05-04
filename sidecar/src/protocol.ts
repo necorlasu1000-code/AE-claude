@@ -140,8 +140,20 @@ export type Msg =
   | ApprovalResponseMsg;
 
 // ─── (de)serialization ──────────────────────────────────────────────
-// JSON over WebSocket. No custom binary protocol — keep boring (CLAUDE.md base
-// principle 2 + D9: choose-boring-tech).
+// JSON over WebSocket TEXT frames. No custom binary protocol — keep boring
+// (CLAUDE.md base principle 2 + D9: choose-boring-tech).
+//
+// Encoding contract:
+//   - encode() ALWAYS returns a string. ws.send(string) emits a text frame
+//     with UTF-8 payload (RFC 6455 §5.6). Both endpoints MUST send text frames
+//     to guarantee round-trip of non-ASCII (Korean comp/layer names, emoji
+//     in tool input/output) without BOM detection or encoding negotiation.
+//   - decode() takes the string from ws message handler. The ws library
+//     decodes the binary text frame to UTF-8 string before calling our
+//     handler when frame type is text — so we never see raw bytes here.
+//   - Binary frames (Buffer / ArrayBuffer) are NOT used. If we ever need
+//     to ship raw bytes, base64-encode inside a string field of an
+//     existing message type rather than introducing a binary envelope.
 
 export function encode(msg: Msg): string {
   return JSON.stringify(msg);

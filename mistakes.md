@@ -137,8 +137,14 @@ bolt-cep template이 만든 jsx 파일들이 **D8 per-tool collocation 규칙(`t
 **왜 지금 안 막음**: Phase 2 #2 검증 게이트는 단순 `echo hello` ASCII 케이스. 한글 인코딩 이슈는 노출 안 됨. 지금 추측 fix 적용은 위험 — 실제 깨짐 패턴 보지 않고 코드 추가하면 over-engineer.
 
 **검증 시점**:
-- **Phase 2 #5 단독 통합 테스트**: mock client → "한글 출력 명령" (예: `echo 한글`) write → onData 수신 → 깨짐 여부 확인
+- **Phase 2 #5 단독 통합 테스트**:
+  - mock client → "한글 출력 명령" (예: `echo 한글`) write → onData 수신 → 깨짐 여부 확인
+  - **AE 컴프/레이어 이름 한글 케이스**: `ae_create_comp({name: "오프닝 타이틀_v3"})` → AE에서 그 이름으로 생성됐는지 (Phase 5 첫 tool 통합 시점에 동시 검증)
 - **Phase 2 #8 풀스택**: 패널 xterm에서 한글 입력 시 사이드카 → claude PTY 왕복 후 그대로 표시되는지
+
+**Phase 2.3.1에서 부분 보장됨** (2026-05-04):
+- WS 레이어 (panel ↔ sidecar 사이 JSON over text frame)는 UTF-8 round-trip 보장 — `panelBridge.test.ts` 시나리오 9 (exec input/output Korean+emoji) + 시나리오 10 (pty.in Korean) 통과
+- 남은 위험은 PTY 레이어 (사이드카 ↔ claude CLI 사이) — Windows에서 OS code page 영향. 위 검증 시점에서 해결.
 
 **해결 후보** (검증 결과에 따라):
 1. PTY spawn 전 `chcp 65001` (Windows): cmd.exe 시작 전 console code page를 UTF-8로
