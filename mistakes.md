@@ -48,7 +48,35 @@
 - **`README.md`** — bolt-cep boilerplate (21KB). 우리 프로젝트 README로 교체 필요.
 - **`LICENSE`** — bolt-cep MIT 명의. 프로젝트 라이선스 결정 후 갱신.
 - **`CHANGELOG.md`** — bolt-cep changelog. 우리 시작점부터 새로 쓰거나 삭제.
-- **5 moderate vulns** — 모두 dev tree (vitest/vite/esbuild). 핵심 production 의존성 영향 0. 후속에 vitest 3.x 마이그레이션 시 함께 해결.
+- **5 moderate vulns (sidecar)** — 모두 dev tree (vitest/vite/esbuild). 핵심 production 의존성 영향 0.
+- **32 vulns (panel root, 22 critical)** — 모두 bolt-cep template의 **legacy babel 6 ecosystem** (`babel-preset-env@1.7.0`, `babel-helper-*`, `babel-plugin-transform-es2015-*`, `babel-traverse` RCE 등). ExtendScript ES3 트랜스파일용으로 bolt-cep가 의도적으로 포함. 모두 devDependencies — production 빌드 산출물 0 영향. babel-traverse RCE는 "specifically crafted malicious code" 시나리오로 우리 직접 작성 jsx만 컴파일하므로 위협 없음.
+- 후속 처리: bolt-cep 메인테이너의 babel 7 마이그레이션 PR 모니터링 + 자체 fork 시 babel 7 / SWC 전환 검토.
+
+## TODO — D8 collocation 충돌 (Phase 5 진입 전 결정)
+
+bolt-cep template이 만든 jsx 파일들이 **D8 per-tool collocation 규칙(`tools/<ae_name>/{schema,handler,impl.jsx,test}`)과 충돌**:
+
+- **`src/jsx/aeft/aeft.ts`** — bolt-cep boilerplate AE 함수 export 모음 (sample 함수들)
+- **`src/jsx/aeft/aeft-utils.ts`** — bolt-cep AE 유틸 (sample 패턴)
+- **`src/jsx/utils/samples.ts`**, **`src/jsx/utils/utils.ts`** — bolt-cep sample 코드
+- **`src/jsx/index.ts`** — 모든 jsx 함수 export 진입점 (D8 collocation에서는 빌드 스크립트가 자동 생성해야)
+
+**결정 필요 (Phase 5 시작 전)**:
+
+1. **옵션 A — 통째 삭제**: bolt-cep sample을 모두 지우고 D8 collocation으로 처음부터. 빌드 스크립트(`tools/*/impl.jsx` → `src/jsx/index.ts` 합본)를 새로 작성.
+   - 장점: 깔끔, CLAUDE.md 디렉토리 규칙과 100% 일치
+   - 단점: bolt-cep의 evalTS<T>() 빌드 마법(타입 추론 + jsx 합본)을 직접 재구현해야
+
+2. **옵션 B — bolt-cep 빌드 시스템 활용 + 30 tool은 collocation, sample은 그대로**: bolt-cep의 `src/jsx/aeft/aeft.ts`에 30 tool import 추가하는 형식. collocation 디렉토리는 별도로 두되 합본은 bolt-cep이 처리.
+   - 장점: bolt-cep evalTS 마법 그대로 활용
+   - 단점: D8 디렉토리 규칙과 부분 위반 — `tools/<ae_name>/impl.jsx`가 `src/jsx/aeft/`로 import되는 indirect 구조
+
+3. **옵션 C — 하이브리드**: sample (`samples.ts`, `aeft.ts`의 dev 헬퍼)은 보존하되 production 30 tool은 `tools/` collocation으로. `aeft.ts`가 `tools/` 폴더 자동 import.
+   - 절충
+
+**왜 지금 결정 안 함**: Phase 2-4는 패널 통신 + PTY + MCP 인프라라 jsx tool 구조와 무관. Phase 5 첫 tool 구현 시점이 결정 시점.
+
+**결정 시 고려**: bolt-cep `evalTS<T>()`의 타입 추론이 어떻게 동작하는지 (Phase 5 직전에 bolt-cep 빌드 스크립트 분석 필요).
 
 ## 2026-05-04 D7 validator — 2/41 fail (constructor escape 패턴)
 
@@ -69,6 +97,23 @@
 **Fix 방향**: `MemberExpression` visitor에 추가 — `property.type === "Identifier"`이고 이름이 위험 set(`constructor`, `__proto__`, `callee`, `caller`, `prototype`)에 있으면 finding 추가. 약 15 LOC.
 
 **예방**: AST validator 작성 시 acorn-walk의 visitor 의미를 명확히 알아야. "deny-list에 추가했으니 잡힌다"는 추측은 위험. 새 deny rule 추가할 때마다 adversarial 케이스를 먼저 작성하고 빨간 줄 확인 → fix → 초록 줄 (TDD).
+
+## 2026-05-04 typecheck 명령 실수 (bolt-cep dual tsconfig)
+
+**문제**: Phase 2 #1 sanity check에서 `npx tsc --noEmit` 실행 → `src/jsx/aeft/aeft.ts(14,3): Cannot find name 'app'` 외 5건 에러.
+
+**진단**: bolt-cep는 의도적으로 **두 개 tsconfig 분리 운영**:
+- `tsconfig.json` — panel side (React, Vite, DOM types)
+- `src/jsx/tsconfig.json` — jsx side (ExtendScript, types-for-adobe)
+
+`npx tsc --noEmit`은 root tsconfig만 사용 + 모든 `.ts`를 panel context로 검사 → jsx의 `app`/`BridgeTalk`/`ExternalObject` 같은 ExtendScript globals를 못 찾음. **에러는 우리 코드 문제 아니라 잘못된 명령 사용**.
+
+**정확한 typecheck 명령** (앞으로 sanity check 시 이걸 사용):
+- panel only: `npx tsc -p tsconfig.json --noEmit`
+- jsx only: `npx tsc -p src/jsx/tsconfig.json --noEmit`
+- 둘 다: `npm run watch` (or build) — bolt-cep의 빌드 시스템이 둘 다 처리
+
+**예방**: bolt-cep 같은 mono-repo / multi-context 프로젝트는 root tsc 사용 금지. 항상 `-p <specific-tsconfig>` 또는 프로젝트의 npm script 사용.
 
 ### Resolution + playbook (2026-05-04)
 
