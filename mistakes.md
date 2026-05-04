@@ -196,6 +196,22 @@ await Promise.race([handler(input, ctx), abortPromise]);
 
 **언제 쓰나**: 외부 시스템(AE, native module)에 위임된 long-running work에서 timeout 보장 필요 시. 사용자 cancel + server timeout 모두 강제 가능.
 
+## 2026-05-04 Node 20.12+ child_process.spawn EINVAL on Windows .cmd
+
+**문제**: Phase 2.5.1 첫 실행 → 모든 시나리오 boot 단계 `spawn EINVAL`. 진단 결과 spawn-helper.ts가 `node_modules/.bin/tsx.cmd`를 `shell: false`로 직접 실행 시도 → EINVAL.
+
+**Root cause**: Node.js CVE-2024-27980 fix (20.12.2+, 21.7.3+, 18.20.4+)로 `child_process.spawn`이 Windows에서 `.cmd`/`.bat` 파일을 `shell: false`로 실행 못 함. `.cmd` 파일은 cmd.exe가 해석해야 하는데, shell:false면 Node가 직접 실행 시도 → 운영체제가 EINVAL 반환.
+
+**Fix**: `.cmd` shim 우회. tsx의 실제 entry point(`node_modules/tsx/dist/cli.mjs`)를 `process.execPath` (현재 Node)로 직접 실행:
+
+```typescript
+spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
+```
+
+장점: cross-platform 동일 동작, 현재 fnm-managed Node 20과 자동 일치, shell:false 안전 유지.
+
+**예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
+
 ## Phase 2 후속 / PtyHost.kill graceful shutdown ConPTY 호환성 검증
 
 **관찰**: Phase 2 #2 smoke test에서 `await pty.kill()` 호출이 hang → vitest 35s testTimeout 발동. 매칭(`hello` 2회)은 짧은 시간 내 성공 추정.

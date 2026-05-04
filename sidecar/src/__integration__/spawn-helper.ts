@@ -15,12 +15,12 @@ const __dirname = path.dirname(__filename);
 // sidecar/ package root (3 levels up from src/__integration__/spawn-helper.ts)
 const SIDECAR_ROOT = path.resolve(__dirname, "..", "..");
 
-const TSX_BIN = path.join(
-  SIDECAR_ROOT,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "tsx.cmd" : "tsx",
-);
+// Direct path to tsx's ES module entry point.
+// We DON'T use node_modules/.bin/tsx.cmd: Node 20.12.2+ rejects spawning .cmd
+// files with shell:false (CVE-2024-27980 fix). Running via process.execPath
+// (current node) + tsx's cli.mjs avoids the shim entirely and is cross-platform.
+// See mistakes.md "Node 20.12+ child_process.spawn EINVAL on Windows .cmd".
+const TSX_CLI = path.join(SIDECAR_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
 
 export interface ReadyEnvelope {
   type: "ready";
@@ -85,7 +85,7 @@ export async function spawnSidecar(opts: SpawnSidecarOptions = {}): Promise<Spaw
     }
   }
 
-  const proc = spawn(TSX_BIN, ["src/index.ts", ...(opts.args ?? [])], {
+  const proc = spawn(process.execPath, [TSX_CLI, "src/index.ts", ...(opts.args ?? [])], {
     cwd: opts.cwd ?? SIDECAR_ROOT,
     env,
     stdio: ["pipe", "pipe", "pipe"],
