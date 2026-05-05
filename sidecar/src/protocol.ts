@@ -72,6 +72,12 @@ export interface ErrorMsg {
    *                            expected UX error, Claude should suggest
    *                            creating or selecting a comp (raised via
    *                            jsx HOF helper `h.fail()`)
+   *    - AECancelledError    — caller invoked dispatcher.cancel(rid)
+   *                            before result arrived. ExtendScript may
+   *                            still complete in the panel (single-thread
+   *                            sync, can't be aborted) — late result is
+   *                            silently dropped by dispatcher.handleIncoming
+   *                            because the requestId is no longer pending.
    *  Future phases add: AEApprovalDeniedError (D3), AEUndoNotSupportedError
    *  (D4), AEFileLockedError. */
   code: string;

@@ -411,4 +411,91 @@ describe("PanelBridge", () => {
     wsA.close();
     wsB.close();
   });
+
+  // ─── Phase 3 — bidirectional ToolDispatcher integration points ────
+
+  it("scenario 14: panel sends result/error/result.chunk → onToolResponse fires", async () => {
+    const calls: Msg[] = [];
+    bridge = new PanelBridge({
+      pty: makeMockPty(),
+      execHandler: vi.fn() as unknown as ExecHandler,
+      port: 0,
+      heartbeatIntervalMs: 1_000_000,
+      heartbeatTimeoutMs: 1_000_000,
+      onToolResponse: (m) => calls.push(m),
+    });
+    const { port } = await bridge.start();
+    const ws = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(ws, (m) => m.type === "sys.version");
+
+    send(ws, { type: "result", requestId: "rid-1", data: { hello: "world" } });
+    send(ws, { type: "error", requestId: "rid-2", code: "AEScriptError", userMessage: "x", developerHint: "y" });
+    send(ws, { type: "result.chunk", requestId: "rid-3", seq: 0, total: 2, data: "{\"a" });
+    await delay(80);
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toMatchObject({ type: "result", requestId: "rid-1" });
+    expect(calls[1]).toMatchObject({ type: "error", requestId: "rid-2", code: "AEScriptError" });
+    expect(calls[2]).toMatchObject({ type: "result.chunk", requestId: "rid-3", seq: 0, total: 2 });
+    ws.close();
+  });
+
+  it("scenario 15: onToolResponse undefined → server.error AEUnexpectedMsg (backward compat)", async () => {
+    bridge = new PanelBridge({
+      pty: makeMockPty(),
+      execHandler: vi.fn() as unknown as ExecHandler,
+      port: 0,
+      heartbeatIntervalMs: 1_000_000,
+      heartbeatTimeoutMs: 1_000_000,
+      // onToolResponse intentionally omitted
+    });
+    const { port } = await bridge.start();
+    const ws = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(ws, (m) => m.type === "sys.version");
+
+    send(ws, { type: "result", requestId: "rid-orphan", data: 42 });
+    const reply = await nextMessage(ws, (m) => m.type === "server.error");
+    expect(reply.type).toBe("server.error");
+    if (reply.type === "server.error") {
+      expect(reply.code).toBe("AEUnexpectedMsg");
+      expect(reply.developerHint).toMatch(/no dispatcher wired/);
+    }
+    ws.close();
+  });
+
+  it("scenario 16: sendToPrimary delivers exec only to primary, not secondaries", async () => {
+    bridge = new PanelBridge({
+      pty: makeMockPty(),
+      execHandler: vi.fn() as unknown as ExecHandler,
+      port: 0,
+      heartbeatIntervalMs: 1_000_000,
+      heartbeatTimeoutMs: 1_000_000,
+    });
+    const { port } = await bridge.start();
+
+    const wsA = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(wsA, (m) => m.type === "sys.version");
+    const wsB = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(wsB, (m) => m.type === "sys.version");
+
+    bridge.sendToPrimary({
+      type: "exec",
+      requestId: "rid-out-1",
+      tool: "ae_get_active_comp",
+      input: {},
+    });
+
+    const primaryGot = await nextMessage(wsA, (m) => m.type === "exec");
+    expect(primaryGot).toMatchObject({ type: "exec", requestId: "rid-out-1", tool: "ae_get_active_comp" });
+
+    // wsB (secondary) should NOT receive the exec — verify queue stays empty
+    // for a short window (no timeout-based flake; either it arrives in 80ms
+    // or it never arrives because it was never sent).
+    await delay(80);
+    const execOnB = wsB.__queue.find((m) => m.type === "exec");
+    expect(execOnB).toBeUndefined();
+
+    wsA.close();
+    wsB.close();
+  });
 });

@@ -6,6 +6,23 @@
 // All message envelopes go through protocol.ts — D6 single source of truth.
 // PtyHost is injected via PtyLike interface (testability + dependency inversion).
 // ExecHandler is injected from index.ts (Phase 4 wires it to MCP dispatch).
+//
+// Bidirectional message routing (Phase 3 design clarification):
+//   panel → sidecar : pty.in / pty.resize / exec / cancel / approval.response
+//                     / sys.shutdown / sys.heartbeat
+//                     (`exec` lands in ExecHandler — Phase 4+ MCP direct path)
+//   sidecar → panel : pty.out / pty.replay / sys.version / sys.shutting-down
+//                     / approval.request / progress / server.error
+//                     /  exec / cancel  (NEW Phase 3 — outbound from
+//                                        ToolDispatcher via sendToPrimary)
+//   panel → sidecar (Phase 3 NEW)
+//                   : result / error / result.chunk
+//                     (responses to dispatcher's outbound exec; routed
+//                      through the optional `onToolResponse` callback to
+//                      ToolDispatcher.handleIncoming)
+// Phase 1 only implemented panel→sidecar exec (single-direction). Phase 3
+// adds the reverse direction for ExtendScript bridge. ExecHandler retained
+// for Phase 4+ MCP direct dispatch.
 
 import { WebSocketServer, WebSocket } from "ws";
 import {
@@ -16,6 +33,10 @@ import {
   PROTOCOL_VERSION,
   type Msg,
   type ExecMsg,
+  type CancelMsg,
+  type ResultMsg,
+  type ErrorMsg,
+  type ResultChunkMsg,
   type RequestId,
 } from "../protocol.js";
 import { AEError } from "../tools/_errors.js";
@@ -65,6 +86,14 @@ export interface PanelBridgeOptions {
    * the only graceful-trigger).
    */
   clientDisconnectGracePeriodMs?: number;
+  /**
+   * Phase 3 — incoming result/error/result.chunk routing. Wired by index.ts
+   * to ToolDispatcher.handleIncoming. When undefined, those message types
+   * are still rejected with AEUnexpectedMsg server.error (Phase 1 backward
+   * compat — clients shouldn't be sending sidecar-bound responses unless
+   * a dispatcher has been wired to receive them).
+   */
+  onToolResponse?: (msg: ResultMsg | ErrorMsg | ResultChunkMsg) => void;
 }
 
 // ─── Internal state ────────────────────────────────────────────────
@@ -318,10 +347,25 @@ export class PanelBridge {
         try { this.opts.onShutdownRequest?.(msg.reason); } catch { /* never throw from router */ }
         return;
       }
-      // Outgoing-only types: clients shouldn't send these.
+      // Phase 3 — panel → sidecar response of dispatcher's outbound exec.
+      // Routed to onToolResponse if a dispatcher is wired; otherwise
+      // treated as Phase 1 backward-compat AEUnexpectedMsg.
       case "result":
       case "result.chunk":
       case "error":
+        if (this.opts.onToolResponse) {
+          try { this.opts.onToolResponse(msg); }
+          catch { /* never throw from router */ }
+        } else {
+          this.sendTo(ws, {
+            type: "server.error",
+            code: "AEUnexpectedMsg",
+            userMessage: "Unexpected message type from client",
+            developerHint: `'${msg.type}' requires onToolResponse handler (no dispatcher wired)`,
+          });
+        }
+        return;
+      // Outgoing-only types: clients shouldn't send these.
       case "server.error":
       case "progress":
       case "pty.out":
@@ -474,6 +518,16 @@ export class PanelBridge {
   }
 
   // ─── Send / broadcast ────────────────────────────────────────────
+
+  /**
+   * Phase 3 — outbound exec/cancel from ToolDispatcher to the primary
+   * panel client. No-op when no primary is connected (dispatcher exec
+   * will then time out via its own setTimeout — single source of truth
+   * for cancel timing per D-D layer-of-responsibility).
+   */
+  sendToPrimary(msg: ExecMsg | CancelMsg): void {
+    if (this.primary) this.sendTo(this.primary, msg);
+  }
 
   private sendTo(ws: WebSocket, msg: Msg): void {
     if (ws.readyState === WebSocket.OPEN) {
