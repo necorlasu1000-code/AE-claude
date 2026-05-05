@@ -7,26 +7,67 @@ export const CHUNK_THRESHOLD_BYTES = 10 * 1024 * 1024; // 10MB
 
 export type RequestId = string;
 
-// ─── exec / result / error / cancel ─────────────────────────────────
+// ─── exec / result / error / cancel — ExtendScript bridge (Phase 3) ─
+//
+// Purpose: round-trip a tool call from the sidecar (Phase 4 MCP server, or
+// Phase 3 dev trigger) through the panel into ExtendScript and back.
+//
+// Layer responsibilities (Phase 3 fix-by-design, mistakes.md "Multi-trigger
+// graceful shutdown" sibling principle — single concern per layer):
+//   - Sidecar ToolDispatcher: emits ExecMsg, owns requestId matching,
+//     timeoutMs enforcement, cancel routing, latency measurement
+//     (wall-clock from exec send → result/error receive).
+//   - Panel useExtendScriptBridge: receives ExecMsg, enforces ES single-
+//     thread serialization via FIFO queue (Mutex gate P4 — ExtendScript
+//     is single-threaded, concurrent evalScript is undefined behavior).
+//     Calls CSInterface.evalScript(`${ns}.tools.${tool}(${JSON.stringify(input)})`),
+//     parses jsx return value, emits ResultMsg or ErrorMsg.
+//   - jsx side (defineJsxTool HOF, mirror of sidecar defineAETool D4):
+//     wraps tool fn in try/catch, returns deterministic shape:
+//       success → '{"ok":true,"output":<output>}'
+//       failure → '{"ok":false,"error":{"code","userMessage","developerHint"}}'
+//     Panel parses this string (json2.js polyfill ensures JSON in ES3),
+//     converts {ok:false,...} into ErrorMsg before WS send.
 
 export interface ExecMsg {
   type: "exec";
   requestId: RequestId;
-  tool: string;             // panel uses tool name to look up jsx function (E7 type safety)
-  input: unknown;           // zod-validated by sidecar before dispatch
-  timeoutMs?: number;       // override default (D4 destructive tools may need longer)
+  /** Tool name — panel uses this to look up the jsx fn at
+   *  `<ns>.tools.<tool>` (E7 type safety, D8 collocation). */
+  tool: string;
+  /** Input payload — zod-validated by sidecar before dispatch.
+   *  Panel passes `JSON.stringify(input)` as the only argument to the
+   *  jsx fn; jsx side `JSON.parse`s it (json2.js polyfill in ES3). */
+  input: unknown;
+  /** Override default 30s (D4 destructive tools may need longer).
+   *  Enforced by sidecar dispatcher, NOT by panel — panel queue has no
+   *  timer of its own (avoids dual-source-of-truth on cancel timing). */
+  timeoutMs?: number;
 }
 
 export interface ResultMsg {
   type: "result";
   requestId: RequestId;
-  data: unknown;            // zod-validated against tool's output schema
+  /** Output payload — corresponds to the `output` field of the jsx
+   *  HOF's `{ok:true,output:<output>}` envelope. zod-validated against
+   *  the tool's output schema by sidecar dispatcher before resolving
+   *  the caller's promise. */
+  data: unknown;
 }
 
 export interface ErrorMsg {
   type: "error";
   requestId: RequestId;
-  code: string;             // C2: AEScriptError, AETimeoutError, AECrashedError, AEValidationError, AEApprovalDeniedError, AEUndoNotSupportedError, AEFileLockedError
+  /** AEError subclass code (C2). Phase 3 introduces:
+   *    - AEScriptError       — jsx fn threw uncaught (defineJsxTool catch)
+   *    - AETimeoutError      — sidecar dispatcher timeoutMs hit
+   *    - AECrashedError      — evalScript callback never fired
+   *    - AEValidationError   — zod input/output schema rejected
+   *    - AEResultParseError  — panel JSON.parse on jsx return failed
+   *                            (malformed jsx output, polyfill bug, etc.)
+   *  Future phases add: AEApprovalDeniedError (D3), AEUndoNotSupportedError
+   *  (D4), AEFileLockedError. */
+  code: string;
   userMessage: string;      // shown to user
   developerHint: string;    // hint for Claude's next-step decision
   ctx?: Record<string, unknown>;
