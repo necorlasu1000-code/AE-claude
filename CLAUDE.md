@@ -127,6 +127,14 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 10. **jsx host registration gate** — `src/jsx/index.ts` host[ns] 등록은 **production AE 환경 (versioned `BridgeTalk.appName` 반환 포함)에서 무조건 보장**. bolt-cep boilerplate의 multi-host switch에만 의존 X — switch case literal 매칭 실패 시에도 host[ns] = aeft 실행되도록 default fallback 강제 (AE-only 프로젝트, D2 hold scope).
     panel script generator gate (§9)와 함께 같은 메타 함정 (mock/boilerplate 가정 vs production ground truth 형식 차이)의 양면 — 둘 모두 production wiring 시점에서만 드러나므로 자동 가드 필수.
 
+11. **jsx no-namespace-import gate** — `src/jsx/` 하위 파일에서 **`import * as X` (ESM namespace import) 사용 금지**. rollup이 namespace import를 `{ __proto__: null, ...members }` 패턴으로 합성 → ExtendScript SpiderMonkey가 prototype null 설정 시도 시 throw (mistakes.md #11 third face). 대신 named imports + 객체 literal로 sub-namespace 구성:
+    ```ts
+    import { ae_get_active_comp } from "./tools";
+    export const tools = { ae_get_active_comp };
+    ```
+    Phase 5 30 tool 추가 시 같은 패턴 — 한 named import + 한 객체 literal entry per tool.
+    매 phase exit에 산출물 `grep -c "__proto__" dist/cep/jsx/index.js` 0 매치 확인 (panel `npm run build` 후).
+
 ### Directory Rules (D8 collocation)
 
 ```

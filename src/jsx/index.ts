@@ -2,7 +2,31 @@
 
 import { ns } from "../shared/shared";
 
-import * as aeft from "./aeft/aeft"; 
+// IMPORTANT: named imports + manual object literal, NOT `import * as aeft`
+// — rollup synthesizes namespace imports as `{ __proto__: null, ...members }`
+// which ExtendScript SpiderMonkey throws on when setting prototype to null
+// (mistakes.md #11 third face / CLAUDE.md Validation Gate §11). Adding a
+// new aeft export = one named import + one object-literal entry.
+import {
+  helloError,
+  helloStr,
+  helloNum,
+  helloArrayStr,
+  helloObj,
+  helloVoid,
+  helloWorld,
+  tools,
+} from "./aeft/aeft";
+const aeft = {
+  helloError,
+  helloStr,
+  helloNum,
+  helloArrayStr,
+  helloObj,
+  helloVoid,
+  helloWorld,
+  tools,
+};
 
 //@ts-ignore
 const host = typeof $ !== "undefined" ? $ : window;

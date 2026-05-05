@@ -281,17 +281,52 @@ switch (getAppNameSafely()) {
 
 ---
 
-### Meta-pattern (#11 양면 통합)
+### Phase 3.8 추가 면 — `import * as` namespace import → rollup `__proto__: null` → ExtendScript throw
 
-panel-side script generator (fix-1) + jsx-side host 등록 (fix-2)는 같은 함정의 **다른 면**:
+**증상**: fix-1 (panel `$[ns]` bracket) + fix-2 (jsx switch default) 적용 후에도 AE 완전 재시작 → panel load 시점에 동일 alert (`TypeError: Cannot convert to ... jsx/index.js`). spike 클릭 → `AEResultParseError` (5ms; jsx 평가 throw → garbage 반환 → panel JSON.parse fail).
 
-> **production wiring 첫 등장 시점에 mock/boilerplate 가정이 production 환경 차이 (real ns 값 / real AE BridgeTalk 반환 형식)에 시험됨.**
+**진단 진행**:
+1. dist ↔ AppData diff 0 (fix-2 sync 정상). default branch 박혀있음 — 즉 fix-2가 ExtendScript에 도달했음에도 throw → 더 윗 line에서 throw.
+2. 산출물 ES3 비호환 grep: arrow `=>` 1개 + backtick 11개 — 모두 코멘트 안. 실행 코드 X.
+3. Phase 3.3 코드 (`defineJsxTool`, handler) ES3 호환 OK.
+4. **`__proto__: null` 2개 발견** (line 176, 186) — rollup이 ESM `import * as` (namespace import)를 ES3+CJS 호환 객체로 합성할 때 자동 생성하는 패턴.
 
-mock + 단위 테스트는 짧은 ns / 가짜 host만 다뤄서 **production ground truth와의 형식 차이를 자동 가드 못 함**. 두 면 모두 unit test 차원의 자동 검증 추가 (fix-1: acorn AST + real ns / fix-2: switch fallback 직접 보증) + Validation Gate에 영구 박힘 (§9 panel-side, §10 jsx-side).
+**Root cause**: ExtendScript SpiderMonkey 기반 engine이 `{ __proto__: null, ... }` object literal을 평가할 때 prototype을 null로 설정 시도. SpiderMonkey-derived ExtendScript에서 prototype을 null로 setter 호출 시 internal type coercion 호출 → "Cannot convert null to object" → 메시지 "Cannot convert to" (사용자 메시지와 일치). IIFE 평가 자체 throw → 후속 `host[ns] = aeft` 도달 못 함 → spike 클릭 시 lookup undefined → AEResultParseError.
+
+발화점:
+- `src/jsx/aeft/aeft.ts`: `import * as tools from "./tools"; export { tools };` → 산출 line 176 (tools namespace 객체)
+- `src/jsx/index.ts`: `import * as aeft from "./aeft/aeft"; ... host[ns] = aeft;` → 산출 line 186 (aeft namespace 객체)
+
+bolt-cep boilerplate 자체에는 namespace import 없음 — Phase 3.3에서 우리가 collocation 패턴 만들면서 추가한 게 발화. 즉 boilerplate fault 0, 우리 추가 fault.
+
+**Fix (Phase 3.7 follow-up 2)**: `import * as` → named imports + 객체 literal로 직접 작성.
+- `aeft.ts`: `import { ae_get_active_comp } from "./tools"; export const tools = { ae_get_active_comp };`
+- `index.ts`: `import { helloError, ..., helloWorld, tools } from "./aeft/aeft"; const aeft = { helloError, ..., helloWorld, tools };`
+
+산출물 검증: `__proto__: null` 0 매치 (직접 차단). aeft binding이 `var aeft = { helloError: helloError, ..., tools: tools };` plain object literal로 빌드 → ExtendScript 호환.
+
+**디버그법** (다음 비슷한 case 발생 시):
+- 산출 jsx에서 `grep -c "__proto__" dist/cep/jsx/index.js` — 박혀있으면 어딘가 `import * as` 사용 흔적. 0이면 안전.
+- panel inspector 콘솔에서 `__adobe_cep__.evalScript("$.global", cb)` 또는 작은 fragment로 ExtendScript 환경 직접 점검 가능 (마지막 수단).
+
+---
+
+### Meta-pattern (#11 세 면 통합)
+
+panel-side script generator (fix-1) + jsx-side host 등록 (fix-2) + rollup namespace import (fix-3)는 같은 함정의 **세 면**:
+
+> **production 환경 (ES3 ExtendScript) 차이가 build-tool / mock / boilerplate 가정과 부딪침. 셋 다 같은 root.**
+>
+> - panel script generator: mock 짧은 ns가 production dotted ns와 형식 차이
+> - jsx host 등록: boilerplate switch literal 매칭이 production AE BridgeTalk 반환 형식 차이
+> - rollup namespace import: ESM 표준 (`__proto__: null` accessor) 가정이 ExtendScript SpiderMonkey 동작 차이
+
+mock + 단위 테스트 + boilerplate + build tool 모두 production ground truth와 형식 차이를 자동 가드 못 함. 세 면 모두 production wiring 첫 등장 시점에서만 드러남. 각각 unit test (fix-1: acorn AST + real ns) + 직접 보증 (fix-2: switch fallback) + 패턴 금지 (fix-3: `import * as` 금지) + Validation Gate에 영구 박힘 (§9 panel-side, §10 jsx-side, §11 rollup-side).
 
 **예방 (Phase 5 30 tool 진입 전 핵심 — meta level)**:
 - 새 wiring layer 등장 시 production ground-truth value를 단위 테스트에 직접 박을 것 (mock의 짧은/단순 가정 X).
-- bolt-cep boilerplate의 host-detection / namespace registration 의존하는 코드는 우리 fail-safe (default fallback) 추가로 강화. boilerplate가 multi-host 분기로 짠 부분이 우리 single-host 환경에서는 fragile.
+- bolt-cep boilerplate의 host-detection / namespace registration 의존하는 코드는 우리 fail-safe (default fallback) 추가로 강화.
+- ESM build tool (rollup/vite) 산출물의 ES3 호환성을 매 phase exit에 산출물 grep으로 가드 — `__proto__: null`, `Object.assign`, spread, default param 등.
 
 ## ✅ Phase 2 follow-up (#10) — `npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견
 

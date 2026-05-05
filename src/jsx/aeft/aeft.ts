@@ -11,8 +11,14 @@ import { dispatchTS } from "../utils/utils";
 
 // Phase 3.3 — AE-Claude tools sub-namespace. Panel calls
 // `ns.tools.<tool>(rawInput)` via CSInterface.evalScript.
-import * as tools from "./tools";
-export { tools };
+//
+// IMPORTANT: named imports + object literal, NOT `import * as tools` —
+// rollup builds namespace imports as `{ __proto__: null, ...members }`
+// which throws in ExtendScript SpiderMonkey when it tries to set the
+// prototype to null (mistakes.md #11 third face). Phase 5 30-tool
+// authors add one named import + one object-literal entry per tool.
+import { ae_get_active_comp } from "./tools";
+export const tools = { ae_get_active_comp };
 
 export const helloWorld = () => {
   alert("Hello from After Effects!");
