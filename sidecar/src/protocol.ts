@@ -65,6 +65,13 @@ export interface ErrorMsg {
    *    - AEValidationError   — zod input/output schema rejected
    *    - AEResultParseError  — panel JSON.parse on jsx return failed
    *                            (malformed jsx output, polyfill bug, etc.)
+   *    - AEInputParseError   — jsx HOF JSON.parse on rawInput failed
+   *                            (panel shouldn't send malformed; defensive)
+   *    - AENoActiveCompError — jsx tool found app.project.activeItem
+   *                            null or non-CompItem (Folder/Footage) —
+   *                            expected UX error, Claude should suggest
+   *                            creating or selecting a comp (raised via
+   *                            jsx HOF helper `h.fail()`)
    *  Future phases add: AEApprovalDeniedError (D3), AEUndoNotSupportedError
    *  (D4), AEFileLockedError. */
   code: string;
