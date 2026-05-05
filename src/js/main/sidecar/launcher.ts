@@ -68,9 +68,13 @@ export interface LauncherDeps {
   readReadyFile: (path: string) => Promise<string>;
   homedir: () => string;
   pathJoin: (...parts: string[]) => string;
-  /** Optional clock for tests. Default = real setTimeout. */
-  setTimeout?: (cb: () => void, ms: number) => unknown;
-  clearTimeout?: (handle: unknown) => void;
+  /** Optional clock for tests. Default = real setTimeout.
+   *  Return type uses `ReturnType<typeof setTimeout>` so the handle
+   *  paired with `clearTimeout` keeps its native shape (DOM `number`,
+   *  Node `Timeout`) — this matters at the only call site that stores
+   *  the handle for later cancel (waitForExit at line ~295). */
+  setTimeout?: (cb: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void;
   /** Provided by the factory; NOT used in tests. ENV passthrough for spawn. */
   env?: NodeJS.ProcessEnv;
 }

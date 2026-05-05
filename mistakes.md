@@ -228,6 +228,26 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
+## ✅ Phase 2 follow-up (#10) — `npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견
+
+**증상**: Phase 2 완료 commit (047b8c9) 후 Phase 3.2 진입에서 `npm run build` 첫 실행 → `launcher.ts:303` 타입 에러로 production 빌드 실패. 96 자동 테스트는 모두 green이었으나 vitest는 tsx로 트랜스파일만 하고 strict 타입 검사 안 함.
+
+**Root cause**:
+1. `LauncherDeps.setTimeout` 시그니처가 `(cb,ms) => unknown` (line 72) — 명시적 약한 타입.
+2. `waitForExit`에서 `const t = (deps.setTimeout ?? setTimeout)(...)` (line 295) → `t: unknown`.
+3. `clearTimeout(t)` (line 303) — `unknown`은 `clearTimeout`의 `Timeout|number|undefined` 인자에 할당 불가.
+4. dev 사이클 (vitest)은 `tsx` 사용 → 타입 에러 silent skip. production tsc strict 빌드에서 첫 등장.
+
+**Fix**: `LauncherDeps.setTimeout/clearTimeout` 시그니처를 `ReturnType<typeof setTimeout>` 자기 참조형으로 정정. DOM에선 `number`, Node에선 `Timeout`으로 자동 추론 → 환경 무관 호환.
+
+**예방 (본질적 fix)**: 매 phase 종료 commit 전에 **`npm test` AND `npm run build` 둘 다 통과**해야 phase 닫음. test만으론 부족 — vitest tsx 트랜스파일은 strict 타입 검사 skip. 이 룰은 CLAUDE.md Validation Gates §8 (Phase exit gate)에 추가됨. Phase 2가 이 게이트 없이 닫혔던 게 root cause.
+
+**왜 미리 안 잡혔나** (메타 진단):
+- bolt-cep boilerplate에 `npm run build`가 있었으나 Phase 0/1/2 어디도 빌드 호출 안 함.
+- "Phase 7 ZXP 빌드 전엔 production 빌드 안 돌릴 거"라는 가정이 있었으나 → phase 단위 type 에러 누적 가능성 무시한 가정. CI 없는 단일 개발자 환경에선 매 phase 빌드가 안전망.
+
+**Phase 2.7~2.8에 fix가 안 박혔던 이유** (참고): launcher.ts는 Phase 2.7.0에서 `aePid optional` 리팩토링 + Phase 2.7 sendShutdownOverWs 추가 시 deps 시그니처가 처음 등장 (당시 fast prototype). vitest는 통과 → 진행. 1주일 후 Phase 3.2에서 production 빌드 첫 호출 → 늦은 발견.
+
 ## ✅ Phase 2.8.4 — panel close 시 사이드카 좀비 (graceful shutdown 메커니즘 부재)
 
 **증상**: panel을 6-8번 열고 닫은 후 작업관리자에 Node 좀비 ~20개. 메모리별 두 개씩 짝지어 (큰 + 작은) 누적. fix-1, fix-2 후에도 발생.

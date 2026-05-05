@@ -117,6 +117,9 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 7. **Mutex gate** — `ToolDispatcher`에서 in-flight tool call 1개 강제 (P4).
    ExtendScript single-threaded이므로 panel 측 evalScript 큐는 FIFO.
 
+8. **Phase exit gate** — phase 종료 commit 전에 **`npm test` (sidecar + panel 모두 green) AND `npm run build` (production tsc strict + vite build) 둘 다 통과** 강제.
+   test만 그린이면 vitest tsx 트랜스파일이 strict 타입 검사를 skip해서 production 빌드에서 늦게 터지는 함정 발생 (mistakes.md #10). 두 게이트는 직렬, 빌드까지 그린 확인 후에만 phase 닫는 commit 작성.
+
 ### Directory Rules (D8 collocation)
 
 ```
