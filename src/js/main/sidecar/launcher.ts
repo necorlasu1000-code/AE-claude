@@ -20,10 +20,11 @@ import type { ChildProcess, SpawnOptions } from "node:child_process";
 // ─── Public types ───────────────────────────────────────────────────
 
 export interface LauncherOptions {
-  /** Parent AE process id (for lockfile + watchdog identity). Required for
-   *  production; in dev the sidecar can run unsupervised, but launcher
-   *  always supplies a value (panel runtime knows AE pid via CSInterface). */
-  aePid: number;
+  /** Parent AE process id (for lockfile + watchdog identity). When omitted,
+   *  the sidecar runs in dev mode — no lockfile, no watchdog. Use the omit
+   *  path when AE pid can't be obtained (CSInterface exposes no PID API
+   *  by default; CTC be retrieved via ExtendScript fallback). */
+  aePid?: number;
   /** Spawn command. Default `node` (PATH lookup via shell:true). For production
    *  ZXP, override to absolute path of bundled portable Node. */
   cmd?: string;
@@ -70,9 +71,6 @@ export interface LauncherDeps {
   /** Optional clock for tests. Default = real setTimeout. */
   setTimeout?: (cb: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
-  /** Optional WebSocket constructor for stop(). Default = panel runtime's
-   *  global WebSocket (CEP runtime exposes it). Tests inject a mock. */
-  WebSocket?: typeof WebSocket;
   /** Provided by the factory; NOT used in tests. ENV passthrough for spawn. */
   env?: NodeJS.ProcessEnv;
 }
@@ -84,8 +82,17 @@ export class SidecarLauncher {
   private stderr: string[] = [];
   private stoppedNormally = false;
   private crashCbs = new Set<(info: CrashInfo) => void>();
-  private readonly opts: Required<Omit<LauncherOptions, "cmd" | "args" | "cwd" | "watchdogIntervalMs">> &
-    Pick<LauncherOptions, "cmd" | "args" | "cwd" | "watchdogIntervalMs">;
+  private readonly opts: {
+    aePid: number | undefined;
+    cmd: string | undefined;
+    args: string[] | undefined;
+    cwd: string | undefined;
+    lockDir: string;
+    spawnTimeoutMs: number;
+    readyFilePollMs: number;
+    debug: boolean;
+    watchdogIntervalMs: number | undefined;
+  };
 
   constructor(opts: LauncherOptions, private readonly deps: LauncherDeps) {
     this.opts = {
@@ -112,10 +119,13 @@ export class SidecarLauncher {
     const cmd = this.opts.cmd ?? "node";
     const args = this.opts.args ?? [];
 
+    // Build env. aePid omission → sidecar dev mode (no lockfile, no watchdog).
     const env: NodeJS.ProcessEnv = {
       ...(this.deps.env ?? {}),
-      AE_CLAUDE_AE_PID: String(this.opts.aePid),
       AE_CLAUDE_LOCK_DIR: this.opts.lockDir,
+      ...(this.opts.aePid !== undefined
+        ? { AE_CLAUDE_AE_PID: String(this.opts.aePid) }
+        : {}),
       ...(this.opts.debug ? { AE_CLAUDE_DEBUG: "1" } : {}),
       ...(this.opts.watchdogIntervalMs !== undefined
         ? { AE_CLAUDE_WATCHDOG_INTERVAL_MS: String(this.opts.watchdogIntervalMs) }
@@ -178,31 +188,20 @@ export class SidecarLauncher {
     }
   }
 
-  /** Graceful shutdown via WS sys.shutdown. Default 8s timeout. */
+  /**
+   * Wait for the sidecar process to exit. Caller is expected to have already
+   * sent sys.shutdown via the long-lived WS (use `sendShutdownOverWs` helper).
+   * If the sidecar doesn't exit within `timeoutMs`, SIGKILL is sent and the
+   * promise resolves.
+   *
+   * Phase 2.7.0 design change: the launcher no longer opens its own WS for
+   * sys.shutdown. WS lifecycle is owned by the consumer (useTerminal hook),
+   * which sends sys.shutdown on its existing PTY connection — avoiding the
+   * AEMultiClientRefused issue that would arise from a second connection.
+   */
   async stop(timeoutMs = 8_000): Promise<void> {
     this.stoppedNormally = true;
     if (!this.proc || this.proc.exitCode !== null) return;
-
-    const WS = this.deps.WebSocket ?? (typeof WebSocket !== "undefined" ? WebSocket : undefined);
-    if (!WS) {
-      // No WebSocket available — fall back to SIGKILL. Production shouldn't
-      // hit this (panel has WebSocket); tests can choose to mock or not.
-      try { this.proc.kill("SIGKILL"); } catch { /* */ }
-      await this.waitForExit(timeoutMs);
-      return;
-    }
-
-    // We don't know the port at the launcher layer once start() returned;
-    // caller is responsible for passing it back via `port` getter on the
-    // SidecarReady they got. So stop() needs the port — store it.
-    if (this.lastReadyPort === undefined) {
-      // Never received ready — process is in an unknown state; just SIGKILL.
-      try { this.proc.kill("SIGKILL"); } catch { /* */ }
-      await this.waitForExit(timeoutMs);
-      return;
-    }
-
-    await this.sendShutdownViaWs(WS, this.lastReadyPort, timeoutMs);
     await this.waitForExit(timeoutMs);
   }
 
@@ -213,7 +212,7 @@ export class SidecarLauncher {
 
   // ─── private ──────────────────────────────────────────────────────
 
-  private lastReadyPort: number | undefined;
+  private lastReadyPort: number | undefined;   // kept for diagnostics; not used by stop()
   private lastReadyHost: string | undefined;
 
   private fireCrash(info: CrashInfo): void {
@@ -249,13 +248,17 @@ export class SidecarLauncher {
   }
 
   private async waitForReadyFile(): Promise<RawReady> {
+    // Dev mode: no aePid → no ready file written by sidecar → never resolve.
+    // The Promise.race in start() will be settled by stdout or timeout.
+    if (this.opts.aePid === undefined) {
+      return new Promise<RawReady>(() => { /* never resolves */ });
+    }
+
     const filePath = this.deps.pathJoin(this.opts.lockDir, `ready-${this.opts.aePid}.json`);
     const interval = this.opts.readyFilePollMs;
 
     return new Promise<RawReady>((resolve, reject) => {
-      let cancelled = false;
       const tick = async () => {
-        if (cancelled) return;
         try {
           const raw = await this.deps.readReadyFile(filePath);
           const parsed = JSON.parse(raw);
@@ -268,7 +271,7 @@ export class SidecarLauncher {
         } catch {
           // ENOENT — keep polling
         }
-        const t = (this.deps.setTimeout ?? setTimeout)(() => { void tick(); }, interval);
+        (this.deps.setTimeout ?? setTimeout)(() => { void tick(); }, interval);
         // No cancel registration — outer race handles cancellation; this loop
         // will simply settle silently after Promise.race winner resolves.
       };
@@ -303,37 +306,79 @@ export class SidecarLauncher {
     });
   }
 
-  private async sendShutdownViaWs(WS: typeof WebSocket, port: number, timeoutMs: number): Promise<void> {
-    const host = this.lastReadyHost ?? "127.0.0.1";
-    return new Promise<void>((resolve) => {
-      const ws = new WS(`ws://${host}:${port}`);
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        try { ws.close(); } catch { /* */ }
-        resolve();
-      };
-      const t = (this.deps.setTimeout ?? setTimeout)(finish, timeoutMs);
+}
 
-      ws.addEventListener?.("open", () => {
-        ws.send(JSON.stringify({ type: "sys.shutdown", reason: "panel-close" }));
-      });
-      ws.addEventListener?.("message", (ev: MessageEvent) => {
-        try {
-          const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-          if (msg?.type === "sys.shutting-down") {
-            (this.deps.clearTimeout ?? clearTimeout)(t);
-            finish();
-          }
-        } catch { /* skip */ }
-      });
-      ws.addEventListener?.("error", () => {
-        (this.deps.clearTimeout ?? clearTimeout)(t);
+// ─── Standalone helper ─────────────────────────────────────────────
+
+/**
+ * Send `sys.shutdown` over an existing OPEN WebSocket and wait for the
+ * `sys.shutting-down` ack. Does NOT open a new connection — caller passes
+ * the long-lived PTY connection so the sidecar's multi-client policy
+ * doesn't refuse a second client.
+ *
+ * Resolves on:
+ *   - `sys.shutting-down` ack received → ws.close() + resolve
+ *   - `ackTimeoutMs` elapsed → ws.close() + resolve (best-effort)
+ *   - ws error → ws.close() + resolve
+ *
+ * Never rejects. Caller may still await `launcher.stop()` separately to
+ * wait for the actual process exit.
+ */
+export async function sendShutdownOverWs(
+  ws: WebSocket,
+  reason?: string,
+  ackTimeoutMs = 5_000,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try { ws.close(); } catch { /* */ }
+      resolve();
+    };
+
+    const onMessage = (ev: MessageEvent) => {
+      try {
+        const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
+        if (msg?.type === "sys.shutting-down") {
+          clearTimeout(timer);
+          ws.removeEventListener?.("message", onMessage);
+          finish();
+        }
+      } catch { /* ignore */ }
+    };
+    const onError = () => {
+      clearTimeout(timer);
+      finish();
+    };
+
+    const timer = setTimeout(finish, ackTimeoutMs);
+    ws.addEventListener?.("message", onMessage);
+    ws.addEventListener?.("error", onError);
+
+    const sendShutdown = () => {
+      try {
+        ws.send(JSON.stringify({ type: "sys.shutdown", reason }));
+      } catch {
+        clearTimeout(timer);
         finish();
-      });
-    });
-  }
+      }
+    };
+
+    // readyState === 1 is WebSocket.OPEN per RFC 6455. Hardcoded so this
+    // module works in both panel runtime (where global WebSocket exists)
+    // and node-based unit tests (where it doesn't).
+    if (ws.readyState === 1) {
+      sendShutdown();
+    } else {
+      const onOpen = () => {
+        ws.removeEventListener?.("open", onOpen);
+        sendShutdown();
+      };
+      ws.addEventListener?.("open", onOpen);
+    }
+  });
 }
 
 // ─── Internal types ────────────────────────────────────────────────

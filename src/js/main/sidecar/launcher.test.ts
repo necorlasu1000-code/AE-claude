@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
-import { SidecarLauncher, type LauncherDeps } from "./launcher.js";
+import { SidecarLauncher, sendShutdownOverWs, type LauncherDeps } from "./launcher.js";
 
 // ─── Mock factories ────────────────────────────────────────────────
 
@@ -177,44 +177,86 @@ describe("SidecarLauncher", () => {
   });
 
   // ── 7 ────────────────────────────────────────────────────────────
-  it("stop: sends sys.shutdown over WS + waits for exit", async () => {
+  it("stop: waits for proc exit (caller is responsible for sys.shutdown)", async () => {
     const { deps, lastProc } = makeDeps();
-
-    // Mock WebSocket: open immediately, ack on send, then wait for close.
-    // Must be a `class` (or `function` keyword) — arrow functions don't have
-    // [[Construct]] and `new MockWS(...)` would throw.
-    const sentMessages: string[] = [];
-    const mockWs = {
-      send: vi.fn((data: string) => sentMessages.push(data)),
-      close: vi.fn(),
-      addEventListener: function(this: any, type: string, cb: any) {
-        this[`_${type}`] = cb;
-      },
-    } as any;
-    class MockWS {
-      constructor(_url: string) { return mockWs as any; }
-    }
-
-    const launcher = new SidecarLauncher({ aePid: 11111 }, { ...deps, WebSocket: MockWS as any });
+    const launcher = new SidecarLauncher({ aePid: 11111 }, deps);
 
     setImmediate(() => lastProc.current!.stdout.emit("data", JSON.stringify(READY_JSON) + "\n"));
     await launcher.start();
 
     const stopPromise = launcher.stop(2_000);
 
-    // Drive the mock WS lifecycle.
-    await new Promise((r) => setImmediate(r));
-    mockWs._open?.();   // open → launcher sends sys.shutdown
-    expect(sentMessages.length).toBe(1);
-    expect(JSON.parse(sentMessages[0]!)).toMatchObject({ type: "sys.shutdown" });
-
-    mockWs._message?.({ data: JSON.stringify({ type: "sys.shutting-down", ts: Date.now() }) });
-
-    // Now simulate sidecar exiting.
-    lastProc.current!.exitCode = 0;
-    lastProc.current!.emit("exit", 0, null);
+    // Caller would have already sent sys.shutdown over the long-lived PTY ws;
+    // here we just simulate the resulting natural exit.
+    setImmediate(() => {
+      lastProc.current!.exitCode = 0;
+      lastProc.current!.emit("exit", 0, null);
+    });
 
     await stopPromise;
-    expect(mockWs.close).toHaveBeenCalled();
+    // No unexpected SIGKILL on graceful path — kill spy untouched.
+    expect((lastProc.current!.kill as any).mock.calls.length).toBe(0);
+  });
+
+  // ── 8: aePid optional → dev mode ─────────────────────────────────
+  it("aePid omitted: AE_CLAUDE_AE_PID env not set (sidecar dev mode)", async () => {
+    const { deps, spawnSpy, lastProc } = makeDeps();
+    const launcher = new SidecarLauncher({ /* no aePid */ }, deps);
+
+    setImmediate(() => lastProc.current!.stdout.emit("data", JSON.stringify(READY_JSON) + "\n"));
+    await launcher.start();
+
+    const [, , spawnOpts] = spawnSpy.mock.calls[0]!;
+    expect((spawnOpts as any).env).not.toHaveProperty("AE_CLAUDE_AE_PID");
+    // LOCK_DIR still set (sidecar uses it as test-isolation hint, harmless in dev mode)
+    expect((spawnOpts as any).env.AE_CLAUDE_LOCK_DIR).toBeDefined();
+  });
+});
+
+// ─── sendShutdownOverWs helper ─────────────────────────────────────
+
+describe("sendShutdownOverWs", () => {
+  function makeMockWs() {
+    const listeners: Record<string, ((ev: any) => void)[]> = {};
+    return {
+      readyState: 1,                                // WebSocket.OPEN (RFC 6455)
+      send: vi.fn(),
+      close: vi.fn(),
+      addEventListener: function(type: string, cb: (ev: any) => void) {
+        (listeners[type] ??= []).push(cb);
+      },
+      removeEventListener: function(type: string, cb: (ev: any) => void) {
+        const arr = listeners[type];
+        if (arr) {
+          const i = arr.indexOf(cb);
+          if (i >= 0) arr.splice(i, 1);
+        }
+      },
+      _fire: (type: string, ev: any) => {
+        for (const cb of listeners[type] ?? []) cb(ev);
+      },
+    };
+  }
+
+  it("sends sys.shutdown immediately when ws OPEN, resolves on shutting-down ack", async () => {
+    const ws = makeMockWs();
+    const promise = sendShutdownOverWs(ws as any, "panel-close");
+
+    expect(ws.send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(ws.send.mock.calls[0]![0] as string)).toEqual({
+      type: "sys.shutdown",
+      reason: "panel-close",
+    });
+
+    ws._fire("message", { data: JSON.stringify({ type: "sys.shutting-down", ts: Date.now() }) });
+    await promise;
+    expect(ws.close).toHaveBeenCalled();
+  });
+
+  it("resolves on ack timeout if no shutting-down arrives", async () => {
+    const ws = makeMockWs();
+    await sendShutdownOverWs(ws as any, "no-ack-test", 50);
+    expect(ws.send).toHaveBeenCalled();
+    expect(ws.close).toHaveBeenCalled();
   });
 });
