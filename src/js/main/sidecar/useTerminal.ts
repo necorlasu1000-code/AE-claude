@@ -123,6 +123,12 @@ export function useTerminal(
     setStatus("starting");
     setError(undefined);
 
+    // Debug logger — only fires when options.debug is true. Removed in
+    // production via dead-code elimination (the `if (debug)` short-circuits).
+    const debug = options.debug === true;
+    const log = (...args: unknown[]) => { if (debug) console.log("[useTerminal]", ...args); };
+    log("mount → starting");
+
     // ── 1. xterm Terminal + addons ────────────────────────────────
     // Theme follows CLAUDE.md design tokens (panel UI dark).
     const terminal: XtermLike = new deps.TerminalCtor({
@@ -189,14 +195,17 @@ export function useTerminal(
 
     void (async () => {
       try {
+        log("launcher.start() called");
         const ready = await launcher.start();
         if (cancelled) return;
+        log("launcher ready:", ready);
 
         const ws = new deps.WebSocketCtor(`ws://${ready.host}:${ready.port}`);
         wsRef.current = ws;
 
         ws.addEventListener("open", () => {
           if (cancelled) return;
+          log("ws open");
           setStatus("ready");
           // Initial resize sync — server doesn't know our dims yet.
           try {
@@ -247,11 +256,13 @@ export function useTerminal(
 
         ws.addEventListener("close", () => {
           if (cancelled) return;
+          log("ws close");
           // Closing → stopped is the graceful path; otherwise unexpected.
           setStatus((prev) => (prev === "closing" ? "stopped" : "crashed"));
         });
 
-        ws.addEventListener("error", () => {
+        ws.addEventListener("error", (ev) => {
+          log("ws error", ev);
           // close event will follow with the cleanup
         });
 
@@ -268,6 +279,7 @@ export function useTerminal(
         });
       } catch (e) {
         if (cancelled) return;
+        log("startup failed:", e);
         setStatus("error");
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -275,6 +287,7 @@ export function useTerminal(
 
     // ── 4. Cleanup (unmount or restart) ──────────────────────────
     return () => {
+      log("cleanup begin");
       cancelled = true;
       observerRef.current?.disconnect();
       observerRef.current = null;
