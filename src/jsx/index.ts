@@ -3,9 +3,9 @@
 import { ns } from "../shared/shared";
 
 // IMPORTANT: named imports + manual object literal, NOT `import * as aeft`
-// — rollup synthesizes namespace imports as `{ __proto__: null, ...members }`
+// -- rollup synthesizes namespace imports as `{ __proto__: null, ...members }`
 // which ExtendScript SpiderMonkey throws on when setting prototype to null
-// (mistakes.md #11 third face / CLAUDE.md Validation Gate §11). Adding a
+// (mistakes.md #11 third face / CLAUDE.md Validation Gate section11). Adding a
 // new aeft export = one named import + one object-literal entry.
 import {
   helloError,
@@ -84,7 +84,7 @@ switch (getAppNameSafely()) {
     break;
 
   default:
-    // Phase 3.7 follow-up — fail-safe registration for AE-only project.
+    // Phase 3.7 follow-up -- fail-safe registration for AE-only project.
     // bolt-cep boilerplate's switch assumes getAppNameSafely() returns
     // exactly "aftereffects" / "aftereffectsbeta". Real production
     // returns vary: BridgeTalk.appName can be versioned (e.g.
@@ -92,7 +92,7 @@ switch (getAppNameSafely()) {
     // the literal-match cases would miss those. Since this project is
     // AE-only (D2 hold scope), always register here as the fallback so
     // `$[ns].tools.<tool>(...)` never lookups undefined. See
-    // mistakes.md #11 "jsx host 등록 면" for the trap detail.
+    // mistakes.md #11 "jsx host registration face" for the trap detail.
     host[ns] = aeft;
     break;
   }

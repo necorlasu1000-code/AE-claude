@@ -135,6 +135,13 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
     Phase 5 30 tool 추가 시 같은 패턴 — 한 named import + 한 객체 literal entry per tool.
     매 phase exit에 산출물 `grep -c "__proto__" dist/cep/jsx/index.js` 0 매치 확인 (panel `npm run build` 후).
 
+12. **jsx ASCII-only literals gate** — `src/jsx/` 하위 string literal은 **ASCII only**. 한국어/non-ASCII는 panel layer만 사용. ExtendScript engine은 산출 jsx file의 BOM 없는 UTF-8 source를 system codepage (Windows Korean = cp949)로 디코딩 시도 → non-ASCII literal에서 SyntaxError/TypeError throw, IIFE 중단, host[ns] = aeft 미도달 (mistakes.md #11 fourth face).
+    분리 원칙: jsx layer = machine-friendly 영어 메시지 (Claude/MCP가 읽음). panel layer = human i18n (Phase 6 UX, 한국어/다국어 panel UI에서 처리).
+    매 phase exit에 산출물 non-ASCII grep 확인 (panel `npm run build` 후):
+    ```bash
+    grep -cP '[\x80-\xFF]' dist/cep/jsx/index.js  # → 0 expected
+    ```
+
 ### Directory Rules (D8 collocation)
 
 ```

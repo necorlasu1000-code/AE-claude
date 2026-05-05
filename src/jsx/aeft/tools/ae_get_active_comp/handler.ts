@@ -1,13 +1,13 @@
-// Phase 3.3 — first ExtendScript bridge tool (read-only spike).
+// Phase 3.3 -- first ExtendScript bridge tool (read-only spike).
 //
 // Returns metadata about the currently active composition. Used by Phase 4
-// MCP server as the first endpoint to verify the panel↔jsx round-trip
+// MCP server as the first endpoint to verify the panel<->jsx round-trip
 // works end-to-end before destructive tools land in Phase 5.
 //
 // AST validator (D7) compliance: dot-notation only, no computed member
 // access, no `system.callSystem`/`File`/`Folder`/`Socket`/`eval`/`Function`
 // calls. Type discrimination via `typeName` (string compare) instead of
-// `instanceof CompItem` — instanceof works in real AE but ReferenceErrors
+// `instanceof CompItem` -- instanceof works in real AE but ReferenceErrors
 // in vitest (no AE class globals).
 
 import { defineJsxTool, JsxCompItem } from "../_define";
@@ -31,8 +31,8 @@ export const ae_get_active_comp = defineJsxTool<AeGetActiveCompInput, AeGetActiv
     if (!item || item.typeName !== "Composition") {
       throw h.fail(
         "AENoActiveCompError",
-        "활성 컴프가 없습니다. AE 프로젝트 패널에서 컴프를 선택하거나 새 컴프를 생성한 뒤 다시 시도하세요.",
-        "app.project.activeItem null 또는 비-Composition (typeName='Folder'|'Footage'). 사용자에게 컴프 선택/생성 제안 후 재시도."
+        "No active composition. Select or create a comp in the AE project panel and try again.",
+        "app.project.activeItem null or non-Composition (typeName='Folder'|'Footage'). Suggest comp selection/creation, then retry."
       );
     }
 

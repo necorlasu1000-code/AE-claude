@@ -1,34 +1,34 @@
-// Phase 3.3 — defineJsxTool HOF (ExtendScript-side, mirror of sidecar/src/tools/_define.ts).
+// Phase 3.3 -- defineJsxTool HOF (ExtendScript-side, mirror of sidecar/src/tools/_define.ts).
 //
-// Wraps a per-tool fn so panel→jsx round-trip is always:
-//   rawInput (string) → JSON.parse → fn(input, ctx, h) → JSON.stringify({ok,output})
+// Wraps a per-tool fn so panel->jsx round-trip is always:
+//   rawInput (string) -> JSON.parse -> fn(input, ctx, h) -> JSON.stringify({ok,output})
 // Failure is caught and converted to {ok:false, error:{code,userMessage,developerHint}}
-// — the same shape the panel's useExtendScriptBridge expects. No throws escape
+// -- the same shape the panel's useExtendScriptBridge expects. No throws escape
 // the wrapper; CSInterface.evalScript callback always sees a JSON string.
 //
 // Difference from sidecar defineAETool (D4):
 //   sidecar: async + zod schema validation + undo group + crash recovery
-//   jsx:     sync   + try/catch  + JSON serialize  (ES3 limits — no Promise,
+//   jsx:     sync   + try/catch  + JSON serialize  (ES3 limits -- no Promise,
 //                                                   no zod runtime here)
 // Validation lives in the sidecar dispatcher; jsx side only enforces shape.
 //
 // Failure helper usage rule:
 //   throw h.fail("AECode", "user-facing", "developer-facing");
-// `return h.fail(...)` is FORBIDDEN — h.fail returns a sentinel that only
+// `return h.fail(...)` is FORBIDDEN -- h.fail returns a sentinel that only
 // makes sense when thrown (the catch branch detects __jsxFail and converts).
 // Returning the sentinel as output would JSON.stringify it as-is and panel
-// would see {ok:true, output:{__jsxFail:true,...}} — silent corruption.
+// would see {ok:true, output:{__jsxFail:true,...}} -- silent corruption.
 // The sentinel pattern keeps fn bodies linear (no envelope plumbing) while
 // still letting Phase 5 30-tool authors raise typed errors with one line.
 //
 // `app` global: declared ambient so production jsx code (where ExtendScript
 // provides `app` as a global) compiles without import. In vitest the global
-// is undefined — tests MUST inject `ctxOverride` so the wrapper never
+// is undefined -- tests MUST inject `ctxOverride` so the wrapper never
 // touches the bare `app` identifier (test envs would ReferenceError).
 
 declare const app: unknown;
 
-// ─── shared item / app shapes (panel-jsx contract) ────────────────────
+// --- shared item / app shapes (panel-jsx contract) --------------------
 
 export interface JsxItemLike {
   /** AE Item.typeName: "Composition" | "Folder" | "Footage". Phase 3
@@ -58,7 +58,7 @@ export interface JsxToolCtx {
   app: JsxAppLike;
 }
 
-// ─── envelope shapes ──────────────────────────────────────────────────
+// --- envelope shapes --------------------------------------------------
 
 export interface JsxOk<O> {
   ok: true;
@@ -74,7 +74,7 @@ export interface JsxErr {
   };
 }
 
-// ─── failure helper (sentinel) ────────────────────────────────────────
+// --- failure helper (sentinel) ----------------------------------------
 
 interface JsxFailSentinel {
   __jsxFail: true;
@@ -85,7 +85,7 @@ interface JsxFailSentinel {
 
 export interface JsxToolHelpers {
   /** Returns a sentinel for the wrapper's catch branch. Always use as
-   *  `throw h.fail(...)` — never `return h.fail(...)` (see file header). */
+   *  `throw h.fail(...)` -- never `return h.fail(...)` (see file header). */
   fail(code: string, userMessage: string, developerHint: string): JsxFailSentinel;
 }
 
@@ -100,7 +100,7 @@ const helpers: JsxToolHelpers = {
   },
 };
 
-// ─── HOF ──────────────────────────────────────────────────────────────
+// --- HOF --------------------------------------------------------------
 
 export type JsxToolFn<I, O> = (input: I, ctx: JsxToolCtx, h: JsxToolHelpers) => O;
 
@@ -119,8 +119,8 @@ export function defineJsxTool<I, O>(
         ok: false,
         error: {
           code: "AEInputParseError",
-          userMessage: "입력 데이터 형식 오류: " + pmsg,
-          developerHint: "panel→jsx rawInput JSON.parse 실패. panel 측 JSON.stringify 직전 input 검증.",
+          userMessage: "Input parse failed: " + pmsg,
+          developerHint: "panel->jsx rawInput JSON.parse failed. Validate input before JSON.stringify on panel side.",
         },
       } as JsxErr);
     }
@@ -138,7 +138,7 @@ export function defineJsxTool<I, O>(
       var output = fn(input, ctx, helpers);
       return JSON.stringify({ ok: true, output: output } as JsxOk<O>);
     } catch (err) {
-      // h.fail sentinel — convert to typed error envelope
+      // h.fail sentinel -- convert to typed error envelope
       if (err && (err as JsxFailSentinel).__jsxFail === true) {
         var s = err as JsxFailSentinel;
         return JSON.stringify({
@@ -150,14 +150,14 @@ export function defineJsxTool<I, O>(
           },
         } as JsxErr);
       }
-      // generic uncaught — wrap as AEScriptError
+      // generic uncaught -- wrap as AEScriptError
       var msg = (err && (err as { message?: string }).message) || String(err);
       return JSON.stringify({
         ok: false,
         error: {
           code: "AEScriptError",
-          userMessage: "툴 실행 중 오류: " + msg,
-          developerHint: "ExtendScript 함수가 throw한 예외 (h.fail 미사용). handler 검토.",
+          userMessage: "Tool execution failed: " + msg,
+          developerHint: "ExtendScript function threw uncaught (h.fail not used). Review handler.",
         },
       } as JsxErr);
     }

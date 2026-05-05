@@ -311,22 +311,51 @@ bolt-cep boilerplate 자체에는 namespace import 없음 — Phase 3.3에서 �
 
 ---
 
-### Meta-pattern (#11 세 면 통합)
+### Phase 3.8 추가 면 — jsx 산출물 file encoding (UTF-8 no BOM) + ExtendScript system codepage 디코딩
 
-panel-side script generator (fix-1) + jsx-side host 등록 (fix-2) + rollup namespace import (fix-3)는 같은 함정의 **세 면**:
+**증상**: fix-1 + fix-2 + fix-3 적용 후에도 동일 alert. probe 결과 (`typeof $["com.aeclaude.panel"] === "undefined"`)로 host[ns] 미등록 확정. 그러나 polyfill 정상 평가 (`Date.prototype.toJSON === "function"`) → **IIFE의 polyfill 다음 ~ host[ns]= 사이 어딘가에서 throw**.
 
-> **production 환경 (ES3 ExtendScript) 차이가 build-tool / mock / boilerplate 가정과 부딪침. 셋 다 같은 root.**
+**Root cause**: vite/rollup이 합성한 `dist/cep/jsx/index.js`가 **UTF-8 (no BOM)** 으로 저장. ExtendScript engine은 BOM 없으면 system codepage 추정 — Windows Korean locale에서 **cp949** (EUC-KR variant). UTF-8로 인코딩된 한국어 byte sequence를 cp949로 디코딩 시도 → string literal parse 시 invalid char → SyntaxError/TypeError throw → IIFE 중단 → host[ns] = aeft 도달 못 함.
+
+발화점: **Phase 3.3에서 추가한 한국어 userMessage / developerHint** — `_define.ts`의 AEInputParseError/AEScriptError 메시지 + `ae_get_active_comp/handler.ts`의 AENoActiveCompError 메시지. bolt-cep boilerplate 자체에는 한국어 literal 0 — 다른 사용자 동작은 boilerplate가 ASCII only이기 때문.
+
+**Fix (Phase 3.7 follow-up 4)**: jsx layer는 ASCII only로 통일. 한국어 메시지는 panel layer가 i18n 처리 (Phase 6 UX). machine-friendly = 영어 (Claude/MCP가 읽는 메시지), human-friendly i18n은 panel layer 책임.
+
+수정:
+- `src/jsx/aeft/tools/_define.ts`: "입력 데이터 형식 오류" → "Input parse failed", "툴 실행 중 오류" → "Tool execution failed"
+- `src/jsx/aeft/tools/ae_get_active_comp/handler.ts`: "활성 컴프가 없습니다..." → "No active composition. Select or create a comp..."
+- `handler.test.ts`: regex 영어 매치
+- `src/jsx/index.ts`: 코멘트도 영어 통일 (코멘트는 ExtendScript 무시지만 일관성)
+
+**fix-2 (default case) 정정**: probe 결과 `BridgeTalk.appName === "aftereffects"` literal 반환 확인 — switch case "aftereffects"에 정상 매치, default 없어도 도달했을 것. **fix-2는 이번 root cause 아님**. 단 future-proof safety net으로 유지 (다른 AE 버전/환경에서 versioned 반환 가능성 대비).
+
+**디버그법** (다음 비슷한 케이스 발생 시):
+- 산출 jsx에서 non-ASCII byte grep: `grep -P '[\x80-\xFF]' dist/cep/jsx/index.js | head` — 매치 있으면 ExtendScript file encoding 함정 의심.
+- panel inspector 콘솔에서 `__adobe_cep__.evalScript("'한글'", cb)` 직접 평가 — 한국어 string literal 자체가 ExtendScript engine에서 valid한지 즉시 확인.
+
+---
+
+### Meta-pattern (#11 다섯 면 통합)
+
+panel-side script generator (fix-1) + jsx-side host 등록 (fix-2, future-proof) + rollup namespace import (fix-3) + jsx file encoding (fix-4)는 같은 함정의 **네 면**:
+
+> **production 환경 (ES3 ExtendScript + Windows host) 차이가 build-tool / source / boilerplate / mock 가정과 부딪침. 모두 같은 root.**
 >
-> - panel script generator: mock 짧은 ns가 production dotted ns와 형식 차이
-> - jsx host 등록: boilerplate switch literal 매칭이 production AE BridgeTalk 반환 형식 차이
-> - rollup namespace import: ESM 표준 (`__proto__: null` accessor) 가정이 ExtendScript SpiderMonkey 동작 차이
+> | 면 | 가정 (잘못된) | production ground truth |
+> |---|---|---|
+> | fix-1 panel script generator | mock 짧은 ns ("ns") | dotted ns ("com.aeclaude.panel") |
+> | fix-2 jsx host 등록 (future-proof) | boilerplate switch literal 매칭 | versioned BridgeTalk 반환 가능성 |
+> | fix-3 rollup namespace import | ESM `__proto__: null` 표준 | ExtendScript SpiderMonkey 동작 차이 |
+> | fix-4 jsx file encoding | UTF-8 (no BOM) source | system codepage 추정 (cp949) |
 
-mock + 단위 테스트 + boilerplate + build tool 모두 production ground truth와 형식 차이를 자동 가드 못 함. 세 면 모두 production wiring 첫 등장 시점에서만 드러남. 각각 unit test (fix-1: acorn AST + real ns) + 직접 보증 (fix-2: switch fallback) + 패턴 금지 (fix-3: `import * as` 금지) + Validation Gate에 영구 박힘 (§9 panel-side, §10 jsx-side, §11 rollup-side).
+mock + 단위 테스트 + boilerplate + build tool + source code 모두 production ground truth와 형식 차이를 자동 가드 못 함. 모든 면이 production wiring 첫 등장 시점에서만 드러남. 각각 unit test (fix-1: acorn AST + real ns) + 직접 보증 (fix-2: switch fallback) + 패턴 금지 (fix-3: `import * as` 금지) + 영역 분리 (fix-4: jsx ASCII only) + Validation Gate에 영구 박힘 (§9 panel-side, §10 jsx-side, §11 rollup-side, §12 jsx encoding).
 
 **예방 (Phase 5 30 tool 진입 전 핵심 — meta level)**:
 - 새 wiring layer 등장 시 production ground-truth value를 단위 테스트에 직접 박을 것 (mock의 짧은/단순 가정 X).
 - bolt-cep boilerplate의 host-detection / namespace registration 의존하는 코드는 우리 fail-safe (default fallback) 추가로 강화.
-- ESM build tool (rollup/vite) 산출물의 ES3 호환성을 매 phase exit에 산출물 grep으로 가드 — `__proto__: null`, `Object.assign`, spread, default param 등.
+- ESM build tool (rollup/vite) 산출물의 ES3 호환성을 매 phase exit에 산출물 grep으로 가드.
+- jsx layer string literal은 ASCII only — 한국어/non-ASCII는 panel layer가 i18n 책임 분리.
+- production wiring 첫 등장 시 inline ExtendScript probe (panel main.tsx의 PROBE_FRAGMENTS 패턴) 임시 주입으로 환경 ground truth 빠르게 확인 — root cause 가설 검증 시간 ↓.
 
 ## ✅ Phase 2 follow-up (#10) — `npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견
 

@@ -1,7 +1,7 @@
-// Phase 3.3 — test-only mock factories for AE Application + items.
+// Phase 3.3 -- test-only mock factories for AE Application + items.
 //
 // Used by per-tool handler.test.ts files. Phase 5 (30 tools) reuses the
-// same factory shape — extend fields here, not per-tool. Production jsx
+// same factory shape -- extend fields here, not per-tool. Production jsx
 // code never imports this (only tests do; bolt-cep build excludes via
 // the shared *.test.ts pattern).
 

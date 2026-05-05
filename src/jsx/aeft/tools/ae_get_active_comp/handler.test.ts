@@ -1,8 +1,8 @@
-// Phase 3.3 — unit tests for the first jsx bridge tool.
+// Phase 3.3 -- unit tests for the first jsx bridge tool.
 //
 // Runs under root vitest config (node env). Tests exercise the wrapper
 // envelope shape via the public `(rawInput, ctxOverride) => string` surface,
-// not internals — same way the panel's useExtendScriptBridge will call it
+// not internals -- same way the panel's useExtendScriptBridge will call it
 // in Phase 3.5.
 
 import { describe, it, expect } from "vitest";
@@ -10,7 +10,7 @@ import { ae_get_active_comp } from "./handler";
 import { makeMockApp, makeMockComp, makeMockNonCompItem } from "../_mockApp";
 
 describe("ae_get_active_comp", () => {
-  it("happy path — returns active comp metadata in {ok:true,output} envelope", () => {
+  it("happy path -- returns active comp metadata in {ok:true,output} envelope", () => {
     const ctx = {
       app: makeMockApp({
         activeItem: makeMockComp({
@@ -43,19 +43,19 @@ describe("ae_get_active_comp", () => {
     });
   });
 
-  it("h.fail — null activeItem → AENoActiveCompError", () => {
+  it("h.fail -- null activeItem -> AENoActiveCompError", () => {
     const ctx = { app: makeMockApp({ activeItem: null }) };
 
     const parsed = JSON.parse(ae_get_active_comp("{}", ctx));
 
     expect(parsed.ok).toBe(false);
     expect(parsed.error.code).toBe("AENoActiveCompError");
-    expect(parsed.error.userMessage).toMatch(/활성 컴프|active comp/i);
+    expect(parsed.error.userMessage).toMatch(/no active comp/i);
     expect(typeof parsed.error.developerHint).toBe("string");
     expect(parsed.error.developerHint.length).toBeGreaterThan(0);
   });
 
-  it("h.fail — Folder activeItem (non-comp) → AENoActiveCompError", () => {
+  it("h.fail -- Folder activeItem (non-comp) -> AENoActiveCompError", () => {
     const ctx = {
       app: makeMockApp({
         activeItem: makeMockNonCompItem("Folder", { name: "Bin" }),
@@ -68,7 +68,7 @@ describe("ae_get_active_comp", () => {
     expect(parsed.error.code).toBe("AENoActiveCompError");
   });
 
-  it("h.fail — Footage activeItem (non-comp) → AENoActiveCompError", () => {
+  it("h.fail -- Footage activeItem (non-comp) -> AENoActiveCompError", () => {
     const ctx = {
       app: makeMockApp({
         activeItem: makeMockNonCompItem("Footage", { name: "input.mp4" }),
@@ -81,17 +81,17 @@ describe("ae_get_active_comp", () => {
     expect(parsed.error.code).toBe("AENoActiveCompError");
   });
 
-  it("malformed rawInput → AEInputParseError", () => {
+  it("malformed rawInput -> AEInputParseError", () => {
     const ctx = { app: makeMockApp({ activeItem: makeMockComp() }) };
 
     const parsed = JSON.parse(ae_get_active_comp("not-json", ctx));
 
     expect(parsed.ok).toBe(false);
     expect(parsed.error.code).toBe("AEInputParseError");
-    expect(parsed.error.userMessage).toMatch(/입력|input/i);
+    expect(parsed.error.userMessage).toMatch(/input parse failed|input/i);
   });
 
-  it("empty string rawInput → AEInputParseError", () => {
+  it("empty string rawInput -> AEInputParseError", () => {
     const ctx = { app: makeMockApp({ activeItem: makeMockComp() }) };
 
     const parsed = JSON.parse(ae_get_active_comp("", ctx));
