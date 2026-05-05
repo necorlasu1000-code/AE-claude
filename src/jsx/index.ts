@@ -1,4 +1,4 @@
-// @include './lib/json2.js'
+// @include './_polyfills/json2.js'
 
 import { ns } from "../shared/shared";
 
