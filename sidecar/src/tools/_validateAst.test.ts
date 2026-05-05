@@ -142,6 +142,42 @@ describe("D7 validator — valid AE scripts pass", () => {
     expect(r.ok).toBe(true);
   });
 
+  // Phase 3.3 — ae_get_active_comp pattern. Exercises every shape the
+  // first read-only jsx tool uses: dot-access on app.project, typeName
+  // string compare for type discrimination (instead of `instanceof
+  // CompItem`), dot-read on numeric comp fields, and the h.fail throw
+  // sentinel that defineJsxTool's catch branch converts to AEError.
+  // Future jsx tools that share these shapes inherit coverage; truly
+  // novel patterns (Phase 5) add their own case here.
+  it("allows ae_get_active_comp pattern (typeName compare + h.fail throw sentinel)", () => {
+    // Wrap in function — matches the real defineJsxTool(function(_input, ctx, h){...})
+    // shape. Top-level return is parse-error per acorn (ECMA-262), so the
+    // golden case must mirror the actual call-site wrap.
+    const code = `
+      function ae_get_active_comp(_input, ctx, h) {
+        var item = ctx.app.project.activeItem;
+        if (!item || item.typeName !== "Composition") {
+          throw h.fail(
+            "AENoActiveCompError",
+            "활성 컴프 없음",
+            "사용자에게 컴프 선택 제안"
+          );
+        }
+        return {
+          name: item.name,
+          id: item.id,
+          durationSec: item.duration,
+          frameRate: item.frameRate,
+          width: item.width,
+          height: item.height,
+          numLayers: item.numLayers
+        };
+      }
+    `;
+    const r = validateExtendScript(code);
+    expect(r.ok).toBe(true);
+  });
+
   it("allows array index access (literal number)", () => {
     const r = validateExtendScript(`var arr = [1, 2, 3]; var first = arr[0];`);
     expect(r.ok).toBe(true);

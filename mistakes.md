@@ -502,7 +502,7 @@ acorn-walk의 `simple` walker는 `MemberExpression`을 만났을 때:
 
 5. **`mistakes.md`의 위 표에 행 추가** — 패턴, 위험 식별자, 코드 예시, 작동 원리
 
-6. **CLAUDE.md `Validation Gates` #1의 카운트 업데이트** — "30+ adversarial" → 실제 개수
+6. **CLAUDE.md `Validation Gates` #1 표현 점검** — 동적 표현 ("per-tool 골든셋 누적" 같은) 유지. 정적 미래 수치 박지 말 것 (Phase 5 30 tool 진행하면서 매번 갱신해야 하는 부담 → 표현 자체가 자동 누적이면 갱신 불필요).
 
 **중요한 함정**:
 - `acorn-walk` simple walker는 visitor 호출 패턴에 의미론적 차이 있음. node 안의 sub-node가 visit될지 직접 확인 (test로 빨강 → 초록 확인). 추측 금지.

@@ -52,7 +52,7 @@ AE ↔ CEP Panel (React + xterm.js)
 | D4 | Undo + crash recovery | tool당 1 undoGroup + 세션 시작 자동저장 + 5 tool마다 incremental save | 모든 destructive tool은 `defineAETool` HOF wrapping |
 | D5 | Packaging | self-signed ZXP + Node 바이너리 동봉 | 인터넷 의존 없는 첫 실행, ZXPInstaller 우회 |
 | D6 | WS 프로토콜 | typed envelope (discriminated union) + request_id + cancel/progress/chunking/heartbeat | `sidecar/src/protocol.ts` single source of truth |
-| D7 | AST validator | acorn + adversarial test suite (30+ injection 골든셋) | jsx 패턴은 validator 통과해야 |
+| D7 | AST validator | acorn + adversarial test suite (per-tool 골든셋 누적) | jsx 패턴은 validator 통과해야 |
 | D8 | Tool 코드 조직 | per-tool collocation: `tools/<ae_name>/{schema,handler,impl.jsx,test}` | tool 추가 = 1 디렉토리 추가, 도메인별 분할 금지 |
 | D9 | Distribution | portable Node 20 + node_modules + GitHub Actions Win/Mac matrix | `pkg`/`bun --compile`/SEA 사용 금지 |
 | ~D10~ | (점프됨) | — | — |
@@ -71,7 +71,7 @@ AE ↔ CEP Panel (React + xterm.js)
 ### ✅ Phase 1 — 사이드카 foundation (완료)
 - `sidecar/src/protocol.ts` — D6 typed envelope, panel/sidecar 양쪽 import (single source of truth)
 - `sidecar/src/tools/_define.ts` — `defineAETool` HOF (D4 undo group + crash recovery wrapping)
-- `sidecar/src/tools/_validateAst.ts` + `_validateAst.test.ts` — D7 AST validator + 30+ adversarial 골든셋 (constructor / __proto__ / callee / caller / prototype 우회 차단)
+- `sidecar/src/tools/_validateAst.ts` + `_validateAst.test.ts` — D7 AST validator + adversarial 골든셋 (constructor / __proto__ / callee / caller / prototype 우회 차단, 신규 jsx 패턴마다 case +1)
 - `sidecar/src/tools/_errors.ts` — `AEError` 서브클래스 (code/userMessage/developerHint 트리플)
 
 ### ✅ Phase 2 — 패널 ↔ 사이드카 연결 (완료 2026-05-05, 96 tests)
@@ -153,7 +153,7 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 │       │   ├── _define.ts               # defineAETool HOF (D4)
 │       │   ├── _errors.ts               # AEError 서브클래스
 │       │   ├── _validateAst.ts          # D7 AST validator
-│       │   └── _validateAst.test.ts     # 30+ 골든셋
+│       │   └── _validateAst.test.ts     # adversarial 골든셋 (per-tool 누적)
 │       └── __integration__/             # 통합 테스트 (74 sidecar 테스트 중 일부)
 │
 ├── src/js/main/                         # CEP panel React 앱
@@ -231,7 +231,7 @@ CSInterface.evalScript("aeft.tools.ae_get_active_comp(JSON.stringify(input))")
 - **`panelBridge.ts`**: primary client + request_id 라우팅 완비. 새 메시지 타입 핸들러만 추가.
 - **`useTerminal.ts`** (또는 별도 hook): WS message router 패턴 확립됨. `tool.exec` 수신 → `evalScript` 호출 → `tool.result` 송신 path 추가.
 - **`defineAETool` HOF**: D4 (undo group + crash recovery)에 자동 wiring. Phase 3 첫 tool도 이 HOF 통과.
-- **`_validateAst.ts`**: jsx 코드 합본 전 검증 (이미 D7 골든셋 30+ 통과). 새 jsx 패턴은 이걸 통과해야.
+- **`_validateAst.ts`**: jsx 코드 합본 전 검증 (D7 골든셋 통과). 새 jsx 패턴은 case 1+ 추가 후 통과해야.
 - **`AEError`**: `code` / `userMessage` / `developerHint` 트리플. jsx에서 throw → AEError로 변환.
 
 ### 주의사항 (mistakes.md에서 미리 챙길 것)

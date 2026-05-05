@@ -477,7 +477,7 @@ Phase 3 = "ExtendScript 브릿지 정립" — 사이드카가 WS로 `{type:"exec
 | # | Topic | Decision | Plan delta |
 |---|---|---|---|
 | D6 | WebSocket 프로토콜 명세 | A (typed envelope full spec) — discriminated union, request_id correlation, cancel/progress/chunking/heartbeat | 신규 모듈 `sidecar/src/protocol.ts` (~150 LOC) — panel/sidecar 공유 import |
-| D7 | AST validator 구현 | A (acorn + adversarial test suite + indirection 차단 + #include preprocess) | `_validateAst.ts` ~200 LOC + `adversarial.test.ts` 30+ injection 골든셋 |
+| D7 | AST validator 구현 | A (acorn + adversarial test suite + indirection 차단 + #include preprocess) | `_validateAst.ts` ~200 LOC + `adversarial.test.ts` 골든셋 (per-tool case 누적) |
 | D8 | Tool 코드 조직 | A (per-tool collocation: `tools/<ae_name>/{schema,handler,impl.jsx,test}`) | §5 디렉토리 구조 재설계, 빌드 스크립트로 jsx 합본 |
 | D9 | Distribution pipeline | B (portable Node 20 + node_modules + GitHub Actions Win/Mac matrix) | §12 시작 명령 + `.github/workflows/release.yml` |
 
@@ -511,7 +511,7 @@ Phase 3 = "ExtendScript 브릿지 정립" — 사이드카가 WS로 `{type:"exec
 
 ```
 Coverage target:  ~120 unit + 8 E2E + 7 manual + 10 eval cases
-Critical security gate:  _validateAst.ts adversarial 30+ golden set (CI required)
+Critical security gate:  _validateAst.ts adversarial golden set (per-tool case 누적, CI required)
 Mock infra:  tests/_helpers/mockAe.ts (~120 LOC) — WebSocket fixture responder
 LLM eval:  evals/golden/{scenario}/{input.txt, expected_tools.json, fixture_responses.json}
 ExtendScript:  manual checklist (AE 인스턴스 필요, CI 자동화 불가)
@@ -540,7 +540,7 @@ CEO Failure Modes Registry에 보강:
 | Codepath | Failure | Rescued? | Test? | User sees | Action |
 |---|---|---|---|---|---|
 | `protocol.ts` chunking | 청크 손실/순서 뒤섞임 | ❌ → P1 | ❌ | 응답 깨짐 | seq + total 검증, missing 시 retry |
-| `_validateAst.ts` | adversarial 우회 | ✅ D7 | ✅ 30+ 골든셋 | 차단 + 사유 표시 | CI 회귀 |
+| `_validateAst.ts` | adversarial 우회 | ✅ D7 | ✅ 골든셋 (per-tool 누적) | 차단 + 사유 표시 | CI 회귀 |
 | Sidecar lockfile | stale lock (이전 AE 프로세스 좀비) | ❌ → E4 | ❌ | spawn 실패 | PID 폴링 + stale detection |
 | `node-pty` Mac arm64 | prebuilt mismatch | ❌ → D9 | ❌ | 사이드카 spawn 실패 | Actions runner별 prebuild |
 | Tool dispatcher mutex | deadlock (재귀 호출) | ❌ → P4 | ⚠ test | hang | reentrant guard, timeout 30s 강제 |

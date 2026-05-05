@@ -1,6 +1,18 @@
 // D7 — ExtendScript AST validator (security gate for ae_run_extendscript).
-// CLAUDE.md Validation Gate #1: passes 30+ adversarial golden set in _validateAst.test.ts
-// Strategy: default-deny with conservative allow-list + indirection blocking + #include preprocess.
+// CLAUDE.md Validation Gate #1: passes adversarial golden set in
+// _validateAst.test.ts. Coverage grows per-tool — every new jsx pattern
+// added under src/jsx/aeft/tools/ adds at least one matching positive
+// case (Phase 5 sub-step rule).
+// Strategy: default-deny with conservative allow-list + indirection
+// blocking + #include preprocess.
+//
+// Scope of validation = per-tool source patterns ONLY, NOT the bolt-cep
+// production bundle (dist/cep/jsx/index.js). Reason: the bundle inlines
+// json2.js polyfill which uses `eval("(" + text + ")")` intentionally
+// inside JSON.parse — the polyfill predates ES5 native JSON and that
+// `eval` is the standard json2 implementation. Whole-bundle validation
+// would false-alarm on vendored polyfill code that we have no business
+// rewriting. If a future ES5+ host removes the polyfill need, revisit.
 
 import { Parser } from "acorn";
 import { simple as walk } from "acorn-walk";

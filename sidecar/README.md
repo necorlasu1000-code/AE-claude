@@ -9,7 +9,7 @@ Foundation modules per CLAUDE.md Phase 1 gate:
 - `src/protocol.ts` — D6 typed envelope (panel + sidecar shared)
 - `src/tools/_errors.ts` — C2 AEError taxonomy
 - `src/tools/_validateAst.ts` — D7 ExtendScript AST validator (security gate)
-- `src/tools/_validateAst.test.ts` — 30+ adversarial golden set
+- `src/tools/_validateAst.test.ts` — adversarial golden set (per-tool case 누적)
 - `src/tools/_define.ts` — C1 `defineAETool` HOF
 
 ## Setup

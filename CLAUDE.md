@@ -87,7 +87,7 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 | D4 | Undo + crash recovery | tool당 1 undoGroup + 세션 시작 자동저장 + 5 tool마다 incremental save | 모든 destructive tool은 `defineAETool` HOF로 wrapping |
 | D5 | Packaging | self-signed ZXP + Node 바이너리 동봉 | 첫 실행에 인터넷 의존 X, ZXPInstaller 우회 안내 |
 | D6 | WS 프로토콜 | typed envelope (discriminated union) + request_id + cancel/progress/chunking/heartbeat | `sidecar/src/protocol.ts`가 single source of truth, panel/sidecar 양쪽 import |
-| D7 | AST validator | acorn + adversarial test suite (30+ injection 골든셋, indirection/computed/eval/include 차단) | 새 ExtendScript 코드 추가 시 골든셋 통과 필수 |
+| D7 | AST validator | acorn + adversarial test suite (per-tool 골든셋 누적, indirection/computed/eval/include 차단) | 새 ExtendScript 코드 추가 시 골든셋 통과 필수 |
 | D8 | Tool 코드 조직 | per-tool collocation: `tools/<ae_name>/{schema, handler, impl.jsx, test}` | tool 추가 = 1 디렉토리 추가. 도메인별 분할 금지 |
 | D9 | Distribution | portable Node 20 + node_modules + GitHub Actions Win/Mac matrix | `pkg`/`bun --compile`/SEA 사용 금지 — deprecation 위험 |
 
@@ -95,8 +95,8 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 
 이 게이트들은 PR/커밋 전에 통과해야 한다. 우회 금지.
 
-1. **Security gate** — `tools/_validateAst.test.ts`의 30+ adversarial 골든셋 통과 (D7).
-   새 `tools/<ae_name>/impl.jsx` 추가 시 validator를 통과하는 패턴인지 사전 확인.
+1. **Security gate** — `tools/_validateAst.test.ts`의 adversarial 골든셋 통과 (D7).
+   새 `tools/<ae_name>/impl.jsx` 추가 시 validator를 통과하는 패턴인지 사전 확인 + 해당 패턴을 case 1+ 로 골든셋에 추가.
    `system.callSystem`/`File`/`Folder`/`Socket`/`eval`/`Function`/`#include`/computed member access는 사용 금지.
 
 2. **Undo gate** — destructive tool은 `defineAETool({destructive: true})` 명시 (D4).
@@ -129,7 +129,7 @@ ae-claude-panel/
 │   ├── tools/
 │   │   ├── _define.ts                   # defineAETool HOF (C1)
 │   │   ├── _validateAst.ts              # D7 AST validator
-│   │   ├── _validateAst.test.ts         # 30+ adversarial 골든셋
+│   │   ├── _validateAst.test.ts         # adversarial 골든셋 (per-tool 누적)
 │   │   ├── ae_create_comp/
 │   │   │   ├── schema.ts                # zod input/output
 │   │   │   ├── handler.ts               # sidecar handler
@@ -159,7 +159,7 @@ ae-claude-panel/
 | Phase | 산출물 | 검증 | 상태 |
 |---|---|---|---|
 | 0 | bolt-cep 부팅, regedit `PlayerDebugMode=1`, AE script 권한 | 빈 패널이 AE에 뜨는지 | ✅ 완료 |
-| 1 | `protocol.ts` (D6), `_define.ts` (C1), `_validateAst.ts` + 골든셋 (D7) | 단위 테스트 100%, adversarial 30+ 통과 | ✅ 완료 |
+| 1 | `protocol.ts` (D6), `_define.ts` (C1), `_validateAst.ts` + 골든셋 (D7) | 단위 테스트 100%, adversarial 골든셋 모두 통과 | ✅ 완료 |
 | 2 | 패널 ↔ 사이드카 WS 연결, xterm 마운트, cmd.exe 인터랙션, graceful shutdown | 패널에서 `dir` 명령 결과 보임, resize 동작, 좀비 0 | ✅ 완료 (2026-05-05, 96 tests, 9 mistakes 등재) |
 | 3 | ExtendScript 브릿지 (`{type:'exec', tool, input}` ↔ jsx 함수 lookup) | 왕복 latency ≤100ms, 에러 path 검증 | ⏳ 다음 |
 | 4 | MCP 서버 + claude PTY, `ae_get_active_comp` 첫 tool | 패널에서 "현재 프로젝트 정보" → tool 호출 → 응답 | |
