@@ -228,6 +228,24 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
+## ✅ Phase 2.8.4 — React StrictMode + useTerminal heavy side-effect 충돌 (사이드카 double-spawn race)
+
+**증상**: 시나리오 a 재검증 시 status "Crashed" + ws close. console 로그가 명확:
+1. `[useTerminal] mount → starting`
+2. `[useTerminal] launcher.start() called`
+3. `[useTerminal] cleanup begin` ← 여기
+4. `[useTerminal] mount → starting` (재시작)
+5. `[useTerminal] launcher.start() called`
+6. `[useTerminal] launcher ready`
+7. `[useTerminal] ws open`
+8. `[useTerminal] ws close` ← 즉시 끊김
+
+**Root cause**: React 18+ StrictMode가 개발 모드에서 useEffect를 의도적으로 두 번 invoke (mount → cleanup → mount). useTerminal 같은 **무거운 side effect** (사이드카 spawn + lockfile + WS bind)에선 두 번째 mount의 새 사이드카가 첫 번째 cleanup이 아직 정리 못 한 상태에서 충돌 (port/lockfile race) → 두 번째 ws가 곧 close.
+
+**Fix**: entry 파일에서 `<React.StrictMode>` 제거. Production 빌드는 StrictMode 영향 0 (개발 도구일 뿐). 잃는 것: 일부 React 개발 모드 검증 (legacy lifecycle, 부수효과 검증). 사이드카 같은 외부 process 관리엔 부적합.
+
+**대안 (채택 안 함)**: useRef mount-guard로 두 번째 invoke skip — 코드 복잡 + StrictMode 의도 회피. CEP panel은 SSR/concurrent rendering 시나리오 없으니 StrictMode 검증 가치 낮음.
+
 ## ✅ Phase 2.8.4 — child_process.spawn shell:true Windows path-with-space/Korean quote 함정
 
 **증상**: 사이드카 spawn 시도 → exit code 1 + stderr `Cannot find module 'C:\Users\user\Desktop\성윤\에펙'` (path가 공백에서 잘림).
