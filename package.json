@@ -11,7 +11,9 @@
     "zip": "rimraf dist/* && tsc -p \"tsconfig-build.json\" && cross-env ZIP_PACKAGE=true vite build --watch false",
     "serve": "cross-env SERVE_PANEL=true vite preview",
     "symlink": "cross-env BOLT_ACTION=symlink vite",
-    "delsymlink": "cross-env BOLT_ACTION=delsymlink vite"
+    "delsymlink": "cross-env BOLT_ACTION=delsymlink vite",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -60,6 +62,7 @@
     "types-for-adobe-extras": "^0.0.9",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
-    "vite-cep-plugin": "^2.2.0"
+    "vite-cep-plugin": "^2.2.0",
+    "vitest": "^4.1.5"
   }
 }
