@@ -228,6 +228,14 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
+## Phase 2.7.1.3 spike — backspace 미동작은 mock echo 한계 (#8에서 자동 해결)
+
+**관찰**: 시각 spike에서 사용자가 backspace 키 누르면 글자 안 지워짐.
+
+**원인**: spike의 EchoFakeWS는 `pty.in` → `pty.out` 단순 passthrough. `\x7f` (DEL) 같은 키도 그대로 echo. 실제 PTY 환경에선 cmd.exe/bash가 `\b \b` (backspace + space + backspace) 응답으로 글자 지움.
+
+**판정**: spike 검증 결과에 영향 X. Phase 2 #8 (진짜 사이드카 연결) 단계에서 cmd.exe가 처리 → 자동 해결.
+
 ## ✅ Phase 2.6 spike 결과 — bolt-cep node.ts child_process.spawn 작동 확인
 
 **검증**: `src/js/main/main.tsx`에 임시 spike 코드 추가 → AE에서 panel 열어 spike-result.txt 받음.
