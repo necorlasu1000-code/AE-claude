@@ -21,7 +21,13 @@
 import { PanelBridge, type ExecCtx, type ExecHandler } from "./ws/panelBridge.js";
 import { PtyHost } from "./pty/ptyHost.js";
 import { PROTOCOL_VERSION } from "./protocol.js";
-import { acquireLock, releaseLock, type LockContent } from "./lifecycle/lockfile.js";
+import {
+  acquireLock,
+  releaseLock,
+  writeReadyFile,
+  deleteReadyFile,
+  type LockContent,
+} from "./lifecycle/lockfile.js";
 import { PidWatchdog } from "./lifecycle/watchdog.js";
 import { AEError } from "./tools/_errors.js";
 
@@ -160,7 +166,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Emit ready JSON on stdout (launcher contract).
+  // Emit ready JSON on stdout (launcher contract — option E primary).
   const ready = {
     type: "ready",
     port: actualPort,
@@ -172,6 +178,19 @@ async function main(): Promise<void> {
     ts: Date.now(),
   };
   process.stdout.write(JSON.stringify(ready) + "\n");
+
+  // Option B fallback: also write ready JSON to <lockDir>/ready-<aePid>.json
+  // for launchers whose stdout capture fails or races. Only when supervised
+  // (aePid set); dev mode skips since there's no parent to read it.
+  if (cfg.aePid !== undefined) {
+    try {
+      await writeReadyFile(cfg.aePid, ready);
+      logDebug(cfg, "ready file written:", cfg.aePid);
+    } catch (e) {
+      // Non-fatal — stdout path still works. Just log and move on.
+      logDebug(cfg, "ready file write failed (non-fatal):", e);
+    }
+  }
 
   // ── Shutdown ─────────────────────────────────────────────────────
   let shuttingDown = false;
@@ -192,6 +211,7 @@ async function main(): Promise<void> {
       pty.kill().catch(() => { /* best-effort, ConPTY can hang */ });
       if (lockHeld && cfg.aePid !== undefined) {
         await releaseLock(cfg.aePid).catch(() => { /* best-effort */ });
+        await deleteReadyFile(cfg.aePid).catch(() => { /* best-effort */ });
       }
       clearTimeout(forceTimer);
       process.exit(0);

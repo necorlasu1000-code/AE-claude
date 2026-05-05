@@ -5,7 +5,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { acquireLock, releaseLock, getLockPath, getLockDir, type LockContent } from "./lockfile.js";
+import {
+  acquireLock,
+  releaseLock,
+  getLockPath,
+  getLockDir,
+  writeReadyFile,
+  deleteReadyFile,
+  getReadyFilePath,
+  type LockContent,
+} from "./lockfile.js";
 
 let tmpDir: string;
 
@@ -97,6 +106,20 @@ describe("lockfile", () => {
     expect(["AELockHeld", "AELockRaceLost"]).toContain(
       (rejection.reason as NodeJS.ErrnoException).code,
     );
+  });
+
+  // ── 6 (Phase 2.6 ready file fallback) ────────────────────────────
+  it("ready file: write creates dir + JSON file, delete is idempotent", async () => {
+    const aePid = 22222;
+    const readyContent = { type: "ready", port: 12345, pid: process.pid, ts: Date.now() };
+
+    await writeReadyFile(aePid, readyContent);
+    const readyPath = getReadyFilePath(aePid);
+    const written = JSON.parse(await fs.readFile(readyPath, "utf8"));
+    expect(written).toEqual(readyContent);
+
+    expect(await deleteReadyFile(aePid)).toBe(true);
+    expect(await deleteReadyFile(aePid)).toBe(false);  // ENOENT swallowed
   });
 
   // ── 5 ────────────────────────────────────────────────────────────

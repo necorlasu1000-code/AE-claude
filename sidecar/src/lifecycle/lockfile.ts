@@ -116,3 +116,35 @@ export async function releaseLock(aePid: number): Promise<boolean> {
     throw e;
   }
 }
+
+// ─── Ready file (Phase 2.6 — option B fallback for launcher) ────────
+//
+// Sidecar writes the ready JSON to BOTH stdout (option E primary path,
+// captured by panel launcher's child_process.stdout listener) AND a file
+// at <lockDir>/ready-<aePid>.json (option B fallback for environments
+// where stdout listener fails or has timing issues).
+//
+// Same lockDir reuse: file lives next to the lockfile, cleaned up by
+// gracefulShutdown alongside releaseLock.
+
+export function getReadyFilePath(aePid: number): string {
+  return path.join(getLockDir(), `ready-${aePid}.json`);
+}
+
+/** Write ready signal to file. Caller passes the same JSON they emit to stdout. */
+export async function writeReadyFile(aePid: number, ready: object): Promise<void> {
+  await ensureDir(getLockDir());
+  await fs.writeFile(getReadyFilePath(aePid), JSON.stringify(ready), { encoding: "utf8" });
+}
+
+/** Best-effort delete during gracefulShutdown. ENOENT is fine (already gone). */
+export async function deleteReadyFile(aePid: number): Promise<boolean> {
+  try {
+    await fs.unlink(getReadyFilePath(aePid));
+    return true;
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "EACCES" || code === "EPERM") return false;
+    throw e;
+  }
+}
