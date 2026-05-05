@@ -228,6 +228,32 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
+## ✅ Phase 2.6 spike 결과 — bolt-cep node.ts child_process.spawn 작동 확인
+
+**검증**: `src/js/main/main.tsx`에 임시 spike 코드 추가 → AE에서 panel 열어 spike-result.txt 받음.
+
+```json
+{
+  "spawnFn": "function",
+  "exitCode": 0,
+  "exitSignal": null,
+  "stdout": "{\"hello\":\"world\",\"ts\":1777905262017}\n"
+}
+```
+
+**결론**:
+- bolt-cep `src/js/lib/cep/node.ts`가 panel runtime에 표준 Node.js modules 노출 (`child_process.spawn`, `fs`, `os`, `path` 등)
+- Phase 2.5 spawn-helper.ts와 **동일한 EventEmitter 기반 API** + 정식 TypeScript 타입 (`typeof import("child_process")`)
+- stdout streaming 정상 (chunk-by-chunk on data event)
+- 자식 프로세스 정상 종료 시 exit 이벤트 fire (code: 0, signal: null)
+
+→ panel launcher (`src/js/main/sidecar/launcher.ts`)는 옵션 E (`child_process.spawn`) 사용 확정. ~~옵션 A (cep.process.createProcess)~~ 불필요.
+
+**관련 발견** — `npm run dev` 첫 실행 시 ENOENT (`dist/cep/main/index.html`)
+- 원인: `vite-cep-plugin`이 폴더 자동 생성 안 함
+- fix: `mkdir -p dist/cep/main` 한 번 실행 후 `npm run dev` 정상 작동
+- 또는 `npm run build` 한 번 실행으로 dist/cep 풀 구조 생성
+
 ## ✅ 2026-05-04 Windows process.kill SIGTERM = TerminateProcess (graceful 불가) — sys.shutdown으로 해결
 
 **문제**: Phase 2.5.5 통합 테스트에서 `process.kill(sidecarPid, "SIGTERM")` 호출 후 사이드카가 graceful shutdown 안 함 → lockfile 안 삭제됨.
