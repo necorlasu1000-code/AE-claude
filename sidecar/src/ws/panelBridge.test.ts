@@ -334,6 +334,58 @@ describe("PanelBridge", () => {
     wsB.close();
   });
 
+  // ── 12 ───────────────────────────────────────────────────────────
+  it("scenario 12: last client disconnect + grace elapses → onShutdownRequest('panel-disconnect')", async () => {
+    const onShutdownRequest = vi.fn();
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+      onShutdownRequest,
+      clientDisconnectGracePeriodMs: 60,    // short grace for fast tests
+    });
+    ({ port } = await bridge.start());
+
+    const ws = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(ws, (m) => m.type === "sys.version");
+
+    ws.close();
+    // Wait past the grace window. onShutdownRequest fires after grace
+    // elapses with zero clients still attached.
+    await delay(150);
+    expect(onShutdownRequest).toHaveBeenCalledTimes(1);
+    expect(onShutdownRequest).toHaveBeenCalledWith("panel-disconnect");
+  });
+
+  // ── 13 ───────────────────────────────────────────────────────────
+  it("scenario 13: client reconnects within grace → onShutdownRequest NOT called", async () => {
+    const onShutdownRequest = vi.fn();
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+      onShutdownRequest,
+      clientDisconnectGracePeriodMs: 200,
+    });
+    ({ port } = await bridge.start());
+
+    const wsA = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(wsA, (m) => m.type === "sys.version");
+
+    wsA.close();
+    await delay(50);    // mid-grace: timer is pending but hasn't fired
+
+    // New panel reconnects (e.g., user reopened the CEP panel) — should
+    // cancel the pending grace timer.
+    const wsB = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(wsB, (m) => m.type === "sys.version");
+
+    // Wait past the original grace window — onShutdownRequest must NOT fire.
+    await delay(250);
+    expect(onShutdownRequest).not.toHaveBeenCalled();
+    wsB.close();
+  });
+
   // ── 8 ────────────────────────────────────────────────────────────
   it("multi-client: secondary's pty.in refused with AEMultiClientRefused", async () => {
     const wsA = await openWs(url);

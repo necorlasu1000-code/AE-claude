@@ -228,6 +228,29 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
+## ✅ Phase 2.8.4 — panel close 시 사이드카 좀비 (graceful shutdown 메커니즘 부재)
+
+**증상**: panel을 6-8번 열고 닫은 후 작업관리자에 Node 좀비 ~20개. 메모리별 두 개씩 짝지어 (큰 + 작은) 누적. fix-1, fix-2 후에도 발생.
+
+**Root cause**: 두 가지가 동시에 누락:
+1. **Panel 측**: CEP panel close → React unmount의 async cleanup chain (`sendShutdownOverWs → launcher.stop → terminal.dispose`)이 panel runtime 종료 전에 못 끝남. 즉 `sys.shutdown` 메시지가 사이드카에 도달 못 하는 케이스 多.
+2. **사이드카 측**: PanelBridge가 client `ws.close` 이벤트는 처리하나 **자체 self-shutdown trigger 없음**. 클라이언트 다 끊겨도 다음 client 기다리며 alive 유지.
+
+→ panel close → 사이드카는 "잠깐 끊긴 거" 인식 → 다음 panel 열 때 새 사이드카 또 spawn → 좀비 누적.
+
+**Fix (Phase 2.8.4 fix-3)**: PanelBridge에 disconnect grace shutdown 추가:
+- `clientDisconnectGracePeriodMs` 옵션 (default 5000)
+- 마지막 client disconnect → grace timer 시작
+- grace 안에 새 connection 들어오면 cancel
+- grace 만료 + clients still empty → `onShutdownRequest("panel-disconnect")` → index.ts gracefulShutdown → lockfile 정리 + process exit
+
+**왜 5초 default**:
+- panel 빠른 reload (<2초) 에는 안 발동
+- 사용자가 panel 닫고 5초 안에 다시 안 열면 self-shutdown 합리적 (좀비 방지)
+- Phase 4/5에서 사용 패턴 보고 조정 가능 (예: 30초로 늘리기)
+
+**예방**: 외부 process를 owning하는 hook (CEP panel 같은 ephemeral runtime에서) — graceful shutdown 메시지가 도달 안 할 case에 대비해 사이드카 측 self-trigger 메커니즘 필수. AE death watchdog (Phase 2.5.6) 같이 _다중 trigger 경로_ 가지는 게 안전.
+
 ## ✅ Phase 2.8.4 — React StrictMode + useTerminal heavy side-effect 충돌 (사이드카 double-spawn race)
 
 **증상**: 시나리오 a 재검증 시 status "Crashed" + ws close. console 로그가 명확:

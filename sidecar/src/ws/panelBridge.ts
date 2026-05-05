@@ -51,8 +51,20 @@ export interface PanelBridgeOptions {
    * Called when a primary client sends sys.shutdown. Wired in index.ts to
    * trigger gracefulShutdown(). Bridge has already broadcast sys.shutting-down
    * before this fires, so external code only needs to start the actual cleanup.
+   *
+   * ALSO called when the last client disconnects without sending sys.shutdown
+   * AND the disconnect grace period elapses without a new connection — this
+   * covers the CEP panel-close case where async React cleanup can't finish
+   * before panel runtime exits. See Phase 2.8.4 fix-3.
    */
   onShutdownRequest?: (reason?: string) => void;
+  /**
+   * After the LAST client disconnects, wait this long for a new connection
+   * before calling onShutdownRequest("panel-disconnect"). Default 5000 (5s).
+   * Set to 0 to disable auto-shutdown on last-disconnect (sys.shutdown remains
+   * the only graceful-trigger).
+   */
+  clientDisconnectGracePeriodMs?: number;
 }
 
 // ─── Internal state ────────────────────────────────────────────────
@@ -90,6 +102,10 @@ export class PanelBridge {
   private heartbeatTimer: NodeJS.Timeout | undefined;
   private watchdogTimer: NodeJS.Timeout | undefined;
   private ptyUnsubscribe: (() => void) | undefined;
+  /** Timer set when last client disconnects; canceled if new client connects. */
+  private clientDisconnectTimer: NodeJS.Timeout | undefined;
+  /** Set true when stop() begins so client-disconnect grace doesn't double-fire shutdown. */
+  private stopping = false;
 
   constructor(private readonly opts: PanelBridgeOptions) {}
 
@@ -138,6 +154,7 @@ export class PanelBridge {
   }
 
   async stop(): Promise<void> {
+    this.stopping = true;
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = undefined;
@@ -145,6 +162,10 @@ export class PanelBridge {
     if (this.watchdogTimer) {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = undefined;
+    }
+    if (this.clientDisconnectTimer) {
+      clearTimeout(this.clientDisconnectTimer);
+      this.clientDisconnectTimer = undefined;
     }
     this.ptyUnsubscribe?.();
     this.ptyUnsubscribe = undefined;
@@ -175,6 +196,13 @@ export class PanelBridge {
   // ─── Connection lifecycle ────────────────────────────────────────
 
   private handleConnection(ws: WebSocket): void {
+    // New client arrived — cancel any pending auto-shutdown grace timer
+    // (the previous panel may have just disconnected and reopened).
+    if (this.clientDisconnectTimer) {
+      clearTimeout(this.clientDisconnectTimer);
+      this.clientDisconnectTimer = undefined;
+    }
+
     const state: ClientState = { lastRecvAt: Date.now() };
     this.clients.set(ws, state);
     if (!this.primary) this.primary = ws;
@@ -223,6 +251,22 @@ export class PanelBridge {
           clearTimeout(p.timer);
           this.pending.delete(requestId);
         }
+      }
+
+      // Last client just left and we're not already shutting down: start grace
+      // timer. If a new connection arrives within the grace window the timer
+      // is canceled in handleConnection. Otherwise onShutdownRequest fires —
+      // index.ts wires this to gracefulShutdown, releasing the lockfile.
+      // Fixes Phase 2.8.4 zombie sidecars when CEP panel closes (no chance
+      // for the React unmount cleanup to send sys.shutdown synchronously).
+      const grace = this.opts.clientDisconnectGracePeriodMs ?? 5_000;
+      if (!this.stopping && this.clients.size === 0 && grace > 0) {
+        this.clientDisconnectTimer = setTimeout(() => {
+          this.clientDisconnectTimer = undefined;
+          if (this.stopping || this.clients.size > 0) return;
+          try { this.opts.onShutdownRequest?.("panel-disconnect"); }
+          catch { /* never throw from timer */ }
+        }, grace);
       }
     });
 
