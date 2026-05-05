@@ -19,6 +19,7 @@
 //   runs as an unsupervised process for unit/integration testing.
 
 import { PanelBridge, type ExecCtx, type ExecHandler } from "./ws/panelBridge.js";
+import { createToolDispatcher, type ToolDispatcher } from "./dispatcher/toolDispatcher.js";
 import { PtyHost } from "./pty/ptyHost.js";
 import { PROTOCOL_VERSION } from "./protocol.js";
 import {
@@ -128,14 +129,30 @@ async function main(): Promise<void> {
     fn: () => { /* replaced before PanelBridge can fire onShutdownRequest */ },
   };
 
-  const bridge = new PanelBridge({
+  // Phase 3.7 — ToolDispatcher with lazy back-reference to bridge.
+  // dispatcher.send needs bridge; bridge.onToolResponse needs dispatcher.
+  // Resolve via closure: declare bridge first (let), capture in dispatcher.send
+  // (resolved at call time), then assign bridge with onToolResponse wired to
+  // dispatcher.handleIncoming. Mirrors the in-process integration test pattern
+  // (sidecar/src/__integration__/integration-dispatcher.test.ts wireDispatcherAndBridge).
+  // dispatcher is module-internal — exported when Phase 4 MCP layer needs it.
+  let bridge: PanelBridge;
+  const dispatcher: ToolDispatcher = createToolDispatcher({
+    send: (msg) => bridge.sendToPrimary(msg),
+  });
+
+  bridge = new PanelBridge({
     pty,
     execHandler: stubExecHandler,
     port: cfg.port,
     host: cfg.host,
     sidecarVersion: SIDECAR_VERSION,
     onShutdownRequest: (reason) => shutdownRef.fn("panel-shutdown" + (reason ? ":" + reason : "")),
+    onToolResponse: dispatcher.handleIncoming,
   });
+  // Reference dispatcher to keep tsc happy during Phase 3.7 — Phase 4 MCP
+  // layer reads/exports it. No runtime cost.
+  void dispatcher;
 
   const { port: actualPort } = await bridge.start();
   logDebug(cfg, "bridge listening on", `${cfg.host}:${actualPort}`);

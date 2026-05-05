@@ -228,6 +228,27 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
+## ✅ Phase 3.7 (#11) — panel-side script generator가 dot 포함 ns로 chained property access 생성
+
+**증상**: Phase 3.7 production wiring 시점에 발견. useExtendScriptBridge가 `${ns}.tools.${tool}(...)` 형식으로 evalScript 호출을 생성하는데, 실제 `ns` 값 = `cep.config.ts:id` = **`com.aeclaude.panel`** (dot 포함). ExtendScript에 도달한 script `com.aeclaude.panel.tools.ae_get_active_comp("...")`는 `com → .aeclaude → .panel ...` 식 chained property access로 파싱 → 첫 click에 `ReferenceError: com is undefined`. AE 사용자 검증 (Phase 3.8) 직전이라 다행이지 그 단계까지 가서야 발견했으면 사용자 시간 낭비.
+
+**Root cause**: 3.5 단위 테스트가 mock CSInterface로 script string의 정확한 형식 비교만 (`expect(script).toBe('ns.tools.ae_get_active_comp("{}")')`). mock이 실제 ExtendScript parse semantics를 모방 안 함 — 짧은 ns (`"ns"`)에선 dot 없어서 chained-vs-bracket ambiguity 자체가 안 드러남. unit test가 production ns 형식 가정을 시험하지 못함.
+
+**Fix (Phase 3.7 fix-1)**: bracket notation으로 변경.
+- `useExtendScriptBridge.ts` script template: `${ns}.tools.${tool}(...)` → `$[${JSON.stringify(ns)}].tools.${tool}(...)` → 산출물 `$["com.aeclaude.panel"].tools.ae_get_active_comp("...")`. jsx index.ts는 이미 `host[ns] = aeft` (bracket 등록), bracket lookup으로 동일 객체 회수.
+- `useExtendScriptBridge.test.ts` 기존 expect 정정 + 신규 case 1개 추가:
+  - real ns (`com.aeclaude.panel`)로 instance 생성
+  - 생성된 script를 acorn으로 parse → 통과 검증
+  - AST 구조 검증: outermost CallExpression callee가 `MemberExpression(MemberExpression($[ns:literal], "tools"), "<tool>")` 형태인지. 즉 `$["..."]`가 root, dotted-identifier로 풀리지 않음을 AST level에서 강제.
+- `main.tsx` `NS = "aeclaudepanel"` (잘못된 hardcode) → `NS = "com.aeclaude.panel"` (실제 cep.config.ts id 값).
+
+**예방 (Phase 5 30 tool 진입 전 핵심)**:
+- (a) **3.5 단위 테스트 자동 가드 (이번 commit에 박힘)**: useExtendScriptBridge에 신규 case "real ns with dots — generated script parses + first call shape is $[ns].tools.<tool>(...)". dotted ns가 실제 production 환경 가정이고, mock의 짧은 ns 가정은 반드시 진짜 ns로 한 번 더 검증 필요. acorn parse + AST 구조 검증이 형식 비교보다 본질적.
+- (b) **Phase 5 신규 tool 추가 시**: 같은 acorn 검증 패턴을 신규 tool generator 테스트에 자동 상속 (case 작성자가 of course 박을 것 — 단위 테스트 파일이 이미 패턴 보유).
+- (c) **CLAUDE.md Validation Gates §9 추가**: "panel-side script generator는 production ns 값으로 unit test에서 정확한 호출 형식 검증 (mock의 짧은 ns 가정 X)."
+
+**왜 mistakes.md 함정**: production wiring 첫 등장 시점에 string template generation의 implicit assumption (dot 없는 식별자)이 깨졌음. mock 환경과 production ns 값의 형식 차이가 unit test로 분리 안 됐던 게 본질. 향후 비슷한 상황 (panel runtime이 다른 cep config 값 식별자처럼 사용하는 케이스) 재학습 0이 목표 — gate §9가 그 자동 가드.
+
 ## ✅ Phase 2 follow-up (#10) — `npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견
 
 **증상**: Phase 2 완료 commit (047b8c9) 후 Phase 3.2 진입에서 `npm run build` 첫 실행 → `launcher.ts:303` 타입 에러로 production 빌드 실패. 96 자동 테스트는 모두 green이었으나 vitest는 tsx로 트랜스파일만 하고 strict 타입 검사 안 함.

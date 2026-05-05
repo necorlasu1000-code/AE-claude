@@ -121,6 +121,9 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 8. **Phase exit gate** — phase 종료 commit 전에 **`npm test` (sidecar + panel 모두 green) AND `npm run build` (production tsc strict + vite build) 둘 다 통과** 강제.
    test만 그린이면 vitest tsx 트랜스파일이 strict 타입 검사를 skip해서 production 빌드에서 늦게 터지는 함정 발생 (mistakes.md #10). 두 게이트는 직렬, 빌드까지 그린 확인 후에만 phase 닫는 commit 작성.
 
+9. **Script generator gate** — panel-side ExtendScript script generator (useExtendScriptBridge 등)는 **production ns 값** (`cep.config.ts:id` = dot 포함 식별자)으로 unit test에서 호출 형식 검증.
+   짧은 ns 가정 (`"ns"`)은 dot 없어서 chained property access vs bracket notation ambiguity 자체가 안 드러남 — acorn parse + AST 구조 검증으로 `$["..."].tools.<tool>(...)` 형태 확인 필수 (mistakes.md #11). 신규 jsx tool 추가 시 이 검증 패턴 상속.
+
 ### Directory Rules (D8 collocation)
 
 ```

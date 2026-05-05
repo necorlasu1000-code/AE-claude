@@ -35,7 +35,7 @@ describe("useExtendScriptBridge", () => {
 
     expect(result).toEqual({ ok: true, data: { name: "Hero", frameRate: 24 } });
     expect(evalScript).toHaveBeenCalledTimes(1);
-    expect(evalScript.mock.calls[0][0]).toBe('ns.tools.ae_get_active_comp("{}")');
+    expect(evalScript.mock.calls[0][0]).toBe('$["ns"].tools.ae_get_active_comp("{}")');
   });
 
   it("jsx h.fail {ok:false,error} → ExecResult ok:false branch", async () => {
@@ -206,14 +206,69 @@ describe("useExtendScriptBridge", () => {
     });
 
     const script = evalScript.mock.calls[0][0];
-    // Expect: ns.tools.ae_create_comp("<JSON-stringified input>")
+    // Expect: $["ns"].tools.ae_create_comp("<JSON-stringified input>")
     // The string literal arg, when JSON.parsed inside jsx, should yield
     // back the original input JSON.
-    const argMatch = script.match(/^ns\.tools\.ae_create_comp\((.*)\)$/);
+    const argMatch = script.match(/^\$\["ns"\]\.tools\.ae_create_comp\((.*)\)$/);
     expect(argMatch).toBeTruthy();
     const argLiteral = argMatch![1];
     const inputJsonRecovered = JSON.parse(argLiteral);
     const inputObjRecovered = JSON.parse(inputJsonRecovered);
     expect(inputObjRecovered).toEqual({ name: "한글 컴프", size: { w: 1920, h: 1080 } });
+  });
+
+  // ── Phase 3.7 fix verification — production ns with dots ──────────
+  // Mock-with-short-ns hides chained-property ambiguity. Use the real
+  // production ns ("com.aeclaude.panel") and parse the generated script
+  // through acorn to confirm the AST shape is what we intend (not
+  // dotted property access on a `com` identifier). Without this, a
+  // future ns rename to a dotted value would slip past unit tests and
+  // fail at the first AE click. Phase 5 30-tool authors inherit
+  // coverage automatically.
+  it("real ns with dots — generated script parses + first call shape is $[ns].tools.<tool>(...)", async () => {
+    const { Parser } = await import("acorn");
+    const evalScript = vi.fn((_script: string, cb: (raw: string) => void) =>
+      cb('{"ok":true,"output":{}}'),
+    );
+    const realNs = "com.aeclaude.panel";
+    const bridge = useExtendScriptBridge({
+      csInterface: { evalScript },
+      ns: realNs,
+    });
+
+    await bridge.exec({ requestId: "rid-real-ns", tool: "ae_get_active_comp", input: { x: 1 } });
+
+    const script = evalScript.mock.calls[0][0] as string;
+
+    // 1. Script must be parseable JS (no syntax error).
+    expect(() => Parser.parse(script, { ecmaVersion: 5 })).not.toThrow();
+
+    // 2. Single ExpressionStatement → CallExpression at the top.
+    const ast = Parser.parse(script, { ecmaVersion: 5 }) as { body: unknown[] };
+    expect(ast.body).toHaveLength(1);
+    const stmt = ast.body[0] as { type: string; expression: { type: string; callee: unknown; arguments: unknown[] } };
+    expect(stmt.type).toBe("ExpressionStatement");
+    expect(stmt.expression.type).toBe("CallExpression");
+
+    // 3. callee shape: MemberExpression(MemberExpression($[ns]), tools).<tool>
+    //    Innermost object must be `$[<string-literal-ns>]` — bracket
+    //    notation, NOT a chained property access on a `com` identifier.
+    const callee = stmt.expression.callee as {
+      type: string;
+      object: { type: string; object: { type: string; object: { type: string; name?: string }; property: { type: string; value?: string }; computed: boolean }; property: { type: string; name: string } };
+      property: { type: string; name: string };
+    };
+    expect(callee.type).toBe("MemberExpression");
+    expect(callee.property).toMatchObject({ type: "Identifier", name: "ae_get_active_comp" });
+
+    const tools = callee.object;
+    expect(tools.type).toBe("MemberExpression");
+    expect(tools.property).toMatchObject({ type: "Identifier", name: "tools" });
+
+    const dollarNs = tools.object;
+    expect(dollarNs.type).toBe("MemberExpression");
+    expect(dollarNs.computed).toBe(true); // bracket notation
+    expect(dollarNs.object).toMatchObject({ type: "Identifier", name: "$" });
+    expect(dollarNs.property).toMatchObject({ type: "Literal", value: realNs });
   });
 });

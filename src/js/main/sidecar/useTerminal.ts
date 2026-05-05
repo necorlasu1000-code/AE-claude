@@ -38,6 +38,11 @@ export interface UseTerminalOptions {
   sidecarArgs?: string[];
   spawnTimeoutMs?: number;
   debug?: boolean;
+  /** Phase 3.7 — receives WS messages this hook does not handle directly
+   *  (anything outside pty.out / pty.replay / sys.version / sys.shutting-down /
+   *  server.error). Wired by main.tsx to route exec/cancel into the
+   *  ExtendScript bridge layer. Default = noop. */
+  onUnhandledMessage?: (msg: unknown) => void;
 }
 
 /** All external bindings injected. Production caller wires real xterm
@@ -67,6 +72,12 @@ export interface UseTerminalResult {
   error: string | undefined;
   /** Tear down + restart full lifecycle. Used by error overlay's Restart button. */
   restart: () => void;
+  /** Phase 3.7 — send arbitrary message over the sidecar WS. No-op when
+   *  ws not open. Used by main.tsx to send result/error/cancel responses
+   *  back to the sidecar dispatcher. Returns true if the send was attempted
+   *  (ws OPEN), false otherwise — caller can fall back to local error
+   *  handling on false. */
+  sendMessage: (msg: unknown) => boolean;
 }
 
 // ─── Minimal interfaces (avoid pulling xterm types into hook signature) ──
@@ -228,12 +239,13 @@ export function useTerminal(
           //   sys.version             → noop (status already set on `open`)
           //   sys.shutting-down       → status = closing
           //   server.error            → surface to user
-          // IGNORED (out of #7 scope; routed by Phase 4 MCP layer):
-          //   result / result.chunk   — exec response (no exec sent from terminal)
-          //   error                   — exec-paired error
+          // FORWARDED (Phase 3.7) to onUnhandledMessage:
+          //   exec / cancel           → ExtendScript bridge layer (main.tsx)
+          //   result / result.chunk   — (panel does not receive these)
+          //   error                   — exec-paired error (panel does not receive)
           //   progress                — exec progress streaming
           //   approval.request        — D3 escape hatch dialog (Phase 4)
-          //   pty.in / pty.resize     — sender direction, not receiver
+          let handled = true;
           switch (msg?.type) {
             case "pty.out":
               if (typeof msg.data === "string") terminal.write(msg.data);
@@ -251,6 +263,12 @@ export function useTerminal(
             case "server.error":
               setError(`${msg.code}: ${msg.userMessage}`);
               break;
+            default:
+              handled = false;
+          }
+          if (!handled && options.onUnhandledMessage) {
+            try { options.onUnhandledMessage(msg); }
+            catch { /* never throw from message handler */ }
           }
         });
 
@@ -324,6 +342,12 @@ export function useTerminal(
     error,
     restart: () => {
       setRestartCount((n) => n + 1);
+    },
+    sendMessage: (msg: unknown) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== 1) return false;
+      try { ws.send(JSON.stringify(msg)); return true; }
+      catch { return false; }
     },
   };
 }

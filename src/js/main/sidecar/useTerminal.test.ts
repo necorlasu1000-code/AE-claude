@@ -290,4 +290,82 @@ describe("useTerminal", () => {
     await waitFor(() => expect(result.current.status).toBe("error"));
     expect(result.current.error).toBe("spawn ENOENT");
   });
+
+  // ── 10 (Phase 3.7) — onUnhandledMessage forwarding ───────────────
+  it("onUnhandledMessage receives msgs not handled by hook router (e.g. exec)", async () => {
+    const launcher = makeMockLauncher();
+    const { deps } = makeDeps(launcher);
+    const onUnhandledMessage = vi.fn();
+    const { result } = renderHook(() =>
+      useWrapped({ aePid: 11111, onUnhandledMessage }, deps),
+    );
+    await waitFor(() => expect(lastWs).toBeDefined());
+    act(() => { lastWs!._open(); });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    // exec is NOT handled by useTerminal — should forward
+    act(() => {
+      lastWs!._message({ type: "exec", requestId: "rid-1", tool: "ae_get_active_comp", input: {} });
+    });
+    expect(onUnhandledMessage).toHaveBeenCalledTimes(1);
+    expect(onUnhandledMessage.mock.calls[0][0]).toMatchObject({
+      type: "exec", requestId: "rid-1", tool: "ae_get_active_comp",
+    });
+
+    // pty.out IS handled — should NOT forward
+    act(() => { lastWs!._message({ type: "pty.out", data: "hi\r\n" }); });
+    expect(onUnhandledMessage).toHaveBeenCalledTimes(1);
+
+    // cancel is NOT handled — should forward
+    act(() => { lastWs!._message({ type: "cancel", requestId: "rid-1" }); });
+    expect(onUnhandledMessage).toHaveBeenCalledTimes(2);
+    expect(onUnhandledMessage.mock.calls[1][0]).toMatchObject({ type: "cancel", requestId: "rid-1" });
+  });
+
+  // ── 11 (Phase 3.7) — sendMessage round-trip ───────────────────────
+  it("sendMessage(msg) → ws.send called with JSON-stringified msg when ready, false when not ready", async () => {
+    const launcher = makeMockLauncher();
+    const { deps } = makeDeps(launcher);
+    const { result } = renderHook(() => useWrapped({ aePid: 11111 }, deps));
+    await waitFor(() => expect(lastWs).toBeDefined());
+    act(() => { lastWs!._open(); });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    const sendCountBefore = lastWs!.send.mock.calls.length;
+    let returned = false;
+    act(() => {
+      returned = result.current.sendMessage({
+        type: "result",
+        requestId: "rid-1",
+        data: { name: "Hero" },
+      });
+    });
+    expect(returned).toBe(true);
+    expect(lastWs!.send.mock.calls.length).toBe(sendCountBefore + 1);
+    const lastSend = JSON.parse(lastWs!.send.mock.calls[lastWs!.send.mock.calls.length - 1][0] as string);
+    expect(lastSend).toMatchObject({ type: "result", requestId: "rid-1", data: { name: "Hero" } });
+
+    // Close ws → sendMessage returns false
+    act(() => { lastWs!._close(); });
+    let returnedAfterClose = true;
+    act(() => {
+      returnedAfterClose = result.current.sendMessage({ type: "result", requestId: "rid-2", data: {} });
+    });
+    expect(returnedAfterClose).toBe(false);
+  });
+
+  // ── 12 (Phase 3.7) — onUnhandledMessage absent → default noop, no throw ──
+  it("onUnhandledMessage absent → unhandled msgs silently dropped", async () => {
+    const launcher = makeMockLauncher();
+    const { deps } = makeDeps(launcher);
+    const { result } = renderHook(() => useWrapped({ aePid: 11111 }, deps));
+    await waitFor(() => expect(lastWs).toBeDefined());
+    act(() => { lastWs!._open(); });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(() => {
+      act(() => { lastWs!._message({ type: "exec", requestId: "rid-x", tool: "any", input: {} }); });
+    }).not.toThrow();
+    expect(result.current.status).toBe("ready"); // unchanged
+  });
 });

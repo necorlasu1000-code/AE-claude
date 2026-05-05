@@ -10,6 +10,9 @@ export interface TerminalViewProps {
   status: TerminalStatus;
   error: string | undefined;
   onRestart: () => void;
+  /** Phase 3.7 dev-only spike trigger. Pass a slot element (typically the
+   *  dev button). When undefined, the slot collapses (production zxp). */
+  devSlot?: React.ReactNode;
 }
 
 const STATUS_COLOR: Record<TerminalStatus, string> = {
@@ -32,7 +35,7 @@ const STATUS_LABEL: Record<TerminalStatus, string> = {
   error: "Error",
 };
 
-export function TerminalView({ containerRef, status, error, onRestart }: TerminalViewProps) {
+export function TerminalView({ containerRef, status, error, onRestart, devSlot }: TerminalViewProps) {
   const showErrorOverlay = (status === "crashed" || status === "error") && !!error;
   return (
     <div
@@ -71,6 +74,11 @@ export function TerminalView({ containerRef, status, error, onRestart }: Termina
           }}
         />
         <span className="status-label">{STATUS_LABEL[status]}</span>
+        {devSlot && (
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+            {devSlot}
+          </div>
+        )}
       </div>
       <div
         ref={containerRef}

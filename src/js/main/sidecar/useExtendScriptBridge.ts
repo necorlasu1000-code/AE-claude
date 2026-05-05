@@ -92,14 +92,22 @@ export function useExtendScriptBridge(
 
     emit({ event: "bridge:enter", requestId: req.requestId, tool: req.tool });
 
-    // Build the evalScript call: `${ns}.tools.${tool}(<rawInput-as-string-literal>)`.
-    // jsx HOF expects rawInput: string. We JSON.stringify(input) to produce
-    // the string the jsx side will JSON.parse, then JSON.stringify AGAIN
-    // to embed it as a JS string literal in the evalScript source. Two
-    // stringifies are required — one for the wire, one for the embed.
+    // Build the evalScript call: `$["<ns>"].tools.<tool>(<rawInput-as-string-literal>)`.
+    //
+    // BRACKET NOTATION on `$["..."]` is required: the actual ns value
+    // (cep.config.ts `id` = "com.aeclaude.panel") contains dots — direct
+    // identifier access `com.aeclaude.panel.tools.X(...)` would parse as
+    // chained property access and ReferenceError on `com is undefined`.
+    // jsx side already registers via `host[ns] = aeft` (src/jsx/index.ts),
+    // so bracket lookup recovers the same object. ExtendScript globals
+    // expose the global object as `$` (host = $ when running in AE).
+    //
+    // Two JSON.stringify are required: one for the wire (jsx side
+    // JSON.parse will recover the input), one to embed the wire string
+    // as a JS string literal inside the evalScript source.
     const inputJson = JSON.stringify(req.input);
     const inputLiteral = JSON.stringify(inputJson);
-    const script = `${deps.ns}.tools.${req.tool}(${inputLiteral})`;
+    const script = `$[${JSON.stringify(deps.ns)}].tools.${req.tool}(${inputLiteral})`;
 
     deps.csInterface.evalScript(script, (raw) => {
       const durationMs = now() - startTs;
