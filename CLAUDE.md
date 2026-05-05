@@ -153,18 +153,20 @@ ae-claude-panel/
 
 ### Phase Structure (plan.md §8 기반, 우선순위 순)
 
-| Phase | 산출물 | 검증 |
-|---|---|---|
-| 0 | bolt-cep 부팅, regedit `PlayerDebugMode=1`, AE script 권한 | 빈 패널이 AE에 뜨는지 |
-| 1 | `protocol.ts` (D6), `_define.ts` (C1), `_validateAst.ts` + 골든셋 (D7) | 단위 테스트 100%, adversarial 30+ 통과 |
-| 2 | 패널 ↔ 사이드카 WS 연결, xterm 마운트 | 패널에서 `ls` 명령 결과 보임, resize 동작 |
-| 3 | ExtendScript 브릿지 (`{type:'exec', tool, input}` ↔ jsx 함수 lookup) | 왕복 latency ≤100ms, 에러 path 검증 |
-| 4 | MCP 서버 + claude PTY, `ae_get_active_comp` 첫 tool | 패널에서 "현재 프로젝트 정보" → tool 호출 → 응답 |
-| 5 | MVP 5 tool (collocation 패턴 확립), 그 후 25 tool 병렬 | mock-AE 풀 스택 테스트 + manual 5 시나리오 |
-| 6 | UX (status bar 5 상태, "Recent AI ops" 카드, Stop 버튼, onboarding) | 매뉴얼 QA 체크리스트 |
-| 7 | ZXP 빌드 + GitHub Actions matrix (D9) + 릴리즈 | Win-x64/Mac-x64/Mac-arm64 ZXP 자동 생성 |
+| Phase | 산출물 | 검증 | 상태 |
+|---|---|---|---|
+| 0 | bolt-cep 부팅, regedit `PlayerDebugMode=1`, AE script 권한 | 빈 패널이 AE에 뜨는지 | ✅ 완료 |
+| 1 | `protocol.ts` (D6), `_define.ts` (C1), `_validateAst.ts` + 골든셋 (D7) | 단위 테스트 100%, adversarial 30+ 통과 | ✅ 완료 |
+| 2 | 패널 ↔ 사이드카 WS 연결, xterm 마운트, cmd.exe 인터랙션, graceful shutdown | 패널에서 `dir` 명령 결과 보임, resize 동작, 좀비 0 | ✅ 완료 (2026-05-05, 96 tests, 9 mistakes 등재) |
+| 3 | ExtendScript 브릿지 (`{type:'exec', tool, input}` ↔ jsx 함수 lookup) | 왕복 latency ≤100ms, 에러 path 검증 | ⏳ 다음 |
+| 4 | MCP 서버 + claude PTY, `ae_get_active_comp` 첫 tool | 패널에서 "현재 프로젝트 정보" → tool 호출 → 응답 | |
+| 5 | MVP 5 tool (collocation 패턴 확립), 그 후 25 tool 병렬 | mock-AE 풀 스택 테스트 + manual 5 시나리오 | |
+| 6 | UX (status bar 5 상태, "Recent AI ops" 카드, Stop 버튼, onboarding) | 매뉴얼 QA 체크리스트 | |
+| 7 | ZXP 빌드 + GitHub Actions matrix (D9) + 릴리즈 | Win-x64/Mac-x64/Mac-arm64 ZXP 자동 생성 | |
 
 **규칙**: Phase 1 (foundation)은 직렬. Phase 5는 lane 분할 가능 (D8 덕분에 25-tool 병렬 충돌 0).
+
+**Phase 2 → 3 진입 시 주의** (mistakes.md 9개 함정 체득): Windows spawn shell:true는 항상 cwd + 상대 경로 (#7). React StrictMode 금지 (#8). 사이드카 종료 경로 4개 보유 — 단일 경로 의존 금지 (#9 + Phase 2.5.4/5.6). Phase 4의 PTY 교체 후 #4 (ConPTY tree kill) 재검증 필수. 자세한 회고는 `plan.md` §14.
 
 ### Design Tokens (CEP panel UI, locked in plan-design-review)
 

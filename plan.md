@@ -277,12 +277,15 @@ ae-claude-panel/
 - WebSocket 서버 띄우고, Node CLI 클라이언트로 PTY I/O 송수신 검증
 - 단독으로 `node sidecar/dist/index.js` 실행해서 동작 확인
 
-### Phase 2: 패널 ↔ 사이드카 연결
+### Phase 2: 패널 ↔ 사이드카 연결 ✅ (완료 2026-05-05)
 - 패널에 xterm.js 마운트
 - CSInterface로 사이드카 spawn
 - WebSocket으로 PTY I/O 바인딩
 - `bash` 스폰해서 패널에서 `ls` 같은 명령 입력 → 결과 보이는지 확인
 - resize 동작 (`@xterm/addon-fit` + `pty.resize()`)
+- (Windows에선 cmd.exe 스폰. Phase 4에서 claude CLI로 교체)
+- **검증**: 시나리오 a~e 모두 ✅ — cmd.exe 자동 진입, dir 한글 출력, 한글 echo, resize, 좀비 0
+- **상세 회고는 §14 참조**
 
 ### Phase 3: ExtendScript 브릿지 정립
 - 사이드카에서 WebSocket으로 `{type:"exec", script:"app.project.numItems"}` 전송
@@ -383,6 +386,66 @@ yarn dev   # AE 켜고 Window > Extensions > AE-Claude
 ## 13. 다음 액션
 
 Phase 0~1을 한 번에 묶어서 Claude Code CLI에 던질 수 있는 프롬프트 작성. (이 plan.md를 컨텍스트로 첨부)
+
+---
+
+## 14. Phase 2 회고 (2026-05-05)
+
+**Phase 2 완료**: AE의 CEP 패널이 사이드카 Node.js 프로세스를 spawn → WebSocket으로 PTY I/O bridging → xterm.js로 cmd.exe 인터랙션. Phase 3 (ExtendScript 브릿지)의 모든 전제 충족.
+
+### 통계
+
+| 항목 | 수치 |
+|---|---|
+| Commit 수 (Phase 2.0 → 2.8.4 fix-3) | 26 |
+| 사이드카 테스트 | 74 (Phase 2 시작 시 0) |
+| 패널 테스트 | 22 (Phase 2 시작 시 0) |
+| 총 자동 회귀 테스트 | 96 |
+| 발견 + 영구 박힌 함정 (mistakes.md) | 9 |
+| Architectural decisions 추가 | 0 (D1–D11 사전 확정 유지) |
+
+### 발견 + 해결된 함정 9개 (mistakes.md 영구 등재)
+
+| # | 함정 | Phase | Fix 메커니즘 |
+|---|---|---|---|
+| 1 | bash non-interactive에서 .bashrc 자동 source 안 됨 | 0 | BASH_ENV setx 영구 등록 |
+| 2 | sidecar npm install이 시스템 Node 24로 빌드 (fnm 미발동) | 0 | `sidecar/.nvmrc=20` + 설치 명령에 `source ~/.bashrc &&` prefix |
+| 3 | Node 20.12+ spawn EINVAL on .cmd files (CVE-2024-27980) | 2.5.1 | `process.execPath` + tsx/dist/cli.mjs 직접 |
+| 4 | ConPTY가 SIGTERM/SIGKILL 모두 무시 (12s hang) | 2.5.4 | tree kill (taskkill /F /T) + 8s hard cap |
+| 5 | Windows process.kill SIGTERM = TerminateProcess (graceful 불가) | 2.5.5.0 | WS-level `sys.shutdown` 메시지 신설 |
+| 6 | bolt-cep `npm run dev` ENOENT (`dist/cep/main/index.html`) | 2.6 | `mkdir -p dist/cep/main` 사전 생성 (또는 `npm run build` 1회) |
+| 7 | spawn shell:true + Windows path-with-space/한글 → cmd.exe args 파싱 잘림 | 2.8.4 fix-1 | spawn cwd: SIDECAR_ROOT + 상대 경로 args |
+| 8 | React StrictMode가 useTerminal heavy side-effect 두 번 invoke → 사이드카 double-spawn race | 2.8.4 fix-2 | `<React.StrictMode>` 제거 (CEP에선 SSR/concurrent 무관) |
+| 9 | CEP panel close → React unmount async cleanup이 못 끝나 sys.shutdown 미도달 → 사이드카 좀비 | 2.8.4 fix-3 | PanelBridge disconnect grace timer (5s default) → self-shutdown |
+
+**패턴**: 모든 함정의 root cause가 "추측 → 빨강 테스트 → 진단 → 빨강 테스트 추가 → 초록"의 TDD 사이클로 해소됨. Karpathy 원칙 4 (Goal-Driven Execution)의 적용 효과.
+
+### Architectural learning
+
+- **Multi-trigger graceful shutdown**: Phase 2 끝나면서 사이드카는 4가지 종료 경로 보유 — (1) WS `sys.shutdown` (사용자 명시 close), (2) AE death watchdog (Phase 2.5.6, 부모 PID 폴링), (3) PanelBridge disconnect grace (Phase 2.8.4 fix-3, 5s 후 자동), (4) OS-level tree kill (Phase 2.5.4, hang 시). 단일 경로 의존하지 말 것 — Phase 4의 claude CLI 추가 시 이 다중 경로가 안전망.
+- **Windows shell:true 항상 상대 경로 + cwd 페어링**: `process.execPath`나 fnm 절대 경로보다 cwd 기반이 portability 높음. spawn-helper.ts (test) + factories.ts (production) 모두 이 패턴.
+- **CEP panel runtime은 fnm hook 없음**: panel runtime의 `child_process.spawn("node")`는 시스템 PATH를 그대로 픽업. 향후 production ZXP 배포 시 portable Node 동봉 (D9)이 정답 — dev에서는 시스템 Node 사용.
+
+### Phase 3 진입 준비
+
+Phase 3 = "ExtendScript 브릿지 정립" — 사이드카가 WS로 `{type:"exec", tool, input}` 전송 → 패널이 `evalScript()`로 ExtendScript 호출 → 결과 회신.
+
+**Phase 2 자산 활용**:
+- `sidecar/src/protocol.ts` — D6 typed envelope. Phase 3은 `tool.exec` / `tool.result` envelope 추가만 (기존 sys.* / pty.* 와 통합).
+- `sidecar/src/ws/panelBridge.ts` — primary client + request_id 라우팅이 이미 완비. Phase 3은 새 메시지 타입 핸들러만 추가.
+- `src/js/main/sidecar/useTerminal.ts` — WS message router 패턴 확립. Phase 3은 `tool.exec` 수신 → `evalScript` 호출 → `tool.result` 송신 path 추가.
+- `defineAETool` HOF (Phase 1 확립) — Phase 3 첫 엔드투엔드 tool (`ae_get_active_comp`)이 이 HOF를 통과해서 D4 (undo group + crash recovery)에 자동 wiring.
+
+**Phase 3 진입 시 주의 (mistakes.md에서 미리 챙길 것)**:
+- ExtendScript는 ES3. JSON 사용 시 `_polyfills/json2.js` (D8 디렉토리 규칙). vite로 합본 빌드.
+- `evalScript` 콜백 reference 누수 위험 — Phase 3 spike에서 long-running 5+ 호출 후 메모리 그래프 확인.
+- AST validator (Phase 1 D7) 검증된 패턴만 jsx로 합본. `system.callSystem` / `File` / `Folder` / `Socket` / `eval` / `Function` / `#include` / computed member access 금지.
+- 왕복 latency 목표 ≤ 100ms (plan §8 Phase 3 검증 기준).
+
+**Phase 4-5 미리 alert (mistakes.md에 등재된 follow-up)**:
+- Phase 4 PTY 교체 시 #4 (ConPTY tree kill) 재검증 — claude CLI가 자식 프로세스 띄우면 tree kill로 모두 정리되는지.
+- Phase 4 첫 spawn 후 #2 (Node 24 좀비) 재발 가능성. node-pty native module이 panel runtime이 spawn한 Node 버전과 ABI 일치하는지 확인.
+- Phase 5 tool 추가 시 D8 (per-tool collocation) + D7 (AST validator 골든셋 통과) + D4 (`defineAETool` HOF) 일관 적용.
 
 ---
 

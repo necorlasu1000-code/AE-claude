@@ -251,6 +251,8 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 외부 process를 owning하는 hook (CEP panel 같은 ephemeral runtime에서) — graceful shutdown 메시지가 도달 안 할 case에 대비해 사이드카 측 self-trigger 메커니즘 필수. AE death watchdog (Phase 2.5.6) 같이 _다중 trigger 경로_ 가지는 게 안전.
 
+**검증 (2026-05-05)**: 패널 2-3회 open/close 사이클 (`echo hello` 입력 포함), 작업관리자 결과 — 사이드카 Node 프로세스 0개, vite/npm dev + Claude Code CLI 4개만 잔존. 5초 grace timer + self-shutdown production-grade 작동 확인. 시나리오 a/b/c/d/e 모두 통과로 Phase 2.8.4 닫음.
+
 ## ✅ Phase 2.8.4 — React StrictMode + useTerminal heavy side-effect 충돌 (사이드카 double-spawn race)
 
 **증상**: 시나리오 a 재검증 시 status "Crashed" + ws close. console 로그가 명확:
