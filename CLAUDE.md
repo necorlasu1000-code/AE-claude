@@ -124,6 +124,9 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 9. **Script generator gate** — panel-side ExtendScript script generator (useExtendScriptBridge 등)는 **production ns 값** (`cep.config.ts:id` = dot 포함 식별자)으로 unit test에서 호출 형식 검증.
    짧은 ns 가정 (`"ns"`)은 dot 없어서 chained property access vs bracket notation ambiguity 자체가 안 드러남 — acorn parse + AST 구조 검증으로 `$["..."].tools.<tool>(...)` 형태 확인 필수 (mistakes.md #11). 신규 jsx tool 추가 시 이 검증 패턴 상속.
 
+10. **jsx host registration gate** — `src/jsx/index.ts` host[ns] 등록은 **production AE 환경 (versioned `BridgeTalk.appName` 반환 포함)에서 무조건 보장**. bolt-cep boilerplate의 multi-host switch에만 의존 X — switch case literal 매칭 실패 시에도 host[ns] = aeft 실행되도록 default fallback 강제 (AE-only 프로젝트, D2 hold scope).
+    panel script generator gate (§9)와 함께 같은 메타 함정 (mock/boilerplate 가정 vs production ground truth 형식 차이)의 양면 — 둘 모두 production wiring 시점에서만 드러나므로 자동 가드 필수.
+
 ### Directory Rules (D8 collocation)
 
 ```

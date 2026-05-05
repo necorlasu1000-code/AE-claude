@@ -59,13 +59,18 @@ switch (getAppNameSafely()) {
     host[ns] = aeft;
     break;
 
-  
-  
-  
-  
-  
-  
-  
+  default:
+    // Phase 3.7 follow-up — fail-safe registration for AE-only project.
+    // bolt-cep boilerplate's switch assumes getAppNameSafely() returns
+    // exactly "aftereffects" / "aftereffectsbeta". Real production
+    // returns vary: BridgeTalk.appName can be versioned (e.g.
+    // "aftereffects-22.0") on host versions where BridgeTalk is intact;
+    // the literal-match cases would miss those. Since this project is
+    // AE-only (D2 hold scope), always register here as the fallback so
+    // `$[ns].tools.<tool>(...)` never lookups undefined. See
+    // mistakes.md #11 "jsx host 등록 면" for the trap detail.
+    host[ns] = aeft;
+    break;
   }
 
 const empty = {};

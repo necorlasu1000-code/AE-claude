@@ -249,6 +249,50 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **왜 mistakes.md 함정**: production wiring 첫 등장 시점에 string template generation의 implicit assumption (dot 없는 식별자)이 깨졌음. mock 환경과 production ns 값의 형식 차이가 unit test로 분리 안 됐던 게 본질. 향후 비슷한 상황 (panel runtime이 다른 cep config 값 식별자처럼 사용하는 케이스) 재학습 0이 목표 — gate §9가 그 자동 가드.
 
+---
+
+### Phase 3.8 추가 면 — jsx host[ns] 등록의 boilerplate switch host 매칭 가정
+
+**증상**: 위 fix-1 적용 + 빌드 + AE에서 dev 버튼 클릭 → AE Script Alert: `TypeError: Cannot convert to ... C:/Users/.../com.aeclaude.panel/jsx/index.js`. PTY/WS는 정상 (panel "Ready"), spike 버튼 클릭 직후 발생.
+
+**Root cause**: bolt-cep boilerplate의 `src/jsx/index.ts`는 multi-host 분기 switch에 호스트별 namespace 등록:
+```typescript
+switch (getAppNameSafely()) {
+  case "aftereffects":
+  case "aftereffectsbeta":
+    host[ns] = aeft;
+    break;
+}
+```
+`getAppNameSafely()` 내부:
+- `BridgeTalk.appName` 정의되면 그 값 반환. Adobe AE 일부 버전에서 **versioned string** 반환 (e.g., `"aftereffects-22.0"`).
+- broken AE 24-25 fallback만이 `app.appName` ("After Effects") `compare(name, "after effects")` indexOf로 literal `"aftereffects"` 매핑.
+
+즉 BridgeTalk이 정상 동작하는 AE 버전에서는 case match 실패 → `host[ns] = aeft` 미실행 → `$["com.aeclaude.panel"]` undefined → panel exec script `$["com.aeclaude.panel"].tools.ae_get_active_comp(...)`의 `.tools` access 시 `Cannot convert undefined to object` throw.
+
+**Fix (Phase 3.7 follow-up)**: switch에 `default: host[ns] = aeft;` 추가. AE-only 프로젝트(D2 hold scope)이므로 어떤 host 식별 결과여도 fallback 등록 안전. boilerplate switch intent (multi-host 분기) 보존하면서 fail-safe.
+
+**디버그법** (다음 비슷한 case 발생 시):
+1. AE ExtendScript 콘솔 (Window > Extensions > ExtendScript Toolkit, 또는 bolt-cep dev 도구)에서 다음 평가:
+   - `BridgeTalk.appName` — 정확한 반환 확인 (literal "aftereffects" vs versioned)
+   - `app.appName` — fallback path 반환
+   - `getAppNameSafely()` — switch에 들어가는 최종 값
+2. 산출 jsx에서 `host[ns] = aeft` 라인 도달 여부 — 임시 `alert($[ns])` 1줄 추가 + 빌드 + 패널 reload + 결과 확인. undefined면 host 등록 미실행 확정.
+
+---
+
+### Meta-pattern (#11 양면 통합)
+
+panel-side script generator (fix-1) + jsx-side host 등록 (fix-2)는 같은 함정의 **다른 면**:
+
+> **production wiring 첫 등장 시점에 mock/boilerplate 가정이 production 환경 차이 (real ns 값 / real AE BridgeTalk 반환 형식)에 시험됨.**
+
+mock + 단위 테스트는 짧은 ns / 가짜 host만 다뤄서 **production ground truth와의 형식 차이를 자동 가드 못 함**. 두 면 모두 unit test 차원의 자동 검증 추가 (fix-1: acorn AST + real ns / fix-2: switch fallback 직접 보증) + Validation Gate에 영구 박힘 (§9 panel-side, §10 jsx-side).
+
+**예방 (Phase 5 30 tool 진입 전 핵심 — meta level)**:
+- 새 wiring layer 등장 시 production ground-truth value를 단위 테스트에 직접 박을 것 (mock의 짧은/단순 가정 X).
+- bolt-cep boilerplate의 host-detection / namespace registration 의존하는 코드는 우리 fail-safe (default fallback) 추가로 강화. boilerplate가 multi-host 분기로 짠 부분이 우리 single-host 환경에서는 fragile.
+
 ## ✅ Phase 2 follow-up (#10) — `npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견
 
 **증상**: Phase 2 완료 commit (047b8c9) 후 Phase 3.2 진입에서 `npm run build` 첫 실행 → `launcher.ts:303` 타입 에러로 production 빌드 실패. 96 자동 테스트는 모두 green이었으나 vitest는 tsx로 트랜스파일만 하고 strict 타입 검사 안 함.
