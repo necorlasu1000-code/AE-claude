@@ -98,6 +98,7 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 1. **Security gate** — `tools/_validateAst.test.ts`의 adversarial 골든셋 통과 (D7).
    새 `tools/<ae_name>/impl.jsx` 추가 시 validator를 통과하는 패턴인지 사전 확인 + 해당 패턴을 case 1+ 로 골든셋에 추가.
    `system.callSystem`/`File`/`Folder`/`Socket`/`eval`/`Function`/`#include`/computed member access는 사용 금지.
+   골든셋 case는 실제 handler wrap 구조 (`function tool(_input, ctx, h) {...}`) 미러링 필수 — top-level `return`은 acorn ECMA-262 parse error로 reject됨.
 
 2. **Undo gate** — destructive tool은 `defineAETool({destructive: true})` 명시 (D4).
    handler 안에서 `app.beginUndoGroup` 직접 호출 금지 — wrapper가 처리.
