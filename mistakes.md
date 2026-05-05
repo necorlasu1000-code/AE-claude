@@ -228,7 +228,40 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
-## Phase 2.8 후속 / vite define 미주입 가능성 — 첫 spawn ENOENT 시 진단
+## ✅ Phase 2.8.4 — child_process.spawn shell:true Windows path-with-space/Korean quote 함정
+
+**증상**: 사이드카 spawn 시도 → exit code 1 + stderr `Cannot find module 'C:\Users\user\Desktop\성윤\에펙'` (path가 공백에서 잘림).
+
+**Root cause**: `child_process.spawn(cmd, args, { shell: true })` Windows 환경. shell:true는 cmd.exe가 args 파싱하는데 공백이 있는 path는 quote 안 되면 단어 단위로 잘림. 절대 경로 args (`C:\Users\user\Desktop\성윤\에펙 클로드\...`)에 공백 + 한글 → cmd.exe가 `C:\Users\user\Desktop\성윤\에펙`까지만 첫 args로 읽고 나머지 buffer.
+
+**Fix (option 3 — cwd 사용)**:
+- spawn options에 `cwd: SIDECAR_ROOT` 추가
+- args를 **상대 경로**로 변경: `["node_modules/tsx/dist/cli.mjs", "src/index.ts"]`
+- args에 공백 없으면 cmd.exe quote 문제 회피
+
+**왜 option 2 (shell:false + node 절대 경로) 안 썼나**:
+- shell:true는 PATH lookup 보장에 필요 (Phase 2.6 spike에서 확인). shell:false 시 system Node 절대 경로 hardcode 필요 → fnm 환경 의존도 ↑.
+
+**예방**: Windows + spawn + shell:true 조합에선 항상 args 상대 경로 + cwd. 다른 spawn 사용처(spawn-helper.ts는 shell:false라 무관)에서도 동일 패턴 검토.
+
+## Phase 2.8.4 — panel이 시스템 Node 24 spawn (fnm default vs project 20)
+
+**증상**: fix-1 적용 후에도 사이드카가 Node v24.13.1로 실행 (stderr에 표시). 우리 프로젝트는 .nvmrc=20.
+
+**Root cause**: panel runtime의 `child_process.spawn("node")` 는 시스템 PATH의 node 사용. fnm default가 v24면 그게 픽업됨. panel runtime은 fnm hook (chpwd-style auto-switch) 못 받음 — fnm은 shell의 cwd-change hook 기반인데 panel runtime은 그 hook 없음. cwd:SIDECAR_ROOT 설정해도 fnm shim이 안 발동.
+
+**영향**:
+- Phase 2.5 사이드카 통합 테스트는 .nvmrc=20 환경에서만 검증됨 (vitest를 sidecar/에서 실행)
+- Node 24에서 사이드카 코드 동작 보장 X — node-pty native module 호환성 등
+
+**현재 결정**: Node 24도 우리 사이드카 (TypeScript ESM, node-pty 1.x)와 호환 가능성 큼. 일단 spawn 동작 확인 후 panel 검증 → fail 시 fix.
+
+**중기 fix 후보** (Phase 2.8.5 또는 후속):
+- factories.ts에서 fnm-managed Node 20 절대 경로 detect (`fnm exec --using=20 which node` 같은 패턴) → cmd로 사용
+- ENV `AE_CLAUDE_NODE_PATH` 명시 override hook 노출
+- production (Phase 7 D9): portable Node 20 ZXP 동봉 → 이 문제 자동 해결
+
+**Phase 4 후속**: PTY가 claude CLI로 교체될 때 claude는 자체 binary라 Node 버전 무관. 단 사이드카 자체는 Node 의존이라 위 detect 메커니즘 유지.
 
 **예상 증상**: AE에서 panel 첫 열 때 사이드카 spawn 시도 → `spawn ENOENT` 또는 args에 `undefined/...` 표시.
 

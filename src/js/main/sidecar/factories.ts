@@ -44,17 +44,23 @@ const SIDECAR_ROOT = resolveSidecarRoot();
  * Production (ZXP) override via env or pass explicit cmd/args to
  * useTerminal options.
  *
- * Pattern matches Phase 2.5 spawn-helper:
- *   - shell:true is set in launcher itself for Windows PATH lookup
- *   - process.execPath is panel-runtime Node, NOT system Node — so we
- *     use `"node"` and let shell resolve to the user's PATH-installed Node
- *   - Phase 2.6 spike confirmed `child_process.spawn("node", [...], {shell:true})`
- *     works in panel runtime
+ * Pattern matches Phase 2.5 spawn-helper, with one Windows-specific tweak:
+ *   - shell:true (set by launcher) for Windows PATH lookup of "node"
+ *   - process.execPath is panel-runtime Node, NOT system Node — we use
+ *     `"node"` and let shell resolve via the user's PATH
+ *   - **args are RELATIVE paths**, not absolute. Why: with shell:true on
+ *     Windows, absolute paths containing spaces or non-ASCII chars (e.g.
+ *     "C:\Users\user\Desktop\성윤\에펙 클로드\...") get split by cmd.exe
+ *     at the first space — node receives only "C:\...\성윤\에펙" and
+ *     errors with `Cannot find module`. We pair these relative args with
+ *     `cwd: SIDECAR_ROOT` (set in launcherFactory below). Phase 2.8.4 fix-1
+ *     — see mistakes.md "child_process.spawn shell:true Windows path".
+ *   - Phase 2.6 spike confirmed `spawn("node", [...], {shell:true})` works.
  */
 export const SIDECAR_CMD = "node";
 export const SIDECAR_ARGS: string[] = [
-  path.join(SIDECAR_ROOT, "node_modules", "tsx", "dist", "cli.mjs"),
-  path.join(SIDECAR_ROOT, "src", "index.ts"),
+  "node_modules/tsx/dist/cli.mjs",
+  "src/index.ts",
 ];
 
 // ─── Launcher factory ──────────────────────────────────────────────
@@ -67,7 +73,9 @@ const launcherDeps: LauncherDeps = {
   env: (typeof window !== "undefined" && (window as any).cep_node?.process?.env) || {},
 };
 
-/** Construct UseTerminalDeps for panel runtime. App.tsx wraps in useMemo. */
+/** Construct UseTerminalDeps for panel runtime. App.tsx wraps in useMemo.
+ *  launcherFactory injects `cwd: SIDECAR_ROOT` so the relative args in
+ *  SIDECAR_ARGS resolve against the sidecar package root (Phase 2.8.4 fix). */
 export function createPanelDeps(): UseTerminalDeps {
   return {
     TerminalCtor: Terminal as any,
@@ -75,7 +83,10 @@ export function createPanelDeps(): UseTerminalDeps {
     WebLinksAddonCtor: WebLinksAddon as any,
     WebglAddonCtor: WebglAddon as any,
     WebSocketCtor: WebSocket,
-    launcherFactory: (opts) => new SidecarLauncher(opts, launcherDeps),
+    launcherFactory: (opts) => new SidecarLauncher(
+      { ...opts, cwd: SIDECAR_ROOT },
+      launcherDeps,
+    ),
     ResizeObserverCtor: globalThis.ResizeObserver,
   };
 }
