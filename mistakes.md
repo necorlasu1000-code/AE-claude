@@ -228,6 +228,25 @@ spawn(process.execPath, [tsxCliPath, "src/index.ts", ...args], { ... });
 
 **예방**: 다른 통합 테스트에서도 .bin/*.cmd 직접 spawn 금지. 항상 entry .mjs/.cjs를 node로 실행하거나 shell:true 사용. shell:true는 args quoting 위험 — 첫 번째 옵션 권장.
 
+## Phase 2.8 후속 / vite define 미주입 가능성 — 첫 spawn ENOENT 시 진단
+
+**예상 증상**: AE에서 panel 첫 열 때 사이드카 spawn 시도 → `spawn ENOENT` 또는 args에 `undefined/...` 표시.
+
+**진단**: factories.ts의 `__DEV_SIDECAR_ROOT__` 가 빌드에 정상 주입됐는지 확인:
+- panel DevTools (`http://localhost:8860`) → Console → `console.log(__DEV_SIDECAR_ROOT__)` 평가
+- 결과가 절대 경로 string이면 정상; `ReferenceError` 또는 `undefined`면 미주입
+
+**Root cause 후보**:
+1. `vite.config.ts`의 `define: { __DEV_SIDECAR_ROOT__: ... }` 가 cep-plugin과 merge 안 됐을 가능성 (vite-cep-plugin 자체 define 사용 시)
+2. dev server 재시작 안 한 상태 (define은 빌드 시점 처리, hot reload 시 반영 안 될 수 있음)
+
+**Fix 후보**:
+- dev server 완전 재시작 (`npm run dev` 종료 → 다시 실행)
+- vite-cep-plugin merge 우회: `define`을 `process.env.__DEV_SIDECAR_ROOT__` ENV로 변경 + factories에서 읽기
+- 최후: production-style ENV 변수만 사용 (vite define 포기)
+
+**해결 후 확인**: panel DevTools console에서 절대 경로 출력 확인 + 사이드카 spawn args에 정확한 path 박혔는지.
+
 ## Phase 2.7.1.3 spike — backspace 미동작은 mock echo 한계 (#8에서 자동 해결)
 
 **관찰**: 시각 spike에서 사용자가 backspace 키 누르면 글자 안 지워짐.

@@ -44,10 +44,20 @@ const config: CepOptions = {
 
 if (action) runAction(config, action);
 
+// AE-Claude sidecar root path injection. Bolt-cep panel runs from
+// dist/cep/main/index.html — we can't compute the repo's sidecar/ path at
+// runtime reliably, so vite injects the absolute build-time path here.
+// Production (Phase 7 ZXP) will override via AE_CLAUDE_SIDECAR_ROOT env;
+// see factories.ts for the precedence rule.
+const SIDECAR_ROOT_DEV = path.resolve(__dirname, "sidecar");
+
 // https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    __DEV_SIDECAR_ROOT__: JSON.stringify(SIDECAR_ROOT_DEV),
+  },
   plugins: [
-    react(), 
+    react(),
     cep(config),
   ],
   resolve: {
