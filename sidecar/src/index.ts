@@ -18,6 +18,8 @@
 //   When AE_CLAUDE_AE_PID is unset → no lockfile, no watchdog. The sidecar
 //   runs as an unsupervised process for unit/integration testing.
 
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { PanelBridge, type ExecCtx, type ExecHandler } from "./ws/panelBridge.js";
 import { createToolDispatcher, type ToolDispatcher } from "./dispatcher/toolDispatcher.js";
 import { PtyHost } from "./pty/ptyHost.js";
@@ -30,6 +32,7 @@ import {
   type LockContent,
 } from "./lifecycle/lockfile.js";
 import { PidWatchdog } from "./lifecycle/watchdog.js";
+import { registerMcpWithClaude } from "./mcp/registerWithClaude.js";
 import { AEError } from "./tools/_errors.js";
 
 const SIDECAR_VERSION = "0.1.0";
@@ -207,6 +210,40 @@ async function main(): Promise<void> {
       // Non-fatal — stdout path still works. Just log and move on.
       logDebug(cfg, "ready file write failed (non-fatal):", e);
     }
+  }
+
+  // ── Phase 4.2 — claude mcp add (idempotent via remove + add) ──────
+  // Register the ae-mcp stdio server entry so claude CLI auto-spawns it
+  // on every claude invocation in this cwd. Failures (claude not found,
+  // add error) are non-fatal: the sidecar boots normally and Phase 4.3
+  // surfaces a clearer error when claude PTY actually starts.
+  //
+  // Entry path resolution: this file is `<sidecar>/dist/index.js` after
+  // build (or `<sidecar>/src/index.ts` under tsx dev). The MCP entry is
+  // a sibling `mcp/server.js` — for dev/tsx the file won't exist yet,
+  // and that's fine: register still succeeds (claude doesn't validate
+  // the path until it tries to spawn the entry). The 4.4 user dogfood
+  // step is what verifies the path actually resolves to a runnable file.
+  try {
+    const sidecarDir = dirname(fileURLToPath(import.meta.url));
+    const mcpEntryAbs = join(sidecarDir, "mcp", "server.js");
+    const result = await registerMcpWithClaude({
+      port: actualPort,
+      serverEntryPath: mcpEntryAbs,
+      // cwd: process.cwd() matches Phase 2.8.4 fix-1 (panel spawns sidecar
+      // with cwd: SIDECAR_ROOT, 함정 #7). The --scope local entry is keyed
+      // by this cwd; the user must run `claude` from the same cwd to see
+      // ae-mcp. Phase 4.3 claude PTY spawn will use the same cwd.
+      cwd: process.cwd(),
+      logger: (e) => logDebug(cfg, JSON.stringify(e)),
+    });
+    if (!result.ok) {
+      logDebug(cfg, `mcp register: ${result.reason} — sidecar boot continues`);
+    }
+  } catch (e) {
+    // registerMcpWithClaude is designed not to throw, but defensive net
+    // ensures the sidecar always boots even on a contract violation.
+    logDebug(cfg, `mcp register: unexpected throw — sidecar boot continues`, e);
   }
 
   // ── Shutdown ─────────────────────────────────────────────────────
