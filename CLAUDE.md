@@ -77,7 +77,7 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 4-process 아키텍처: AE ↔ CEP Panel (React+xterm.js) ↔ Sidecar Node.js (PTY+MCP+WS) ↔ claude CLI.
 전체 비전·페이즈·MCP tool 카탈로그는 `plan.md` 참조. 본 파일은 코딩 시 게이트 역할.
 
-### Architectural Decisions (D1–D9, 결정 완료)
+### Architectural Decisions (D1–D9 + D11 + Phase 3 D-A~D-G + Phase 4 D-H~D-K)
 
 | ID | Topic | Decision | 코드에서 의미 |
 |---|---|---|---|
@@ -90,6 +90,10 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 | D7 | AST validator | acorn + adversarial test suite (per-tool 골든셋 누적, indirection/computed/eval/include 차단) | 새 ExtendScript 코드 추가 시 골든셋 통과 필수 |
 | D8 | Tool 코드 조직 | per-tool collocation: `tools/<ae_name>/{schema, handler, impl.jsx, test}` | tool 추가 = 1 디렉토리 추가. 도메인별 분할 금지 |
 | D9 | Distribution | portable Node 20 + node_modules + GitHub Actions Win/Mac matrix | `pkg`/`bun --compile`/SEA 사용 금지 — deprecation 위험 |
+| D-H | claude CLI 인증 | claude CLI에 위임 (auto-detect: `ANTHROPIC_API_KEY` env inherit / OAuth fallback) | 사이드카에 인증 코드 0. spawn 시 env 그대로 inherit. dev = API key, 사용자 = OAuth — 분기 X |
+| D-I | MCP server process 모델 | claude CLI가 spawn하는 별도 stdio entry script (`sidecar/src/mcp/server.ts`) | 사이드카 main은 PTY+WS만. MCP server는 standalone child. entry script가 panel WS에 reverse-connect → dispatcher.exec 라우팅 → result envelope → MCP response. main 사이드카 stdio는 launcher contract용 그대로 |
+| D-J | PanelBridge multi-role | 단일 ws server에 role "panel" + "mcp" 두 종류 client 허용. primary/secondary 정책은 **role 안에서** 독립 적용 (panel primary, mcp primary 각자 separate). **backward compat 강제**: role 미명시 = `"panel"` default. Phase 2/3 16 시나리오 모두 그린 유지. 명시 시만 새 동작 | PanelBridge에 ClientState.role 추가. WRITE_TYPES 라우팅이 role-aware (panel primary = pty.in/exec, mcp primary = exec only). lockfile / heartbeat / shutdown은 한 곳에서 관리. role 식별 메커니즘 = 4.1 시작 전 추가 결정 (옵션 a sys.identify / b WS subprotocol / c URL query) |
+| D-K | claude 출력 채널 분리 | chat 채널 = PTY raw 통과 (사이드카 main → ws → xterm). MCP 채널 = stdio JSON-RPC (D-I 별도 entry가 독립 처리). 두 채널은 사이드카 main에서 만나지 않음 | 사이드카 main은 PTY parsing 0. claude CLI 출력 형식 변경에 dependency 0. xterm UX 향상은 addon만 영향 |
 
 ### Validation Gates (코드 작성 시 자동 통과해야)
 

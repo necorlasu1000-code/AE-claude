@@ -43,7 +43,7 @@ AE ↔ CEP Panel (React + xterm.js)
 
 ---
 
-## C. Architectural Decisions (D1-D11 + Phase 3 D-A~D-G)
+## C. Architectural Decisions (D1-D11 + Phase 3 D-A~D-G + Phase 4 D-H~D-K)
 
 ### D1-D11 (D10 점프됨, 10개)
 
@@ -72,6 +72,15 @@ AE ↔ CEP Panel (React + xterm.js)
 | D-E | spike trigger | 패널 dev 버튼 (D-E A) + 통합 테스트 (D-E C) |
 | D-F | AEError 변환 | jsx HOF `defineJsxTool` + h.fail sentinel throw |
 | D-G | latency 측정 | dispatcher wall-clock (sidecar 측 end-to-end) + bridge wall-clock (panel 측 evalScript only) — layer 분해 표시 |
+
+### Phase 4 결정 게이트 (D-H ~ D-K, 4.0 lock-in)
+
+| # | Topic | Decision |
+|---|---|---|
+| D-H | claude CLI 인증 | claude CLI에 위임 (auto-detect: `ANTHROPIC_API_KEY` env inherit / OAuth fallback). 사이드카 인증 코드 0. |
+| D-I | MCP server process 모델 | claude CLI가 spawn하는 별도 stdio entry script `sidecar/src/mcp/server.ts`. 사이드카 main과 분리. ws reverse-connect → dispatcher.exec. |
+| D-J | PanelBridge multi-role | 단일 ws server에 role "panel" + "mcp" 두 종류 허용. primary/secondary 정책은 role 안에서. **backward compat 강제** (role 미명시 default "panel", Phase 2/3 16 시나리오 그린 유지). role 식별 메커니즘 = 4.1 시작 전 추가 결정 (a sys.identify / b WS subprotocol / c URL query). |
+| D-K | claude 출력 채널 분리 | chat = PTY raw → ws → xterm. MCP = stdio JSON-RPC (D-I 별도 entry). 사이드카 main에서 두 채널 만나지 않음. PTY parsing 0. |
 
 ---
 

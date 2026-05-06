@@ -588,6 +588,26 @@ Phase 4 = "MCP 서버 + claude PTY 통합". 사이드카가 MCP 서버를 stdio�
 | D8  | Tool 코드 조직          | A (per-tool collocation: `tools/<ae_name>/{schema,handler,impl.jsx,test}`)                                     | §5 디렉토리 구조 재설계, 빌드 스크립트로 jsx 합본                              |
 | D9  | Distribution pipeline   | B (portable Node 20 + node_modules + GitHub Actions Win/Mac matrix)                                            | §12 시작 명령 + `.github/workflows/release.yml`                                |
 
+### Phase 4 Decisions (D-H ~ D-K, 결정 게이트 4.0)
+
+| #    | Topic                          | Decision                                                                                                                                       | Plan delta                                                                                                                                                                                |
+| ---- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-H  | claude CLI 인증                | claude CLI에 위임 (auto-detect: `ANTHROPIC_API_KEY` env inherit / OAuth fallback)                                                              | 사이드카 spawn 시 env 그대로 inherit. 인증 코드 0. dev = API key 빠른 dogfood, 일반 사용자 = 첫 실행 OAuth (claude CLI 자체 처리).                                                         |
+| D-I  | MCP server process 모델        | claude CLI가 spawn하는 별도 stdio entry script (`sidecar/src/mcp/server.ts`)                                                                   | 사이드카 main은 PTY+WS만. MCP server는 standalone child. entry script가 panel WS에 reverse-connect → dispatcher.exec → result envelope → MCP response. 신규 모듈 `sidecar/src/mcp/`.    |
+| D-J  | PanelBridge multi-role         | 단일 ws server에 role "panel" + "mcp" 두 종류 client 허용. primary/secondary 정책은 role 안에서만 적용. backward compat 강제 (role 미명시 default "panel") | PanelBridge ClientState에 role 추가. WRITE_TYPES 라우팅이 role-aware. Phase 2/3 16 시나리오 그린 유지. role 식별 메커니즘 = 4.1 시작 전 추가 결정 (옵션 a sys.identify / b WS subprotocol / c URL query). |
+| D-K  | claude 출력 채널 분리          | chat 채널 = PTY raw 통과 (사이드카 main → ws → xterm). MCP 채널 = stdio JSON-RPC (D-I 별도 entry 독립). 두 채널은 사이드카 main에서 만나지 않음 | 사이드카 main은 PTY parsing 0. claude CLI 출력 형식 변경에 dependency 0. xterm UX는 ANSI/링크 addon만 영향.                                                                                |
+
+**Phase 4 결정 게이트 (4.0) backward compat 강제 사항** (D-J 핵심):
+
+- 기존 PanelBridge 16 시나리오 (Phase 2 13 + Phase 3.6 14/15/16) 모두 그린 유지.
+- role 미명시 client = `"panel"` default 처리. 기존 panel runtime은 변경 0.
+- 명시 시만 새 동작 (mcp role primary는 exec write 권한 보유, pty.in 거부).
+- D-J 4.1 진입 전 role 식별 메커니즘 갈래 (a/b/c) 추가 결정 후 코딩.
+
+**Phase 4 sub-step 진입 전 사전 점검 (4.2 진입 시 코딩 전 답 받기)**:
+
+- `claude mcp add` 사전 점검 4개 — Windows .cmd shim / prompt 동작 / idempotent / 등록 위치 (per-user vs project-local). #11 메타 패턴 (production wiring 첫 등장 함정) 대비.
+
 ### Eng Architecture Findings (E1–E7) — 위 D6-D9로 모두 해결됨
 
 - **E1** WebSocket 프로토콜 → D6
