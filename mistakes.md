@@ -357,7 +357,54 @@ mock + 단위 테스트 + boilerplate + build tool + source code 모두 producti
 - jsx layer string literal은 ASCII only — 한국어/non-ASCII는 panel layer가 i18n 책임 분리.
 - production wiring 첫 등장 시 inline ExtendScript probe (panel main.tsx의 PROBE_FRAGMENTS 패턴) 임시 주입으로 환경 ground truth 빠르게 확인 — root cause 가설 검증 시간 ↓.
 
-## ✅ Phase 2 follow-up (#10) — `npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견
+## ✅ Phase 3.7 follow-up 5 (#12) — `sys.heartbeat` 단방향 broadcast가 양방향 watchdog와 모순 (panel idle ~35s 후 사이드카 자체 shutdown)
+
+**증상**: Phase 3.7 follow-up 4 검증 통과 후 사용자 dogfood — panel "Ready" 정상, spike 6ms 정상. 그러나 **panel을 1분 정도 idle 두면 status가 갑자기 `crashed`로 전환**. panel 화면은 보이는 상태(다른 탭 가림 X), AE focus 잃음 X, 사용자 무입력. 로그:
+
+```
+Sidecar crashed (code=0, signal=null)
+[sidecar] bridge listening on 127.0.0.1:10819
+[sidecar] shutdown: panel-shutdown:panel-disconnect
+```
+
+**Root cause**: 사이드카 PanelBridge는 두 timer 운용:
+- `setupHeartbeat` (panelBridge.ts:555): 10초마다 `sys.heartbeat` **단방향 broadcast** (panel로 송신).
+- `setupWatchdog` (panelBridge.ts:562): 5초 간격 체크. **client의 `lastRecvAt`이 30초 이상 idle이면 `ws.close(1001, "heartbeat timeout")`**.
+
+`lastRecvAt`은 **client → sidecar 메시지 수신 시에만** 갱신 (panelBridge.ts:253). 즉 sidecar가 보낸 heartbeat는 자기 자신의 watchdog 클럭을 갱신 안 함.
+
+Panel 측 `useTerminal.ts` 라우터에 `sys.heartbeat` case 부재 → 받기만 하고 echo/응답 송신 0 → 30s 후 사이드카가 `ws.close(1001)` → 5s grace → `onShutdownRequest("panel-disconnect")` → gracefulShutdown → 사이드카 process exit (code=0, 정상 종료). Panel UI는 launcher.onCrash가 아닌 ws "close" 이벤트 받아 status를 `crashed`로 잘못 라벨링 (graceful exit이지만 panel 입장에선 unexpected close).
+
+타임라인 = ~35s (timeout 30s + grace 5s), 사용자 체감 "1분 정도"와 부합.
+
+**왜 보호망 통과**: protocol design intent (D6 typed envelope)은 bidirectional liveness ping. Phase 2 wiring이 **broadcast 절반만** 구현했고, panel echo 누락. `panelBridge.test.ts:338`의 "scenario 12: last client disconnect + grace elapses"는 client가 명시적으로 disconnect하는 path만 검증 — heartbeat-timeout-driven close path는 별도 시나리오 필요했음.
+
+**미발견 이유**: Phase 2 검증 시나리오가 모두 **active interaction** (사용자 입력 → pty.in 송신, 명령 실행 → output 수신). active interaction은 5초마다 메시지가 오가서 `lastRecvAt` 자동 갱신 → watchdog 발화 안 함. **1분+ 무입력 idle 시나리오 0건** → 결함이 dormant 상태로 Phase 3까지 통과.
+
+**Fix (Phase 3.7 follow-up 5)**: panel echo. `useTerminal.ts` 라우터에 case 추가:
+
+```ts
+case "sys.heartbeat":
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "sys.heartbeat", ts: Date.now() }));
+  }
+  break;
+```
+
+5줄 변경. protocol.ts `HeartbeatMsg` jsdoc을 bidirectional spec으로 정정 (sidecar broadcast + panel echo, 둘 다 receiver `lastRecvAt` 갱신). Test scenario 13 추가 (`useTerminal.test.ts`): heartbeat 수신 → echo 송신 검증 (mock WS send call count + payload + ts: number).
+
+**디버그법** (다음 비슷한 case 발생 시):
+- "panel-disconnect" 사유 shutdown은 항상 panel 측 WS keep-alive 누락 의심. 사이드카 watchdog 코드 확인 (panelBridge.ts:562).
+- panel/sidecar 양측의 `grep -n "heartbeat\|keepalive\|ping"`로 wiring 존재 여부 확인.
+- 가장 빠른 진단: panel idle 1분+ 두기 → 사이드카 살아있는지 확인. 죽으면 keep-alive 결함.
+
+**메타 가이드 (Phase 4-7 진입 전 핵심)**:
+- **phase 검증 시나리오에 idle (1분+ 무입력 후 정상 동작) 포함 필수**. active interaction만으론 keep-alive 결함이 dormant. CLAUDE.md Validation Gate §8 (phase exit) 또는 phase rule에 명시 — 본 commit에서 박힘.
+- protocol design이 "bidirectional"인 envelope은 양 쪽 wiring이 둘 다 구현됐는지 명시적 검증 (단위 테스트 + jsdoc 양방향 명시).
+- timer-driven close path는 별도 시나리오로 panelBridge.test.ts에 누적 (scenario 12와 동등하게).
+- 사이드카 종료 사유 라벨이 panel UI에서 "crashed"로 라벨링되는 케이스 다수 — graceful (code=0) vs unexpected (code≠0/signal) 구분이 panel 진단에 더 도움. 향후 useTerminal의 ws close 처리에서 직전 sys.shutting-down 부재 + code=0이면 "stopped" 또는 별도 라벨로 구분 고려 (out of scope, phase 6 UX 또는 별도 함정).
+
+
 
 **증상**: Phase 2 완료 commit (047b8c9) 후 Phase 3.2 진입에서 `npm run build` 첫 실행 → `launcher.ts:303` 타입 에러로 production 빌드 실패. 96 자동 테스트는 모두 green이었으나 vitest는 tsx로 트랜스파일만 하고 strict 타입 검사 안 함.
 

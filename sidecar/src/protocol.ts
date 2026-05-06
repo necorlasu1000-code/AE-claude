@@ -133,6 +133,19 @@ export interface PtyReplayMsg {
 
 // ─── system / heartbeat ─────────────────────────────────────────────
 
+/**
+ * Bidirectional liveness ping.
+ *   - sidecar → panel: broadcast every `heartbeatIntervalMs` (PanelBridge,
+ *     panelBridge.ts:555).
+ *   - panel → sidecar: echo on receipt (useTerminal.ts message router).
+ * Both directions update the receiver's `lastRecvAt`, which the sidecar's
+ * watchdog (panelBridge.ts:562) compares against `heartbeatTimeoutMs` to
+ * decide when to drop idle clients (ws.close 1001 "heartbeat timeout").
+ * Without panel echo, an idle-but-alive panel is closed at ~timeout +
+ * grace and the sidecar exits on "panel-disconnect" — see mistakes.md
+ * #12. Phase 2 wired the broadcast half but not the echo; restored in
+ * Phase 3.7 follow-up 5.
+ */
 export interface HeartbeatMsg {
   type: "sys.heartbeat";
   ts: number;               // sender's epoch ms

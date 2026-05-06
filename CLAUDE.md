@@ -142,6 +142,12 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
     grep -cP '[\x80-\xFF]' dist/cep/jsx/index.js  # → 0 expected
     ```
 
+13. **Idle scenario gate** — phase exit 검증에 **long-running idle (1분+ 무입력 후 정상 동작)** 시나리오 포함 필수. active interaction (입력/명령 실행)만 검증하면 timer-driven close path (heartbeat watchdog, lockfile renewal, GC 등)가 dormant 상태로 통과 (mistakes.md #12). Phase 4-7 진입 전 phase 검증 시나리오 정의 시 자동 적용.
+    구현 가이드라인:
+    - bidirectional liveness ping은 양쪽 wiring 둘 다 단위 테스트로 검증 (sidecar broadcast + panel echo).
+    - timer-driven close path는 panelBridge.test.ts에 누적 (active disconnect path와 별도 시나리오).
+    - 사용자 dogfood 시 panel 1분+ idle 두기 → 사이드카 살아있는지 항상 확인.
+
 ### Directory Rules (D8 collocation)
 
 ```

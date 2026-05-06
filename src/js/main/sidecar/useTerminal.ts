@@ -39,9 +39,9 @@ export interface UseTerminalOptions {
   spawnTimeoutMs?: number;
   debug?: boolean;
   /** Phase 3.7 — receives WS messages this hook does not handle directly
-   *  (anything outside pty.out / pty.replay / sys.version / sys.shutting-down /
-   *  server.error). Wired by main.tsx to route exec/cancel into the
-   *  ExtendScript bridge layer. Default = noop. */
+   *  (anything outside pty.out / pty.replay / sys.version / sys.heartbeat /
+   *  sys.shutting-down / server.error). Wired by main.tsx to route exec/cancel
+   *  into the ExtendScript bridge layer. Default = noop. */
   onUnhandledMessage?: (msg: unknown) => void;
 }
 
@@ -234,9 +234,11 @@ export function useTerminal(
           try { msg = JSON.parse(typeof ev.data === "string" ? ev.data : ""); }
           catch { return; }
           // ── WS message routing ─────────────────────────────────────
-          // HANDLED (Phase 2 #7):
+          // HANDLED (Phase 2 #7, +sys.heartbeat in Phase 3.7 follow-up 5):
           //   pty.out / pty.replay   → terminal.write
           //   sys.version             → noop (status already set on `open`)
+          //   sys.heartbeat           → echo back (sidecar watchdog needs
+          //                             our send to refresh lastRecvAt)
           //   sys.shutting-down       → status = closing
           //   server.error            → surface to user
           // FORWARDED (Phase 3.7) to onUnhandledMessage:
@@ -256,6 +258,14 @@ export function useTerminal(
               }
               break;
             case "sys.version":
+              break;
+            case "sys.heartbeat":
+              // Echo: sidecar's watchdog (panelBridge.ts:562) closes idle
+              // clients whose lastRecvAt is stale; our liveness signal is
+              // whatever we send back. See protocol.ts HeartbeatMsg jsdoc.
+              if (ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: "sys.heartbeat", ts: Date.now() }));
+              }
               break;
             case "sys.shutting-down":
               setStatus("closing");

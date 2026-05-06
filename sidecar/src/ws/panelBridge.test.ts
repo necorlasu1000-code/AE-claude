@@ -386,6 +386,43 @@ describe("PanelBridge", () => {
     wsB.close();
   });
 
+  // ── 14 (mistakes.md #12) ─────────────────────────────────────────
+  // Heartbeat-timeout-driven close path: idle client never echoes
+  // sys.heartbeat → watchdog observes stale lastRecvAt → sidecar issues
+  // ws.close(1001, "heartbeat timeout") → grace elapses → onShutdownRequest
+  // ("panel-disconnect"). This complements scenario 12 (active close from
+  // client) and scenario 13 (reconnect-within-grace) by covering the
+  // sidecar-initiated close trigger.
+  it("scenario 14: idle client (no heartbeat echo) → watchdog closes + 'panel-disconnect' fires", async () => {
+    const onShutdownRequest = vi.fn();
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000,        // disable broadcast (irrelevant here)
+      heartbeatTimeoutMs: 100,            // tight: watchdog closes after 100ms idle
+      watchdogIntervalMs: 50,             // check every 50ms
+      onShutdownRequest,
+      clientDisconnectGracePeriodMs: 80,
+    });
+    ({ port } = await bridge.start());
+
+    const ws = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(ws, (m) => m.type === "sys.version");
+
+    // Idle: no pty.in / heartbeat echo / any send. Watchdog should close
+    // the connection within ~150ms (timeout + watchdog tick latency).
+    await new Promise<void>((resolve) => {
+      ws.once("close", () => resolve());
+      // Safety bail (test timeout default still applies).
+      setTimeout(() => resolve(), 1000);
+    });
+    expect(ws.readyState).toBe(3 /* CLOSED */);
+
+    // Grace (80ms) past close → onShutdownRequest("panel-disconnect").
+    await delay(150);
+    expect(onShutdownRequest).toHaveBeenCalledWith("panel-disconnect");
+  });
+
   // ── 8 ────────────────────────────────────────────────────────────
   it("multi-client: secondary's pty.in refused with AEMultiClientRefused", async () => {
     const wsA = await openWs(url);

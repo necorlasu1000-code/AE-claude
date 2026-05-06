@@ -368,4 +368,34 @@ describe("useTerminal", () => {
     }).not.toThrow();
     expect(result.current.status).toBe("ready"); // unchanged
   });
+
+  // ── 13 (Phase 3.7 follow-up 5) — sys.heartbeat echo ─────────────────
+  // Why: sidecar's watchdog (panelBridge.ts:562) closes idle clients whose
+  // lastRecvAt has not advanced past heartbeatTimeoutMs. The hook must echo
+  // sys.heartbeat back so our send refreshes the watchdog clock — without
+  // this, the panel is closed at ~30s + 5s grace and the sidecar shuts down
+  // on "panel-disconnect" even though the panel is fully alive (mistakes #12).
+  it("sys.heartbeat received → echoed back via ws.send + not forwarded to onUnhandledMessage", async () => {
+    const launcher = makeMockLauncher();
+    const { deps } = makeDeps(launcher);
+    const onUnhandledMessage = vi.fn();
+    const { result } = renderHook(() =>
+      useWrapped({ aePid: 11111, onUnhandledMessage }, deps),
+    );
+    await waitFor(() => expect(lastWs).toBeDefined());
+    act(() => { lastWs!._open(); });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    const sendCountBefore = lastWs!.send.mock.calls.length;
+    act(() => { lastWs!._message({ type: "sys.heartbeat", ts: Date.now() }); });
+
+    expect(lastWs!.send.mock.calls.length).toBe(sendCountBefore + 1);
+    const echoed = JSON.parse(
+      lastWs!.send.mock.calls[lastWs!.send.mock.calls.length - 1][0] as string,
+    );
+    expect(echoed.type).toBe("sys.heartbeat");
+    expect(typeof echoed.ts).toBe("number");
+    // Heartbeat is HANDLED — must not leak to the unhandled forwarder.
+    expect(onUnhandledMessage).not.toHaveBeenCalled();
+  });
 });
