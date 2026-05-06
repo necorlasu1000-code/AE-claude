@@ -26,6 +26,8 @@ function makeStubPty(): PtyLike {
     write() {},
     resize() {},
     onData() { return () => {}; },
+    onExit() { return () => {}; },
+    kill() { return Promise.resolve(); },
     getRecentOutput() { return []; },
   };
 }

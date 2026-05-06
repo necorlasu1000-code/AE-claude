@@ -33,6 +33,8 @@ function makeStubPty(): PtyLike {
     write() { /* unused */ },
     resize() { /* unused */ },
     onData() { return () => {}; },
+    onExit() { return () => {}; },
+    kill() { return Promise.resolve(); },
     getRecentOutput() { return []; },
   };
 }

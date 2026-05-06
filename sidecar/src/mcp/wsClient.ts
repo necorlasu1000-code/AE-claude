@@ -138,7 +138,11 @@ export class McpWsClient {
       if (!p) return;
       clearTimeout(p.timer);
       this.pending.delete(requestId);
-      p.resolve(msg as ResultMsg | ErrorMsg);
+      // Type narrowed by msg.type check above; the indexed parsed shape
+      // doesn't structurally satisfy ResultMsg|ErrorMsg's required fields,
+      // so route through `unknown` (callers downstream gate on msg.type
+      // again before using requestId/data/code/userMessage).
+      p.resolve(msg as unknown as ResultMsg | ErrorMsg);
       return;
     }
     if (msg.type === "sys.heartbeat") {

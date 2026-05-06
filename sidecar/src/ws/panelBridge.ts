@@ -49,6 +49,17 @@ export interface PtyLike {
   write(data: string): void;
   resize(cols: number, rows: number): void;
   onData(cb: (data: string) => void): () => void;
+  /** Phase 4.3 hotfix (mistakes #13 Trap A) — PtyHost has always exposed
+   *  onExit but PtyLike omitted it. index.ts main() relies on this hook to
+   *  trigger sidecar shutdown when the PTY child dies; without it in the
+   *  interface, the `makeDummyPty` fallback ENOENT path runtime-throws
+   *  "pty.onExit is not a function". Signature mirrors PtyHost.ExitCb
+   *  (signal is `number | undefined` per node-pty's IPty.onExit semantics —
+   *  signal absent on Windows ConPTY graceful exit). */
+  onExit(cb: (code: number, signal?: number) => void): () => void;
+  /** Phase 4.3 hotfix (mistakes #13 Trap A) — PtyHost.kill always existed
+   *  but PtyLike omitted it. Sidecar shutdown calls this; dummy is a noop. */
+  kill(): Promise<void>;
   getRecentOutput(maxLines?: number): string[];
 }
 

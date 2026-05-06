@@ -27,6 +27,8 @@ function makeMockPty() {
       dataCbs.add(cb);
       return () => { dataCbs.delete(cb); };
     },
+    onExit() { return () => { /* mock never exits */ }; },
+    kill() { return Promise.resolve(); },
     getRecentOutput() { return [...buffer]; },
     emitData(data: string) {
       for (const cb of dataCbs) cb(data);

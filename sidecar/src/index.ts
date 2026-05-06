@@ -133,6 +133,8 @@ function makeDummyPty(): PtyLike {
     write() { /* discard */ },
     resize() { /* noop */ },
     onData() { return () => { /* nothing to unsubscribe */ }; },
+    onExit() { return () => { /* dummy never exits */ }; },
+    kill() { return Promise.resolve(); },
     getRecentOutput() { return []; },
   };
 }

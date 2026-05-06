@@ -424,7 +424,87 @@ case "sys.heartbeat":
 
 **Phase 2.7~2.8에 fix가 안 박혔던 이유** (참고): launcher.ts는 Phase 2.7.0에서 `aePid optional` 리팩토링 + Phase 2.7 sendShutdownOverWs 추가 시 deps 시그니처가 처음 등장 (당시 fast prototype). vitest는 통과 → 진행. 1주일 후 Phase 3.2에서 production 빌드 첫 호출 → 늦은 발견.
 
-## ✅ Phase 2.8.4 — panel close 시 사이드카 좀비 (graceful shutdown 메커니즘 부재)
+## ✅ Phase 4.3 hotfix (#13) — PtyLike interface 미스매치 + 사이드카 typecheck 누락 (이중 트랩)
+
+**증상**: Phase 4.3 commit 후 사용자 dogfood (panel 띄움) → 사이드카 즉시 fatal:
+
+```
+[sidecar] {"event":"mcp:register:success"}      ← 4.2 정상
+{"type":"fatal","reason":"startup-failed",
+ "message":"pty.onExit is not a function",
+ "stack":"TypeError: pty.onExit is not a function at sidecar/src/index.ts:362:7"}
+```
+
+mcp:register:success 정상 직후 사이드카 main()의 `pty.onExit(...)` 호출이 runtime throw. 4.3 단위 + 통합 테스트는 122/122 그린이었음에도 production wiring에서 첫 발현.
+
+**Root cause** — **이중 트랩**:
+
+**Trap A — PtyLike interface 미스매치**
+
+`sidecar/src/ws/panelBridge.ts`의 `PtyLike`는 Phase 2 시점에 PanelBridge가 직접 호출하는 method만 노출 — `write/resize/onData/getRecentOutput`. **`onExit` / `kill` 누락**. PtyHost (real)는 둘 다 가지지만 interface 선언에 없음.
+
+`sidecar/src/index.ts`의 main()은 PtyHost 가정으로 `pty.onExit(...)` 호출 + shutdown 흐름에서 `pty.kill()` 호출. 4.3에서 `let pty: PtyLike` 선언 + `dummyPty = makeDummyPty()` (ENOENT fallback) 추가. dummyPty 경로 시 onExit/kill 메서드 없음 → runtime throw.
+
+**Trap B — 사이드카 strict tsc 누락 (함정 #10 변형)**
+
+CLAUDE.md Validation Gate §8: "phase 종료 commit 전에 `npm test` AND `npm run build` 둘 다 통과". 본문은 monorepo 양쪽 (panel root + sidecar root) 둘 다 실행한다는 뜻이었으나 **panel root에서 `npm run build`만 실행하면 panel tsc + vite만 거치고 사이드카 tsc는 안 거침**. 4.3 검증 시점에 사이드카 tsc 빠뜨림 — 이게 본 root cause.
+
+사이드카 strict tsc를 hotfix 시점에 실행하니 **4개 type 에러 즉시 발견**:
+
+```
+src/index.ts(166,5): Type 'PtyHost' is not assignable to type 'PtyLike'.
+  Types of property 'onExit' are incompatible. (signal type mismatch)
+src/index.ts(246,11): Property 'kill' does not exist on type 'PtyLike'.
+src/index.ts(327,11): Property 'kill' does not exist on type 'PtyLike'.
+src/mcp/wsClient.ts(141,17): Conversion of type ... may be a mistake.
+```
+
+**4개 모두 tsx runtime에서 silent**, production wiring에서 즉시 fatal.
+
+**왜 보호망 통과** — 이중 검증 모두 fail:
+1. **단위 테스트**: `panelBridge.test.ts`의 `makeMockPty`는 PtyLike interface 충족하는 mock. interface에 onExit/kill 없으니 mock에도 없음. main()을 거치지 않아서 line 362 영역 검증 0.
+2. **통합 테스트** (`integration-shell-not-found.test.ts`): `spawnSidecar`는 **ready JSON만 받으면 resolve** (line 197 출력 후 즉시). line 362 fail은 ready JSON **이후**라 resolve 시점에 미발생. ws connect + sys.version + server.error 모두 그 짧은 window에서 받힘. spawn-helper의 contract는 만족했고 expect 모두 통과 — **테스트는 사이드카 사후 fatal을 catch 못 함**.
+3. **단위 typecheck**: `cd sidecar && npm run build` 별도 실행 명시 누락 → 4개 type 에러 모두 silent.
+
+**자기 비판 (본 root cause 명확화)**: Phase 4.3 검증 commit 시 내가 `cd /c/Users/user/Desktop/성윤/에펙 클로드 && npm run build`만 실행했고 사이드카 tsc 별도 실행은 빠뜨렸다. CLAUDE.md §8 본문이 "양쪽" 의도였으나 **명시 누락**이라 내가 panel root에서만 실행. 사용자 dogfood가 catch한 함정.
+
+**Fix (Phase 4.3 hotfix)**:
+
+1. **Trap A 해소** — PtyLike에 `onExit` + `kill` 추가:
+   ```ts
+   onExit(cb: (code: number, signal?: number) => void): () => void;
+   kill(): Promise<void>;
+   ```
+   `signal?: number`는 PtyHost.ExitCb 시그니처와 일치 (Windows ConPTY graceful exit 시 signal 부재).
+2. `makeDummyPty()`에 noop `onExit` (return noop unsubscribe — dummy never exits) + noop `kill` (return Promise.resolve) 추가.
+3. 모든 mock PtyLike (`makeMockPty` panelBridge.test, `makeStubPty` integration-mcp/dispatcher) 같이 update — interface 정합 보장.
+4. `wsClient.ts:141`의 cast `msg as ResultMsg | ErrorMsg` → `msg as unknown as ResultMsg | ErrorMsg` (parsed shape vs envelope 구조 차이).
+
+**Trap B 해소** — CLAUDE.md §8 본문 보강:
+> phase 종료 commit 전에 **monorepo 양쪽 (panel root + sidecar root)에서 각각 `npm run build` 명시 실행**. panel root만 실행 = panel tsc + vite만, 사이드카 tsc strict 미실행 = 함정 #13 재발.
+> ```bash
+> cd sidecar && npm run build && cd ..
+> npm run build
+> ```
+
+**통합 테스트 보강** — `integration-shell-not-found.test.ts`에 신규 시나리오:
+> "invalid AE_CLAUDE_SHELL → sidecar stays alive past boot (no late fatal)"
+>
+> ready JSON + sys.version + server.error 받은 후 1.5s 대기 + ws.readyState === OPEN 검증. 사이드카가 main() 끝까지 정상 통과했는지 사후 검증. 향후 비슷한 "ready 직후 fatal" 함정을 spawn-helper의 ready-only resolve가 놓치지 않도록.
+
+**디버그법** (다음 비슷한 case 발생 시):
+
+- panel/사이드카 monorepo면 panel root + sidecar root 양쪽 build 명시 실행.
+- mock interface (`PtyLike` 같은 ABC)는 real implementation의 모든 public method 노출. interface 사용처를 grep해서 호출되는 모든 method가 interface에 박혀있는지 확인.
+- "ready JSON 후 fatal" 패턴: 통합 테스트가 ready만 기다려 resolve하는 경우 ready 이후 사이드카 alive 검증 추가 (대기 + readyState 검사).
+
+**메타 가이드 (Phase 5+ 진입 전 핵심)**:
+
+- **모든 mock interface는 real implementation의 superset이거나 같은 set이어야** — interface는 호출되는 모든 method를 enumerate. abstract base class (ABC) 자세 도입 검토.
+- **monorepo phase exit gate**: monorepo 각 package root에서 build 강제. CI 부재 환경에서는 사용자가 직접 양쪽 실행 책임. CLAUDE.md에 명시 → 자동 가드.
+- **integration test의 resolve trigger 점검**: ready/init/connect 같은 "준비 완료" 신호가 main() 마지막 라인을 의미하지 않음. main() 끝까지 통과 검증 (alive 검사) 별도 시나리오 추가.
+
+
 
 **증상**: panel을 6-8번 열고 닫은 후 작업관리자에 Node 좀비 ~20개. 메모리별 두 개씩 짝지어 (큰 + 작은) 누적. fix-1, fix-2 후에도 발생.
 

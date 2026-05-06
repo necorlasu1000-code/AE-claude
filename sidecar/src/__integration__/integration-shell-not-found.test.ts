@@ -74,4 +74,40 @@ describe("integration shell-not-found (Phase 4.3)", () => {
     }
     ws.close();
   });
+
+  // Phase 4.3 hotfix (mistakes #13) — the original integration test only
+  // verified ready JSON + sys.version + server.error, all of which arrive
+  // before main()'s `pty.onExit(...)` call near the end of boot. A type
+  // mismatch on PtyLike (Trap A) would still let the sidecar emit those
+  // messages and then fatal-exit a few ms later, leaving the test green
+  // but production broken. This second scenario verifies the sidecar is
+  // still alive after the boot sequence completes.
+  it("invalid AE_CLAUDE_SHELL → sidecar stays alive past boot (no late fatal)", async () => {
+    sidecar = await spawnSidecar({
+      env: { AE_CLAUDE_SHELL: NONEXISTENT_SHELL },
+    });
+
+    const ws = await openWs(`ws://127.0.0.1:${sidecar.port}/`);
+    await nextMessage(ws, (m) => m.type === "sys.version");
+    await nextMessage(ws, (m) => m.type === "server.error");
+
+    // Wait past the entire main() body (PtyHost catch → bridge.start →
+    // ready JSON → mcp register → watchdog → pty.onExit hook). On a clean
+    // boot all of this completes within ~1s. If main() throws after ready
+    // JSON (the Trap A failure mode), the sidecar process exits and the
+    // ws connection is closed by the OS within roughly the same window.
+    await new Promise((r) => setTimeout(r, 1500));
+
+    expect(ws.readyState).toBe(1 /* OPEN */);
+    // Send a heartbeat round-trip to confirm the sidecar is actively
+    // responding, not just lingering in TIME_WAIT.
+    ws.send(JSON.stringify({ type: "sys.heartbeat", ts: Date.now() }));
+    // No assertion on the heartbeat reply — sidecar broadcasts its own
+    // heartbeat on a 10s cadence; we only need to know our send didn't
+    // EPIPE / ECONNRESET. Peek the queue once more.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ws.readyState).toBe(1);
+
+    ws.close();
+  });
 });
