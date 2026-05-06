@@ -24,6 +24,7 @@
 // adds the reverse direction for ExtendScript bridge. ExecHandler retained
 // for Phase 4+ MCP direct dispatch.
 
+import type { IncomingMessage } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   encode,
@@ -38,6 +39,7 @@ import {
   type ErrorMsg,
   type ResultChunkMsg,
   type RequestId,
+  type ClientRole,
 } from "../protocol.js";
 import { AEError } from "../tools/_errors.js";
 
@@ -108,10 +110,15 @@ interface PendingExec {
 
 interface ClientState {
   lastRecvAt: number;
+  /** D-J — role identified at WS upgrade by URL query (`?role=mcp`).
+   *  Missing query → "panel" default (backward compat: Phase 2/3 17
+   *  scenarios connect without query and resolve to panel role). */
+  role: ClientRole;
 }
 
-// Write-authority message types — primary client only.
-const WRITE_TYPES: ReadonlySet<Msg["type"]> = new Set([
+// Write-authority message types — primary client only, **per role**.
+// Phase 4 D-J split the original WRITE_TYPES into role-specific sets.
+const PANEL_WRITES: ReadonlySet<Msg["type"]> = new Set([
   "pty.in",
   "pty.resize",
   "exec",
@@ -119,13 +126,40 @@ const WRITE_TYPES: ReadonlySet<Msg["type"]> = new Set([
   "approval.response",
   "sys.shutdown",          // primary-only per Phase 2.5.5.0 design
 ]);
+const MCP_WRITES: ReadonlySet<Msg["type"]> = new Set([
+  "exec",
+  "cancel",
+  // pty.* / sys.shutdown / approval.response → AERoleNotAllowed for mcp role.
+]);
+
+function writesForRole(role: ClientRole): ReadonlySet<Msg["type"]> {
+  return role === "mcp" ? MCP_WRITES : PANEL_WRITES;
+}
+
+/** Parse role from `req.url` (e.g., `/?role=mcp`). Missing/unknown → "panel".
+ *  Backward compat: legacy connect strings have no query → "panel" default. */
+function parseRole(rawUrl: string | undefined): ClientRole {
+  if (!rawUrl) return "panel";
+  const qIdx = rawUrl.indexOf("?");
+  if (qIdx < 0) return "panel";
+  const params = new URLSearchParams(rawUrl.slice(qIdx + 1));
+  return params.get("role") === "mcp" ? "mcp" : "panel";
+}
 
 // ─── PanelBridge ───────────────────────────────────────────────────
 
 export class PanelBridge {
   private wss: WebSocketServer | undefined;
   private clients = new Map<WebSocket, ClientState>();
-  private primary: WebSocket | undefined;
+  /** Primary panel client — owns pty.in/pty.resize/exec/cancel/sys.shutdown
+   *  authority. Selected as the first connecting `role=panel` client; on
+   *  disconnect, the next remaining panel client (insertion order) is promoted. */
+  private primaryPanel: WebSocket | undefined;
+  /** Primary mcp client — owns exec/cancel authority only. Independent of
+   *  primaryPanel (Phase 4 D-J). At most one mcp client per sidecar in
+   *  practice (claude CLI spawns one MCP server child); secondary mcp
+   *  clients are refused writes the same way secondary panel clients are. */
+  private primaryMcp: WebSocket | undefined;
   private pending = new Map<RequestId, PendingExec>();
 
   private heartbeatTimer: NodeJS.Timeout | undefined;
@@ -171,7 +205,7 @@ export class PanelBridge {
         this.setupPtyForward();
         this.setupHeartbeat();
         this.setupWatchdog();
-        wss.on("connection", (ws) => this.handleConnection(ws));
+        wss.on("connection", (ws, req) => this.handleConnection(ws, req));
         wss.on("error", () => {
           /* runtime errors after listen — individual ws errors handle themselves */
         });
@@ -209,7 +243,8 @@ export class PanelBridge {
       try { ws.close(1001, "server stopping"); } catch { /* best-effort */ }
     }
     this.clients.clear();
-    this.primary = undefined;
+    this.primaryPanel = undefined;
+    this.primaryMcp = undefined;
 
     return new Promise((resolve) => {
       const wss = this.wss;
@@ -224,7 +259,7 @@ export class PanelBridge {
 
   // ─── Connection lifecycle ────────────────────────────────────────
 
-  private handleConnection(ws: WebSocket): void {
+  private handleConnection(ws: WebSocket, req: IncomingMessage): void {
     // New client arrived — cancel any pending auto-shutdown grace timer
     // (the previous panel may have just disconnected and reopened).
     if (this.clientDisconnectTimer) {
@@ -232,9 +267,12 @@ export class PanelBridge {
       this.clientDisconnectTimer = undefined;
     }
 
-    const state: ClientState = { lastRecvAt: Date.now() };
+    const role = parseRole(req.url);
+    const state: ClientState = { lastRecvAt: Date.now(), role };
     this.clients.set(ws, state);
-    if (!this.primary) this.primary = ws;
+    // Per-role primary selection (D-J).
+    if (role === "panel" && !this.primaryPanel) this.primaryPanel = ws;
+    else if (role === "mcp" && !this.primaryMcp) this.primaryMcp = ws;
 
     // Greet with sys.version.
     this.sendTo(ws, {
@@ -268,10 +306,13 @@ export class PanelBridge {
 
     ws.on("close", () => {
       this.clients.delete(ws);
-      if (this.primary === ws) {
-        // Promote any remaining client (Map iteration order = insertion order).
-        const next = this.clients.keys().next();
-        this.primary = next.done ? undefined : next.value;
+      // Promote next same-role client on primary disconnect (D-J).
+      // Map iteration order = insertion order, so first matching role wins.
+      if (this.primaryPanel === ws) {
+        this.primaryPanel = this.findFirstByRole("panel");
+      }
+      if (this.primaryMcp === ws) {
+        this.primaryMcp = this.findFirstByRole("mcp");
       }
       // Abort any pending exec from this ws (response can no longer be delivered).
       for (const [requestId, p] of this.pending) {
@@ -304,11 +345,33 @@ export class PanelBridge {
     });
   }
 
+  private findFirstByRole(role: ClientRole): WebSocket | undefined {
+    for (const [ws, state] of this.clients) {
+      if (state.role === role) return ws;
+    }
+    return undefined;
+  }
+
   // ─── Message routing ─────────────────────────────────────────────
 
   private routeMessage(ws: WebSocket, msg: Msg): void {
-    if (WRITE_TYPES.has(msg.type) && ws !== this.primary) {
-      this.refuseSecondary(ws, msg);
+    const state = this.clients.get(ws);
+    if (!state) return;  // raced with close — drop silently
+
+    // D-J: role-aware authority.
+    //  1. If the type is in this role's WRITES set, must be the role's primary.
+    //  2. Else if it's a write type for the *other* role, refuse with
+    //     AERoleNotAllowed (e.g., mcp client sending pty.in).
+    //  3. Else fall through to switch (read-only types: heartbeat, etc.).
+    const allowed = writesForRole(state.role);
+    if (allowed.has(msg.type)) {
+      const primary = state.role === "mcp" ? this.primaryMcp : this.primaryPanel;
+      if (ws !== primary) {
+        this.refuseSecondary(ws, msg);
+        return;
+      }
+    } else if (PANEL_WRITES.has(msg.type) || MCP_WRITES.has(msg.type)) {
+      this.refuseRoleNotAllowed(ws, msg, state.role);
       return;
     }
 
@@ -380,6 +443,31 @@ export class PanelBridge {
           developerHint: `'${msg.type}' is sidecar-to-panel only`,
         });
         return;
+    }
+  }
+
+  private refuseRoleNotAllowed(ws: WebSocket, msg: Msg, role: ClientRole): void {
+    const userMessage = `Message type '${msg.type}' not allowed for role '${role}'.`;
+    const developerHint = role === "mcp"
+      ? "MCP role accepts exec/cancel only. PTY and shutdown are panel-only."
+      : `Role '${role}' does not accept this message type.`;
+    if (msg.type === "exec") {
+      // Shouldn't happen — exec is in both roles' WRITES — but handle defensively.
+      this.sendTo(ws, {
+        type: "error",
+        requestId: msg.requestId,
+        code: "AERoleNotAllowed",
+        userMessage,
+        developerHint,
+      });
+    } else {
+      this.sendTo(ws, {
+        type: "server.error",
+        code: "AERoleNotAllowed",
+        userMessage,
+        developerHint,
+        ctx: { role, refusedType: msg.type },
+      });
     }
   }
 
@@ -521,12 +609,18 @@ export class PanelBridge {
 
   /**
    * Phase 3 — outbound exec/cancel from ToolDispatcher to the primary
-   * panel client. No-op when no primary is connected (dispatcher exec
-   * will then time out via its own setTimeout — single source of truth
-   * for cancel timing per D-D layer-of-responsibility).
+   * panel client. No-op when no primary panel is connected (dispatcher
+   * exec will then time out via its own setTimeout — single source of
+   * truth for cancel timing per D-D layer-of-responsibility).
+   *
+   * Phase 4 D-J: routes to `primaryPanel` only (the ExtendScript bridge
+   * lives in the CEP panel runtime). The mcp client never receives
+   * outbound exec — it issues *inbound* exec to the dispatcher and
+   * receives result/error responses tied to its own requestId via the
+   * normal response path (sendTo on the originating ws).
    */
   sendToPrimary(msg: ExecMsg | CancelMsg): void {
-    if (this.primary) this.sendTo(this.primary, msg);
+    if (this.primaryPanel) this.sendTo(this.primaryPanel, msg);
   }
 
   private sendTo(ws: WebSocket, msg: Msg): void {

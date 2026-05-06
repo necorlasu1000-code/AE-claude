@@ -79,7 +79,7 @@ AE ↔ CEP Panel (React + xterm.js)
 |---|---|---|
 | D-H | claude CLI 인증 | claude CLI에 위임 (auto-detect: `ANTHROPIC_API_KEY` env inherit / OAuth fallback). 사이드카 인증 코드 0. |
 | D-I | MCP server process 모델 | claude CLI가 spawn하는 별도 stdio entry script `sidecar/src/mcp/server.ts`. 사이드카 main과 분리. ws reverse-connect → dispatcher.exec. |
-| D-J | PanelBridge multi-role | 단일 ws server에 role "panel" + "mcp" 두 종류 허용. primary/secondary 정책은 role 안에서. **backward compat 강제** (role 미명시 default "panel", Phase 2/3 16 시나리오 그린 유지). role 식별 메커니즘 = 4.1 시작 전 추가 결정 (a sys.identify / b WS subprotocol / c URL query). |
+| D-J | PanelBridge multi-role | 단일 ws server에 role "panel" + "mcp" 두 종류 허용. primary/secondary 정책은 role 안에서. **backward compat 강제** (role 미명시 default "panel", Phase 2/3 17 시나리오 그린 유지). **role 식별 = URL query `?role=mcp`** (4.1 lock-in). role-disallowed 메시지는 server.error `AERoleNotAllowed`. |
 | D-K | claude 출력 채널 분리 | chat = PTY raw → ws → xterm. MCP = stdio JSON-RPC (D-I 별도 entry). 사이드카 main에서 두 채널 만나지 않음. PTY parsing 0. |
 
 ---

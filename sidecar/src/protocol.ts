@@ -227,6 +227,27 @@ export type Msg =
   | ApprovalRequestMsg
   | ApprovalResponseMsg;
 
+// ─── D-J — PanelBridge multi-role client identification ───────────────
+
+/**
+ * Client role on the sidecar's single ws server. Identified at WebSocket
+ * upgrade by the URL query parameter `?role=<value>`:
+ *   - `?role=mcp`      → mcp role (Phase 4 D-I MCP server entry script)
+ *   - missing / other → "panel" default (CEP panel runtime, Phase 2/3)
+ *
+ * Backward compat (D-J strict): legacy `ws://host:port/` connect URLs
+ * have no query → resolve to "panel". All Phase 2/3 17 panelBridge.test
+ * scenarios connect without query and remain green.
+ *
+ * Primary/secondary policy (Phase 2 multi-client) is applied **within**
+ * each role independently — there is one `primaryPanel` and one `primaryMcp`,
+ * and a client of one role can never be primary for the other. Write-type
+ * authority is also role-scoped (panel primary owns pty.in/pty.resize/
+ * sys.shutdown; mcp primary owns exec/cancel only). Disallowed message
+ * types yield a `server.error` with code `AERoleNotAllowed`.
+ */
+export type ClientRole = "panel" | "mcp";
+
 // ─── (de)serialization ──────────────────────────────────────────────
 // JSON over WebSocket TEXT frames. No custom binary protocol — keep boring
 // (CLAUDE.md base principle 2 + D9: choose-boring-tech).

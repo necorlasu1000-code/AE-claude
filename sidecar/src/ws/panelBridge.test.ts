@@ -535,4 +535,111 @@ describe("PanelBridge", () => {
     wsA.close();
     wsB.close();
   });
+
+  // ── 18 (Phase 4.1 D-J) ────────────────────────────────────────────
+  // ?role=mcp client connects → state.role = "mcp", greeted with sys.version
+  // identically to a panel client (greeting is role-agnostic — it identifies
+  // the sidecar, not the client). The fact that sys.version is received
+  // confirms the upgrade succeeded with the role query.
+  it("scenario 18: mcp client connects via ?role=mcp and is greeted with sys.version", async () => {
+    const wsMcp = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    const greeting = await nextMessage(wsMcp, (m) => m.type === "sys.version");
+    expect(greeting.type).toBe("sys.version");
+    wsMcp.close();
+  });
+
+  // ── 19 (Phase 4.1 D-J) ────────────────────────────────────────────
+  // Per-role primary independence: a panel client and an mcp client connect
+  // simultaneously; each is the primary of its own role. Both can issue
+  // exec calls — the panel exec is forwarded to ExecHandler exactly once
+  // for each (no AEMultiClientRefused cross-role).
+  it("scenario 19: panel primary + mcp primary independent, both can exec", async () => {
+    const calls: Array<{ tool: string; input: unknown }> = [];
+    const handler: ExecHandler = vi.fn(async (tool, input) => {
+      calls.push({ tool, input });
+      return { from: tool };
+    }) as ExecHandler;
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler: handler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+    });
+    ({ port } = await bridge.start());
+
+    const wsPanel = await openWs(`ws://127.0.0.1:${port}/`);
+    await nextMessage(wsPanel, (m) => m.type === "sys.version");
+    const wsMcp = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    await nextMessage(wsMcp, (m) => m.type === "sys.version");
+
+    // panel primary issues exec
+    send(wsPanel, { type: "exec", requestId: "rid-panel-1", tool: "ae_panel_tool", input: {} });
+    const panelResult = await nextMessage(wsPanel, (m) => m.type === "result");
+    expect(panelResult).toMatchObject({ type: "result", requestId: "rid-panel-1" });
+
+    // mcp primary issues exec — succeeds independently (not refused)
+    send(wsMcp, { type: "exec", requestId: "rid-mcp-1", tool: "ae_mcp_tool", input: {} });
+    const mcpResult = await nextMessage(wsMcp, (m) => m.type === "result");
+    expect(mcpResult).toMatchObject({ type: "result", requestId: "rid-mcp-1" });
+
+    expect(calls).toEqual([
+      { tool: "ae_panel_tool", input: {} },
+      { tool: "ae_mcp_tool", input: {} },
+    ]);
+    wsPanel.close();
+    wsMcp.close();
+  });
+
+  // ── 20 (Phase 4.1 D-J) ────────────────────────────────────────────
+  // mcp role is restricted to exec/cancel writes. pty.in is panel-only;
+  // an mcp client sending pty.in must receive AERoleNotAllowed (not
+  // AEMultiClientRefused — they're the role primary, just on the wrong
+  // message type).
+  it("scenario 20: mcp client pty.in refused with AERoleNotAllowed", async () => {
+    const wsMcp = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    await nextMessage(wsMcp, (m) => m.type === "sys.version");
+
+    send(wsMcp, { type: "pty.in", data: "ls\r" });
+    const reply = await nextMessage(wsMcp, (m) => m.type === "server.error");
+    expect(reply.type).toBe("server.error");
+    if (reply.type === "server.error") {
+      expect(reply.code).toBe("AERoleNotAllowed");
+      expect(reply.ctx).toMatchObject({ role: "mcp", refusedType: "pty.in" });
+    }
+    wsMcp.close();
+  });
+
+  // ── 21 (Phase 4.1 D-J) ────────────────────────────────────────────
+  // mcp role's only writes are exec + cancel. cancel from mcp aborts an
+  // in-flight exec issued by that same mcp client (handler signal fires).
+  it("scenario 21: mcp cancel aborts in-flight mcp exec", async () => {
+    let abortFired = false;
+    const handler: ExecHandler = vi.fn(async (_tool, _input, ctx) => {
+      await new Promise<void>((resolve) => {
+        ctx.signal.addEventListener("abort", () => { abortFired = true; resolve(); }, { once: true });
+        // Long-running — only abort path resolves it within the test.
+        setTimeout(resolve, 5_000);
+      });
+      throw new Error("__abort");
+    }) as ExecHandler;
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler: handler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+    });
+    ({ port } = await bridge.start());
+
+    const wsMcp = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    await nextMessage(wsMcp, (m) => m.type === "sys.version");
+
+    send(wsMcp, { type: "exec", requestId: "rid-mcp-cancel", tool: "ae_long_tool", input: {} });
+    await delay(30);  // allow handler to start + register abort listener
+    send(wsMcp, { type: "cancel", requestId: "rid-mcp-cancel" });
+
+    const err = await nextMessage(wsMcp, (m) => m.type === "error");
+    expect(err).toMatchObject({
+      type: "error", requestId: "rid-mcp-cancel", code: "AECancelledError",
+    });
+    expect(abortFired).toBe(true);
+    wsMcp.close();
+  });
 });
