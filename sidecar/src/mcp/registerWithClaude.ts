@@ -35,7 +35,7 @@ export type RunCommand = (
 ) => Promise<RunCommandResult>;
 
 export type LogEvent =
-  | { event: "mcp:register:start"; port: number; cwd: string; serverEntryPath: string }
+  | { event: "mcp:register:start"; port: number; cwd: string; spawnCommand: string; spawnArgs: string[] }
   | { event: "mcp:register:remove-result"; exitCode: number }
   | { event: "mcp:register:add-result"; exitCode: number; stderr: string }
   | { event: "mcp:register:success" }
@@ -46,8 +46,15 @@ export type LogEvent =
 export interface RegisterMcpOptions {
   /** Sidecar ws port to embed as AE_CLAUDE_WS_PORT env on the registered entry. */
   port: number;
-  /** Absolute path to the compiled MCP server entry (`<sidecar>/dist/mcp/server.js`). */
-  serverEntryPath: string;
+  /** Command claude CLI will spawn for the MCP server (e.g. "node"). Phase
+   *  4.4 fix-2 (mistakes #14 Aspect B): replaces the older serverEntryPath
+   *  field so dev (tsx) and prod (dist) modes can pass distinct shapes:
+   *    dev  → cmd="node",  args=[<tsx_cli_abs>, <src/mcp/server.ts_abs>]
+   *    prod → cmd="node",  args=[<dist/mcp/server.js_abs>]
+   *  Mirrors the sidecar's own factories.ts SIDECAR_CMD/SIDECAR_ARGS pair. */
+  spawnCommand: string;
+  /** Args after spawnCommand. See spawnCommand jsdoc for dev/prod shapes. */
+  spawnArgs: string[];
   /** Working directory for the `claude mcp add` invocation. The `--scope local`
    *  (default) entry is keyed by this cwd, so it must match the cwd the user
    *  later runs `claude` from (typically the panel project root, currently
@@ -75,7 +82,8 @@ export async function registerMcpWithClaude(
     event: "mcp:register:start",
     port: opts.port,
     cwd: opts.cwd,
-    serverEntryPath: opts.serverEntryPath,
+    spawnCommand: opts.spawnCommand,
+    spawnArgs: opts.spawnArgs,
   });
 
   // 1. silent remove (silent fail when entry doesn't exist — exit 1).
@@ -93,10 +101,13 @@ export async function registerMcpWithClaude(
   log({ event: "mcp:register:remove-result", exitCode: removeResult.exitCode });
 
   // 2. add. Args after `--` are passed to the spawned stdio server entry.
+  // Shape: claude mcp add ae-mcp -e KEY=VAL -- <cmd> <...args>
+  // dev (tsx) → node <tsx_cli> <src/mcp/server.ts>
+  // prod      → node <dist/mcp/server.js>
   const addArgs = [
     "mcp", "add", MCP_NAME,
     "-e", `AE_CLAUDE_WS_PORT=${opts.port}`,
-    "--", "node", opts.serverEntryPath,
+    "--", opts.spawnCommand, ...opts.spawnArgs,
   ];
   let addResult: RunCommandResult;
   try {

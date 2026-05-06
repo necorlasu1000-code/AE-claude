@@ -567,6 +567,74 @@ pty = new PtyHost({ cmd: resolvedShell, ... });
 - spawn 메커니즘 둘 (`child_process.spawn` vs `node-pty`)이 동일 입력에 다르게 동작하면 **PATH lookup 차이 의심** — `which.sync` 또는 `where <cmd>`로 사전 검증.
 - Windows 환경에서 ENOENT 메시지가 ConPTY 측에서 오면 (`WindowsPtyAgent: File not found`) 100% PATH lookup 부재.
 
+### Sub-section: Phase 4.4 fix-2 — MCP entry path dev/prod resolution (Aspect B)
+
+**Aspect 명확화** (#14 본문 두 면):
+- **Aspect A (위 본문)**: spawn 메커니즘 차이. `child_process.spawn` PATH lookup OK / `node-pty` PATH lookup X. **사이드카가 PTY로 spawn하는 binary** (claude shell)에서 발현. fix = `resolveShellPath` (which 사전 lookup).
+- **Aspect B (이 sub-section)**: **dev/prod entry path resolution**. claude CLI가 spawn하는 ae-mcp child entry — 사이드카가 tsx로 src/.ts를 직접 실행할 때, mcp/server entry는 `src/mcp/server.js` (존재 X — src에는 .ts만)로 박혀 fail. fix = `resolveMcpSpawn` (사이드카의 import.meta.url 기반 dev/prod 자동 분기).
+
+두 aspect 모두 같은 메타 패턴: **production wiring 첫 등장 함정 (#11과 같은 family)**. 같은 fix commit에 동시 발견 — Aspect A fix 후 panel 띄우고 `/mcp` 진단하면 Aspect B 발현 (`ae-mcp · ✗ failed to connect`).
+
+**증상**: Phase 4.4 fix (Aspect A) 적용 후 사용자가 panel xterm 안의 claude에서 `/mcp` 실행 결과:
+
+```
+Local MCPs (...sidecar [project])
+> ae-mcp · ✗ failed
+```
+
+`claude mcp get ae-mcp`:
+```
+Args: C:\Users\user\Desktop\성윤\에펙 클로드\sidecar\src\mcp\server.js
+                                                       ^^^ src에는 .ts만
+```
+
+**Root cause**: Phase 4.2 시점의 mcpEntryAbs 계산:
+```ts
+const sidecarDir = dirname(fileURLToPath(import.meta.url));
+const mcpEntryAbs = join(sidecarDir, "mcp", "server.js");
+```
+
+사이드카가 `tsx src/index.ts`로 실행되면 `import.meta.url = .../sidecar/src/index.ts` → `sidecarDir = .../sidecar/src` → `mcpEntryAbs = .../sidecar/src/mcp/server.js` (존재 X).
+
+**Self-aware trade-off** (4.2 jsdoc 인용 — 함정을 의식했으나 fix 안 한 사례):
+
+> "Entry path resolution: this file is `<sidecar>/dist/index.js` after build (or `<sidecar>/src/index.ts` under tsx dev). The MCP entry is a sibling `mcp/server.js` — for dev/tsx the file won't exist yet, **and that's fine: register still succeeds (claude doesn't validate the path until it tries to spawn the entry). The 4.4 user dogfood step is what verifies the path actually resolves to a runnable file.**"
+
+이 jsdoc은 정확히 4.4 dogfood가 catch할 함정을 사전 의식했다. 의식 → 명시 self-aware decision으로 미루기 → dogfood가 verify. 이 패턴 자체는 valid (모든 함정을 phase 1에 fix할 수 없음, 사용자 검증 시점까지 미루는 게 합리적). 미래 reader는 이 self-aware decision pattern 자체를 수입 가능 — "함정 의식했으나 다음 phase로 미루기 + jsdoc에 명시 박기 → dogfood가 catch".
+
+**Fix (Phase 4.4 fix-2)**: 사이드카 main 패턴 (`factories.ts:60-64`의 `SIDECAR_CMD = "node"` + `SIDECAR_ARGS = [tsx_cli, "src/index.ts"]`)을 mcp register에도 동일 적용.
+
+`sidecar/src/index.ts`:
+```ts
+function resolveMcpSpawn(): { cmd: string; args: string[] } {
+  const sidecarDir = dirname(fileURLToPath(import.meta.url));
+  const isSrcMode = /[\\/]src$/.test(sidecarDir);
+  if (isSrcMode) {
+    const sidecarRoot = dirname(sidecarDir);
+    return {
+      cmd: "node",
+      args: [
+        join(sidecarRoot, "node_modules", "tsx", "dist", "cli.mjs"),
+        join(sidecarRoot, "src", "mcp", "server.ts"),
+      ],
+    };
+  }
+  return {
+    cmd: "node",
+    args: [join(sidecarDir, "mcp", "server.js")],
+  };
+}
+```
+
+`registerMcpWithClaude` 시그니처 변경: `serverEntryPath: string` → `spawnCommand: string + spawnArgs: string[]`. claude mcp add 명령은 `claude mcp add ae-mcp -e KEY=VAL -- <cmd> <...args>` 형태로 multi-arg 자연 지원.
+
+Phase 7 ZXP 패키징 시 자동으로 prod mode 전환 (`import.meta.url` = dist/index.js → isSrcMode false → dist path 박힘). 코드 변경 0.
+
+**메타 학습 (Aspect A vs B 분리)**:
+- Aspect A는 OS layer (PTY spawn 메커니즘). Aspect B는 build artifact layer (tsx vs dist). 둘 다 production wiring 첫 등장에 발현하지만 fix 위치 다름.
+- 두 aspect를 한 함정 #14에 묶은 이유: 같은 production wiring sub-step (Phase 4.4)에서 발견 + 같은 사용자 dogfood 검증 패턴 + 함정 번호 인플레 회피.
+- 미래 fix 시 aspect 분리 명시 (예: "함정 #14 Aspect A 또는 Aspect B에 해당") — 검색/추적 용이.
+
 **메타 가이드 (Phase 5+ 30 tool 진입 전 핵심)**:
 - **production wiring (실제 사용자 binary)이 처음 등장하는 sub-step은 항상 file probe + dogfood로 검증** — 단위 test mock + integration override는 spawn 메커니즘 차이 같은 OS-layer 함정을 dormant 상태로 통과시킴.
 - **외부 dependency의 spawn 메커니즘 가정 명시**: PATH lookup 여부 / encoding / signal handling / stdio 흐름 등은 라이브러리별 다름. PtyHost (node-pty) 같은 OS 직결 컴포넌트는 추가 사전 검증 layer (`resolveShellPath` 같은 helper) 박는 게 안전.

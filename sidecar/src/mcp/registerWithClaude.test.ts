@@ -30,11 +30,12 @@ function makeRunner(impl: (cmd: string, args: string[]) => RunCommandResult | Pr
   return { run, calls };
 }
 
-const ENTRY = "C:/abs/path/sidecar/dist/mcp/server.js";
+const PROD_ENTRY = "C:/abs/path/sidecar/dist/mcp/server.js";
 const CWD = "C:/Users/user/Desktop/proj";
+const PROD_SPAWN = { spawnCommand: "node", spawnArgs: [PROD_ENTRY] };
 
 describe("registerMcpWithClaude", () => {
-  it("happy path: remove (exit 0) + add (exit 0) → ok=true + logs success", async () => {
+  it("happy path (prod mode): remove (exit 0) + add (exit 0) → ok=true + logs success", async () => {
     const { run, calls } = makeRunner((_cmd, args) => {
       if (args[1] === "remove") return { exitCode: 0, stdout: "", stderr: "" };
       if (args[1] === "add") return { exitCode: 0, stdout: "Added stdio MCP server", stderr: "" };
@@ -43,7 +44,7 @@ describe("registerMcpWithClaude", () => {
     const log = vi.fn<(e: LogEvent) => void>();
 
     const result = await registerMcpWithClaude({
-      port: 12345, serverEntryPath: ENTRY, cwd: CWD, runCommand: run, logger: log,
+      port: 12345, ...PROD_SPAWN, cwd: CWD, runCommand: run, logger: log,
     });
 
     expect(result).toEqual({ ok: true });
@@ -53,12 +54,44 @@ describe("registerMcpWithClaude", () => {
     });
     expect(calls[1]).toEqual({
       cmd: "claude",
-      args: ["mcp", "add", "ae-mcp", "-e", "AE_CLAUDE_WS_PORT=12345", "--", "node", ENTRY],
+      args: ["mcp", "add", "ae-mcp", "-e", "AE_CLAUDE_WS_PORT=12345", "--", "node", PROD_ENTRY],
       cwd: CWD,
     });
     const events = log.mock.calls.map((c) => c[0].event);
     expect(events).toContain("mcp:register:start");
     expect(events).toContain("mcp:register:success");
+  });
+
+  // Phase 4.4 fix-2 (mistakes #14 Aspect B) — dev mode passes a multi-arg
+  // spawn shape (node + tsx_cli + src/mcp/server.ts) so claude can spawn the
+  // MCP entry without requiring a sidecar dist build.
+  it("happy path (dev/tsx mode): multi-arg spawn shape forwarded verbatim", async () => {
+    const { run, calls } = makeRunner((_cmd, args) => {
+      if (args[1] === "remove") return { exitCode: 0, stdout: "", stderr: "" };
+      if (args[1] === "add") return { exitCode: 0, stdout: "Added", stderr: "" };
+      return { exitCode: 99, stdout: "", stderr: "" };
+    });
+    const TSX_CLI = "C:/abs/sidecar/node_modules/tsx/dist/cli.mjs";
+    const SRC_ENTRY = "C:/abs/sidecar/src/mcp/server.ts";
+
+    const result = await registerMcpWithClaude({
+      port: 9000,
+      spawnCommand: "node",
+      spawnArgs: [TSX_CLI, SRC_ENTRY],
+      cwd: CWD,
+      runCommand: run,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(calls[1]).toEqual({
+      cmd: "claude",
+      args: [
+        "mcp", "add", "ae-mcp",
+        "-e", "AE_CLAUDE_WS_PORT=9000",
+        "--", "node", TSX_CLI, SRC_ENTRY,
+      ],
+      cwd: CWD,
+    });
   });
 
   it("remove silent fail (exit 1) + add success → ok=true (idempotent guarantee)", async () => {
@@ -70,7 +103,7 @@ describe("registerMcpWithClaude", () => {
     const log = vi.fn<(e: LogEvent) => void>();
 
     const result = await registerMcpWithClaude({
-      port: 7000, serverEntryPath: ENTRY, cwd: CWD, runCommand: run, logger: log,
+      port: 7000, ...PROD_SPAWN, cwd: CWD, runCommand: run, logger: log,
     });
 
     expect(result).toEqual({ ok: true });
@@ -85,7 +118,7 @@ describe("registerMcpWithClaude", () => {
     const log = vi.fn<(e: LogEvent) => void>();
 
     const result = await registerMcpWithClaude({
-      port: 7000, serverEntryPath: ENTRY, cwd: CWD, runCommand: run, logger: log,
+      port: 7000, ...PROD_SPAWN, cwd: CWD, runCommand: run, logger: log,
     });
 
     expect(result).toEqual({ ok: false, reason: "claude-not-found" });
@@ -104,7 +137,7 @@ describe("registerMcpWithClaude", () => {
     const log = vi.fn<(e: LogEvent) => void>();
 
     const result = await registerMcpWithClaude({
-      port: 7000, serverEntryPath: ENTRY, cwd: CWD, runCommand: run, logger: log,
+      port: 7000, ...PROD_SPAWN, cwd: CWD, runCommand: run, logger: log,
     });
 
     expect(result).toEqual({ ok: false, reason: "add-failed" });
@@ -117,7 +150,7 @@ describe("registerMcpWithClaude", () => {
     const log = vi.fn<(e: LogEvent) => void>();
 
     const result = await registerMcpWithClaude({
-      port: 7000, serverEntryPath: ENTRY, cwd: CWD, runCommand: run, logger: log,
+      port: 7000, ...PROD_SPAWN, cwd: CWD, runCommand: run, logger: log,
     });
 
     expect(result).toEqual({ ok: false, reason: "unexpected" });
@@ -135,7 +168,7 @@ describe("registerMcpWithClaude", () => {
     const log = vi.fn<(e: LogEvent) => void>();
 
     const result = await registerMcpWithClaude({
-      port: 7000, serverEntryPath: ENTRY, cwd: CWD, runCommand: run, logger: log,
+      port: 7000, ...PROD_SPAWN, cwd: CWD, runCommand: run, logger: log,
     });
 
     expect(result).toEqual({ ok: false, reason: "claude-not-found" });

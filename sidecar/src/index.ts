@@ -140,6 +140,37 @@ function makeDummyPty(): PtyLike {
   };
 }
 
+/** Phase 4.4 fix-2 (mistakes #14 Aspect B) — resolve the spawn shape claude
+ *  CLI should use when launching ae-mcp's stdio entry. Mirrors the sidecar
+ *  main's own dev/prod split (factories.ts SIDECAR_CMD/SIDECAR_ARGS):
+ *
+ *    dev (tsx)  : import.meta.url ends in `/src/index.ts` →
+ *                 cmd "node", args [tsx_cli_abs, src/mcp/server.ts_abs]
+ *    prod (dist): import.meta.url ends in `/dist/index.js` →
+ *                 cmd "node", args [dist/mcp/server.js_abs]
+ *
+ *  claude spawns this MCP entry as a plain `node` child — tsx is NOT in its
+ *  lookup, so dev mode must hand claude the tsx cli explicitly. Phase 7
+ *  ZXP packaging naturally lands in prod mode without code changes. */
+function resolveMcpSpawn(): { cmd: string; args: string[] } {
+  const sidecarDir = dirname(fileURLToPath(import.meta.url));
+  const isSrcMode = /[\\/]src$/.test(sidecarDir);
+  if (isSrcMode) {
+    const sidecarRoot = dirname(sidecarDir);
+    return {
+      cmd: "node",
+      args: [
+        join(sidecarRoot, "node_modules", "tsx", "dist", "cli.mjs"),
+        join(sidecarRoot, "src", "mcp", "server.ts"),
+      ],
+    };
+  }
+  return {
+    cmd: "node",
+    args: [join(sidecarDir, "mcp", "server.js")],
+  };
+}
+
 /** Detect "shell binary not found" from a spawn error. node-pty surfaces
  *  ENOENT either via the standard `code` property (Linux/macOS path) or
  *  via a message containing "ENOENT" / "not found" (Windows ConPTY path).
@@ -289,18 +320,21 @@ async function main(): Promise<void> {
   // add error) are non-fatal: the sidecar boots normally and Phase 4.3
   // surfaces a clearer error when claude PTY actually starts.
   //
-  // Entry path resolution: this file is `<sidecar>/dist/index.js` after
-  // build (or `<sidecar>/src/index.ts` under tsx dev). The MCP entry is
-  // a sibling `mcp/server.js` — for dev/tsx the file won't exist yet,
-  // and that's fine: register still succeeds (claude doesn't validate
-  // the path until it tries to spawn the entry). The 4.4 user dogfood
-  // step is what verifies the path actually resolves to a runnable file.
+  // Phase 4.4 fix-2 (mistakes #14 Aspect B): dev/prod entry resolution.
+  // This file is `<sidecar>/dist/index.js` after `npm run build`, or
+  // `<sidecar>/src/index.ts` under tsx dev (factories.ts SIDECAR_ARGS).
+  // claude spawns the MCP entry as a plain `node` child — tsx is NOT in
+  // its lookup. Dev mode therefore must point claude at `node <tsx_cli>
+  // <src/mcp/server.ts>` so the same tsx instance the sidecar already
+  // ships at `node_modules/tsx/dist/cli.mjs` does the .ts → JS step.
+  // Prod mode just hands claude `node <dist/mcp/server.js>` directly.
+  // Selection key: import.meta.url path ending in `/src` vs anything else.
   try {
-    const sidecarDir = dirname(fileURLToPath(import.meta.url));
-    const mcpEntryAbs = join(sidecarDir, "mcp", "server.js");
+    const { cmd, args } = resolveMcpSpawn();
     const result = await registerMcpWithClaude({
       port: actualPort,
-      serverEntryPath: mcpEntryAbs,
+      spawnCommand: cmd,
+      spawnArgs: args,
       // cwd: process.cwd() matches Phase 2.8.4 fix-1 (panel spawns sidecar
       // with cwd: SIDECAR_ROOT, 함정 #7). The --scope local entry is keyed
       // by this cwd; the user must run `claude` from the same cwd to see
