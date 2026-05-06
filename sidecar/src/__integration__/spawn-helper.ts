@@ -112,6 +112,21 @@ export async function spawnSidecar(opts: SpawnSidecarOptions = {}): Promise<Spaw
     }
   }
 
+  // Phase 4.3 — production default shell is `claude` (D-K), but integration
+  // tests in this folder rely on PTY echo round-trip / encoding / spawn
+  // semantics that only cmd.exe (Windows) or bash (else) provide. Override
+  // the sidecar's default so existing 14 integration scenarios keep their
+  // Phase 2 behavior. **Production path is unchanged** — the panel runtime
+  // does not go through this helper.
+  //
+  // New tests that exercise the real claude PTY (Phase 4.4 dogfood) must
+  // explicitly unset this override via `env: { AE_CLAUDE_SHELL: undefined }`.
+  // Tests that already set AE_CLAUDE_SHELL (or pass it via opts.env) keep
+  // their explicit value — we only fill the default.
+  if (env.AE_CLAUDE_SHELL === undefined || env.AE_CLAUDE_SHELL === "") {
+    env.AE_CLAUDE_SHELL = process.platform === "win32" ? "cmd.exe" : "bash";
+  }
+
   const proc = spawn(process.execPath, [TSX_CLI, "src/index.ts", ...(opts.args ?? [])], {
     cwd: opts.cwd ?? SIDECAR_ROOT,
     env,

@@ -608,6 +608,46 @@ describe("PanelBridge", () => {
     wsMcp.close();
   });
 
+  // ── 22 (Phase 4.3) ────────────────────────────────────────────────
+  // initialServerError option: when set, every newly connected client
+  // receives a server.error envelope right after sys.version. Used by
+  // index.ts to surface "claude CLI not found" without crashing the
+  // sidecar. The panel routes server.error through useTerminal's existing
+  // setError handler — no panel-side change required.
+  it("scenario 22: initialServerError → broadcast to each new client after sys.version", async () => {
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+      initialServerError: {
+        code: "AEShellNotFoundError",
+        userMessage: "Shell 'claude' not found in PATH.",
+        developerHint: "Install Claude Code CLI.",
+      },
+    });
+    ({ port } = await bridge.start());
+
+    const ws = await openWs(`ws://127.0.0.1:${port}/`);
+    // Order: sys.version first, then server.error.
+    const greet = await nextMessage(ws, (m) => m.type === "sys.version");
+    expect(greet.type).toBe("sys.version");
+    const err = await nextMessage(ws, (m) => m.type === "server.error");
+    expect(err).toMatchObject({
+      type: "server.error",
+      code: "AEShellNotFoundError",
+      userMessage: "Shell 'claude' not found in PATH.",
+      developerHint: "Install Claude Code CLI.",
+    });
+    ws.close();
+
+    // Second client also receives the same error (broadcast per-connect).
+    const ws2 = await openWs(`ws://127.0.0.1:${port}/`);
+    await nextMessage(ws2, (m) => m.type === "sys.version");
+    const err2 = await nextMessage(ws2, (m) => m.type === "server.error");
+    expect(err2).toMatchObject({ type: "server.error", code: "AEShellNotFoundError" });
+    ws2.close();
+  });
+
   // ── 21 (Phase 4.1 D-J) ────────────────────────────────────────────
   // mcp role's only writes are exec + cancel. cancel from mcp aborts an
   // in-flight exec issued by that same mcp client (handler signal fires).

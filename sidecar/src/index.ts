@@ -20,7 +20,7 @@
 
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { PanelBridge, type ExecCtx, type ExecHandler } from "./ws/panelBridge.js";
+import { PanelBridge, type ExecCtx, type ExecHandler, type PtyLike } from "./ws/panelBridge.js";
 import { createToolDispatcher, type ToolDispatcher } from "./dispatcher/toolDispatcher.js";
 import { PtyHost } from "./pty/ptyHost.js";
 import { PROTOCOL_VERSION } from "./protocol.js";
@@ -70,9 +70,18 @@ function parseConfig(): Config {
     }
   }
 
+  // Phase 4.3 D-K — production default shell is `claude` (the chat CLI
+  // whose stdio drives the panel xterm). Integration tests in
+  // sidecar/src/__integration__/ override this via spawn-helper's
+  // env.AE_CLAUDE_SHELL=cmd.exe (Windows) / bash (else) so Phase 2's
+  // PTY echo / encoding / multi-client / lockfile / watchdog scenarios
+  // keep their original semantics. PtyHost itself is unchanged — same
+  // node-pty spawn + ConPTY tree-kill (mistakes #4, Phase 2.5.4).
+  const defaultShell = "claude";
+  const defaultShellArgs = ["--model", "claude-opus-4-7"];
+
   const isWin = process.platform === "win32";
-  const defaultShell = isWin ? "cmd.exe" : "bash";
-  const defaultShellArgs = isWin ? [] : ["--norc", "--noprofile"];
+  void isWin;  // reserved for future per-OS branches; currently unified.
 
   const port = Number(argMap.get("port") ?? env.AE_CLAUDE_PORT ?? 0);
   const host = argMap.get("host") ?? env.AE_CLAUDE_HOST ?? "127.0.0.1";
@@ -113,17 +122,68 @@ const stubExecHandler: ExecHandler = async (tool: string, _input: unknown, _ctx:
   );
 };
 
+// Phase 4.3 — when the configured shell binary isn't on PATH, the sidecar
+// still boots so the panel can connect and learn why instead of seeing an
+// opaque crash. The dummy PtyLike satisfies PanelBridge's interface with
+// noop semantics: panel-side input is silently discarded, no PTY output
+// ever reaches the broadcast loop. The bridge surfaces the failure via
+// `initialServerError` (one server.error message per new connection).
+function makeDummyPty(): PtyLike {
+  return {
+    write() { /* discard */ },
+    resize() { /* noop */ },
+    onData() { return () => { /* nothing to unsubscribe */ }; },
+    getRecentOutput() { return []; },
+  };
+}
+
+/** Detect "shell binary not found" from a spawn error. node-pty surfaces
+ *  ENOENT either via the standard `code` property (Linux/macOS path) or
+ *  via a message containing "ENOENT" / "not found" (Windows ConPTY path).
+ *  Anything else is treated as an unexpected error and re-thrown. */
+function isShellNotFound(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false;
+  const code = (e as { code?: unknown }).code;
+  if (code === "ENOENT") return true;
+  const message = String((e as { message?: unknown }).message ?? "").toLowerCase();
+  return message.includes("enoent") || message.includes("not found");
+}
+
 async function main(): Promise<void> {
   const cfg = parseConfig();
   logDebug(cfg, "config:", cfg);
 
-  const pty = new PtyHost({
-    cmd: cfg.shell,
-    args: cfg.shellArgs,
-    cols: 80,
-    rows: 24,
-    killHardCapMs: cfg.killHardCapMs,
-  });
+  // PtyHost is eager — node-pty spawn() runs in the constructor. ENOENT
+  // (shell missing from PATH) lands here. Phase 4.3 D-K policy: surface
+  // a server.error to the panel rather than crashing the sidecar, so the
+  // user sees an actionable message ("Install Claude Code CLI") instead
+  // of an opaque launcher onCrash. The fallback dummy PtyLike keeps the
+  // rest of the boot graph (lockfile, WS, MCP register) working uniformly.
+  let pty: PtyLike;
+  let initialServerError: { code: string; userMessage: string; developerHint: string } | undefined;
+  try {
+    pty = new PtyHost({
+      cmd: cfg.shell,
+      args: cfg.shellArgs,
+      cols: 80,
+      rows: 24,
+      killHardCapMs: cfg.killHardCapMs,
+    });
+  } catch (e) {
+    if (isShellNotFound(e)) {
+      pty = makeDummyPty();
+      initialServerError = {
+        code: "AEShellNotFoundError",
+        userMessage: `Shell '${cfg.shell}' not found in PATH.`,
+        developerHint: cfg.shell === "claude"
+          ? "Install Claude Code CLI: https://docs.claude.com/en/docs/claude-code/quickstart"
+          : "Verify the AE_CLAUDE_SHELL value or PATH.",
+      };
+      logDebug(cfg, "PTY spawn ENOENT — sidecar boots with dummy PTY:", cfg.shell);
+    } else {
+      throw e;   // unexpected; let the caller / process crash handler surface it
+    }
+  }
 
   // Forward declare shutdown so PanelBridge can call it via onShutdownRequest.
   // Actual implementation is set further down (after watchdog setup). The
@@ -152,6 +212,7 @@ async function main(): Promise<void> {
     sidecarVersion: SIDECAR_VERSION,
     onShutdownRequest: (reason) => shutdownRef.fn("panel-shutdown" + (reason ? ":" + reason : "")),
     onToolResponse: dispatcher.handleIncoming,
+    initialServerError,
   });
   // Reference dispatcher to keep tsc happy during Phase 3.7 — Phase 4 MCP
   // layer reads/exports it. No runtime cost.

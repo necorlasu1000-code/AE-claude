@@ -96,6 +96,17 @@ export interface PanelBridgeOptions {
    * a dispatcher has been wired to receive them).
    */
   onToolResponse?: (msg: ResultMsg | ErrorMsg | ResultChunkMsg) => void;
+  /**
+   * Phase 4.3 — sidecar boot-time error to broadcast to each new client
+   * immediately after `sys.version`. Used when claude CLI is missing
+   * (ENOENT during PtyHost spawn): the sidecar still boots so the panel
+   * can connect and learn why instead of seeing an opaque crash. The
+   * panel routes `server.error` through useTerminal's existing handler
+   * (sets `error` state, status remains "ready") — no panel-side code
+   * change needed. Banner UI is deferred to Phase 6 / 4.3.1.
+   * Undefined = Phase 2/3 default behavior (no extra message).
+   */
+  initialServerError?: { code: string; userMessage: string; developerHint: string };
 }
 
 // ─── Internal state ────────────────────────────────────────────────
@@ -280,6 +291,16 @@ export class PanelBridge {
       protocolVersion: PROTOCOL_VERSION,
       sidecarVersion: this.opts.sidecarVersion ?? "0.1.0",
     });
+
+    // Phase 4.3 — boot-time server error (e.g., claude CLI missing).
+    if (this.opts.initialServerError) {
+      this.sendTo(ws, {
+        type: "server.error",
+        code: this.opts.initialServerError.code,
+        userMessage: this.opts.initialServerError.userMessage,
+        developerHint: this.opts.initialServerError.developerHint,
+      });
+    }
 
     // Replay recent PTY output for reconnect (P1).
     const recent = this.opts.pty.getRecentOutput(this.opts.replayLines ?? 1_000);
