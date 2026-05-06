@@ -17,11 +17,11 @@ AE ↔ CEP Panel (React + xterm.js)
      claude CLI (Opus 4.7)
 ```
 
-**현재 위치 (2026-05-05 EOD)**: **Phase 3.7 follow-up 4 적용** (jsx ASCII-only fix). 사용자 AE 검증 대기 — fix가 root cause를 차단했는지 확정 필요. debug probe 코드는 main.tsx에 잔존 (commit `3a54075`), 검증 후 별도 revert commit으로 제거.
+**현재 위치 (2026-05-06)**: **Phase 3 ✅ 완료**. 사용자 AE 검증 시나리오 a/b/c/d 모두 통과 (round-trip 6ms, 5분+ idle 안정, 메모리 누수 0, AENoActiveCompError 정확). debug probe revert 완료 (3.9 part 1). **Phase 4 (MCP 서버 + claude CLI PTY) 진입 대기.**
 
 **작업 폴더**: `C:\Users\user\Desktop\성윤\에펙 클로드` (한글 path — 함정 #7)
 
-**진실의 원천**: `plan.md` (전체 비전 + 페이즈 + GSTACK 리뷰), `CLAUDE.md` (코딩 게이트, 12 Validation Gates), `mistakes.md` (영구 학습, 11 함정), 본 문서 (온보딩 인덱스 + 재진입 절차).
+**진실의 원천**: `plan.md` (전체 비전 + 페이즈 + GSTACK 리뷰 + §14 Phase 2 회고 + §15 Phase 3 회고), `CLAUDE.md` (코딩 게이트, 13 Validation Gates), `mistakes.md` (영구 학습, 12 함정), 본 문서 (온보딩 인덱스 + 재진입 절차).
 
 ---
 
@@ -82,7 +82,7 @@ AE ↔ CEP Panel (React + xterm.js)
 - Phase 1: 사이드카 foundation (protocol.ts, defineAETool HOF, AST validator + 골든셋)
 - Phase 2: 패널 ↔ 사이드카 WS + xterm + cmd.exe + graceful shutdown (96 tests, 9 traps)
 
-### ⏳ Phase 3 — ExtendScript 브릿지 (진행 중, 137 tests)
+### ✅ Phase 3 — ExtendScript 브릿지 완료 (139 tests, 2026-05-06)
 
 | # | Sub-step | Commit | 상태 |
 |---|---|---|---|
@@ -96,22 +96,33 @@ AE ↔ CEP Panel (React + xterm.js)
 | 3.5 | useExtendScriptBridge hook (FIFO + envelope + emit) | `397a893` | ✅ |
 | 3.6 | ToolDispatcher + panelBridge 양방향 + AECancelledError | `abf9651` | ✅ |
 | 3.7 | production wiring (sidecar index.ts + main.tsx) + dev 버튼 + `$[ns]` bracket fix | `b282d01` | ✅ |
-| 3.7 follow-up | jsx host[ns] default-case (BridgeTalk versioned 대비) | `ecd9d2c` | ✅ |
+| 3.7 follow-up | jsx host[ns] default-case (BridgeTalk versioned 대비, future-proof) | `ecd9d2c` | ✅ |
 | 3.7 follow-up 2 | `import * as` 제거 (rollup `__proto__: null` 차단) | `a9f2167` | ✅ |
-| 3.7 follow-up 3 (debug) | panel inline ExtendScript probe (PROBE_FRAGMENTS 15개) | `3a54075` | ⚠️ **revert 대기** |
-| 3.7 follow-up 4 | **jsx ASCII-only literals** (file encoding root cause fix) | `6f9ee9e` | ✅ **검증 대기** |
-| **3.8** | 사용자 AE 검증 (시나리오 a/b/c/d) | — | ⏳ **다음** |
-| 3.9 | 정리 (debug probe revert + §H 정정 누적 + Phase 3 회고) | — | |
+| 3.7 follow-up 3 (debug) | panel inline ExtendScript probe (PROBE_FRAGMENTS 15개) | `3a54075` | ✅ (3.9 part 1에서 revert) |
+| 3.7 follow-up 4 | **jsx ASCII-only literals** (file encoding root cause fix) | `6f9ee9e` | ✅ |
+| EOD doc | PROJECT_CONTEXT.md 재진입 컨텍스트 | `e3d7954` | ✅ |
+| 3.7 follow-up 5 | **panel sys.heartbeat echo** (idle timeout fix, 함정 #12) | `89511a7` | ✅ |
+| **3.8** | **사용자 AE 검증 (시나리오 a/b/c/d 모두 통과)** | — | ✅ |
+| 3.9 part 1 | debug probe revert (main.tsx 정리) | `a40acc4` | ✅ |
+| 3.9 part 2 | plan.md §15 Phase 3 회고 | `e448bf0` | ✅ |
+| 3.9 part 3 | PROJECT_CONTEXT.md 갱신 + §H 정정 누적 + §J Phase 4 메시지 | (this commit) | ✅ |
 
-### Phase 4-7 (다음다음 이상)
-- Phase 4 — MCP 서버 + claude CLI (PTY 교체 + dispatcher MCP wiring)
+**Phase 3.8 검증 결과** (2026-05-06):
+- 시나리오 a (정상 round-trip): 6ms (AE 5ms, WS 1ms) ✅
+- 시나리오 b (h.fail no active comp): AENoActiveCompError 5ms ✅
+- 시나리오 c (10회 클릭 메모리 변화 0) ✅
+- 시나리오 d (latency p95 ≤100ms): 6ms = 16배 여유 ✅
+- 추가: 5분+ idle 후 사이드카 살아있음 (heartbeat fix 검증) ✅
+
+### Phase 4-7 (다음 이상)
+- **Phase 4** ⏳ — MCP 서버 + claude CLI (PTY 교체 + dispatcher MCP wiring) — **다음 진입 대상**
 - Phase 5 — 30 MCP tool (D8 collocation 패턴 확립 후 lane 분할 병렬)
 - Phase 6 — UX (logger.ts, Recent AI ops 카드, status bar 5상태)
 - Phase 7 — ZXP 빌드 + GitHub Actions matrix (D9)
 
 ---
 
-## E. 11개 발견 함정 (mistakes.md 인덱스)
+## E. 12개 발견 함정 (mistakes.md 인덱스)
 
 | # | 함정 한 줄 | Phase | 해결 메커니즘 |
 |---|---|---|---|
@@ -124,8 +135,9 @@ AE ↔ CEP Panel (React + xterm.js)
 | 7 | spawn shell:true + Windows 한글/공백 path → cmd.exe args 잘림 | 2.8.4 | spawn `cwd: SIDECAR_ROOT` + 상대 args |
 | 8 | React StrictMode가 useTerminal 두 번 invoke → 사이드카 double-spawn race | 2.8.4 | `<React.StrictMode>` 제거 |
 | 9 | Panel close → React unmount async cleanup이 `sys.shutdown` 미도달 → 좀비 | 2.8.4 | PanelBridge disconnect grace timer (5s) |
-| **10** | **`npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견** | **2 follow-up** | **Validation Gate §8: phase exit = `npm test` AND `npm run build` 둘 다** |
-| **11** | **production wiring 시점에 mock/boilerplate/build-tool/source 가정이 ES3 ExtendScript 환경 차이에 시험됨 — 4 faces** | **3.7** | **각 face마다 fix + Gate §9-§12** |
+| 10 | `npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견 | 2 follow-up | Validation Gate §8: phase exit = `npm test` AND `npm run build` 둘 다 |
+| 11 | production wiring 시점에 mock/boilerplate/build-tool/source 가정이 ES3 ExtendScript 환경 차이에 시험됨 — 4 faces | 3.7 | 각 face마다 fix + Gate §9-§12 |
+| **12** | **`sys.heartbeat` 단방향 broadcast + 양방향 watchdog 모순 → panel idle ~35s 후 사이드카 자체 shutdown** | **3.7 follow-up 5** | **useTerminal.ts router에 echo case + Gate §13 (idle scenario gate)** |
 
 ### #11 4-faces (Phase 3.7 wiring 발견 누적)
 
@@ -136,15 +148,17 @@ AE ↔ CEP Panel (React + xterm.js)
 | (3) rollup namespace import | ESM `__proto__: null` 표준 | ExtendScript SpiderMonkey throw | `import * as` 금지, named imports + 객체 literal | §11 |
 | (4) jsx file encoding | UTF-8 (no BOM) source | system codepage 추정 (cp949) → invalid byte throw | jsx layer ASCII only, panel layer가 i18n | §12 |
 
+probe 결과 (3a54075)로 face (2)는 `BridgeTalk.appName === "aftereffects"` literal 반환 확인 — fix-2가 실제 root cause 아님. fix-2는 future-proof safety net으로 유지.
+
 ---
 
 ## F. 핵심 파일 구조 (Phase 3.7 산출 반영)
 
 ```
 C:\Users\user\Desktop\성윤\에펙 클로드\
-├── plan.md                              # 비전 + 페이즈 + §14 Phase 2 회고
-├── CLAUDE.md                            # 12 Validation Gates + D1-D11 + Karpathy 4원칙
-├── mistakes.md                          # 11 함정 영구 학습 (#11이 가장 큰 — 4-faces)
+├── plan.md                              # 비전 + 페이즈 + §14 Phase 2 회고 + §15 Phase 3 회고
+├── CLAUDE.md                            # 13 Validation Gates + D1-D11 + Karpathy 4원칙
+├── mistakes.md                          # 12 함정 영구 학습 (#11 4-faces + #12 heartbeat)
 ├── PROJECT_CONTEXT.md                   # 본 파일
 ├── eye/                                 # 사용자 스크린샷 dump (gitignored 아님, untracked)
 │
@@ -178,11 +192,11 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 │
 ├── src/js/main/                         # CEP panel React 앱
 │   ├── index-react.tsx                  # entry (StrictMode 제거됨 — 함정 #8)
-│   ├── main.tsx                         # bridge wiring + dev 버튼 + DEBUG probe ⚠️ revert 대기 (3.7 follow-up 3)
+│   ├── main.tsx                         # bridge wiring + dev 버튼 (devSlot 유지, debug probe revert됨 3.9 part 1)
 │   └── sidecar/
 │       ├── launcher.ts + .test.ts       # SidecarLauncher
 │       ├── factories.ts                 # production wiring (cwd + 상대 args)
-│       ├── useTerminal.ts + .test.ts    # 7-state hook + onUnhandledMessage + sendMessage (Phase 3.7)
+│       ├── useTerminal.ts + .test.ts    # 7-state hook + onUnhandledMessage + sendMessage + sys.heartbeat echo (Phase 3.7 follow-up 5)
 │       ├── useExtendScriptBridge.ts + .test.ts  # Phase 3.5 — FIFO + envelope + emit + acorn AST 검증
 │       └── TerminalView.tsx             # devSlot prop (Phase 3.7)
 │
@@ -193,64 +207,64 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## G. 통계 (Phase 3.7 follow-up 4 시점)
+## G. 통계 (Phase 3 complete 시점)
 
 | 항목 | 수치 |
 |---|---|
-| Phase 3 commits (3.1 → 3.7 follow-up 4) | 14 |
-| 누적 commits (Phase 0 → 현재) | 40+ |
-| Sidecar 테스트 | 94 (was 75 in Phase 2) |
-| Panel 테스트 | 43 (was 22 in Phase 2) |
-| 총 자동 회귀 테스트 | **137** |
-| 영구 등재 함정 (mistakes.md) | **11** (was 9) |
-| Validation Gates (CLAUDE.md) | **12** (was 7) |
+| Phase 3 commits (3.1 → 3.9 part 3) | 17 |
+| 누적 commits (Phase 0 → 현재) | 43+ |
+| Sidecar 테스트 | 95 (was 75 in Phase 2, +20) |
+| Panel 테스트 | 44 (was 22 in Phase 2, +22) |
+| 총 자동 회귀 테스트 | **139** (was 96 in Phase 2, +43) |
+| 영구 등재 함정 (mistakes.md) | **12** (was 9, +3) |
+| Validation Gates (CLAUDE.md) | **13** (was 7, +6: §8/§9/§10/§11/§12/§13) |
 | Architectural decisions | D1-D11 (10) + D-A~D-G (Phase 3, 7) |
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (2026-05-06 아침 시작점)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 3 complete, Phase 4 진입 대기)
 
 ### 현재 상태
 
-**Phase 3.7 follow-up 4 적용 완료 (commit `6f9ee9e`)**: jsx layer ASCII only fix. dist/cep/jsx/index.js non-ASCII byte 0 (was 600). 사용자 AE 검증 대기 중.
+**Phase 3 ✅ 완료** (2026-05-06, commit `a40acc4` part 1 → part 3 시점). 사용자 AE 검증 시나리오 a/b/c/d 모두 통과 + heartbeat fix로 5분+ idle 유지 확인. **Phase 4 (MCP 서버 + claude PTY) 진입 대기.**
 
-### 사용자가 어제 EOD 직전 본 상태
+### 검증된 실측치
 
-- AE 재시작 후에도 panel load 시 첫 alert: **`TypeError: Cannot convert to ... jsx/index.js`** 발생
-- ready 후 몇 초 후 사이드카 crashed (별도 이슈, panel-disconnect grace)
-- **probe 결과 `typeof $["com.aeclaude.panel"]` = `"undefined"`** (host[ns] 등록 안 됨)
-- polyfill 정상 (`Date.prototype.toJSON = "function"`), BridgeTalk OK
-- → 4번째 면 (file encoding) 가설 채택, fix-4 적용
+- Round-trip latency: 6ms (AE 5ms, WS 1ms) — 목표 ≤100ms 대비 **16배 여유**
+- Idle 안정성: 5분+ idle 후 사이드카 살아있음 (heartbeat bidirectional echo 작동)
+- 메모리 누수: 10회 spike 클릭 변화 0
+- 에러 path: AENoActiveCompError 5ms (코드 + latency 정확)
+- Production 산출물: localhost:3000 0매치 / `__proto__` 0매치 / non-ASCII 0
 
-### 사용자가 오늘 아침 해볼 것
+### Phase 3에서 흡수된 정정 (3.1 + 3.6 + 3.7 발견)
 
-1. **AE 완전 재시작** (panel reopen만으론 ExtendScript 캐시)
-2. panel 열리면 상단 DEBUG panel + spike 버튼 보이는지 확인
-3. **첫 alert 안 뜨는지** — 1차 가설 확정 신호
-4. probe 결과 panel UI에서 보고: 특히 `typeof $["com.aeclaude.panel"]` 결과
-5. spike 클릭 → `Total: Xms (AE: Yms, WS: Zms)` 녹색 = 풀 round-trip 동작
+이전 PROJECT_CONTEXT.md / plan.md / 작업 가설에 있던 부정확한 표현이 실제 작업 중 정정된 항목:
 
-### 다음 분기
+1. **"Phase 3은 새 envelope 타입 추가"** → 사실 `exec`/`result`/`error`는 Phase 1 protocol.ts에 사전 존재. Phase 3.1은 jsdoc만 추가 (ExtendScript bridge envelope으로의 의미 부여). 신규 타입 0.
+2. **"panelBridge 양방향 라우팅 의식 부재"** → Phase 1은 단방향 (panel → sidecar)을 의도된 단계로 구현. Phase 3.6에서 sidecar → panel 확장 + `onToolResponse` 추가. **결함 아닌 단계적 진화.**
+3. **"ns 형식 가정 (panel script generator)"** → mock 짧은 ns + dotted ns 형식 차이가 production wiring 첫 등장에서 발화. Bracket notation `$[ns]`로 통일 + jsx layer 영어 literal 통일 (file encoding fix). Gate §9/§12로 영구 박힘.
 
-**시나리오 P (검증 통과)**:
-- 시나리오 a (정상) ✅
-- 시나리오 b (h.fail no active comp) — comp 없는 상태에서 spike → AENoActiveCompError 메시지
-- 시나리오 c (5+회 long-running 메모리 누수 0)
-- 시나리오 d (latency p95 ≤100ms)
-- 모두 통과 → **3.9 정리 진입**:
-  - debug probe revert (PROBE_FRAGMENTS / probes state / ProbePanel 제거)
-  - PROJECT_CONTEXT.md §H 정정 누적 (3.1 + 3.6 + 3.7 발견)
-  - plan.md §14 Phase 3 회고 추가
-  - 3.9 commit "Phase 3 complete"
+### Phase 4 진입 readiness
 
-**시나리오 F (검증 fail)**:
-- probe 결과로 추가 진단:
-  - `$["com.aeclaude.panel"]` 여전히 undefined → 추가 hidden encoding/syntax 원인
-  - 또는 다른 throw site
-- 옵션 B (UTF-8 BOM 추가) 또는 더 깊은 진단
+**Phase 4 = MCP 서버 + claude CLI PTY 통합.** 다음 sub-step 분할 권장 (3.x 패턴 답습):
 
-**별도 이슈 (3.9 또는 별도 phase에서 다룸)**:
-- 사이드카 crashed (panel-disconnect grace) 잔존 시 — 진단 필요. 현재 가설: jsx 평가 fail이 panel runtime에 영향? 또는 PanelBridge가 ws.close 받았는데 disconnect grace timer가 발화한 정상 동작.
+- 4.1 MCP server skeleton (사이드카에 stdio MCP server start) — claude CLI 없이 dispatcher만 노출
+- 4.2 claude PTY 교체 (cmd.exe → claude CLI) — Phase 2의 PTY 인프라 그대로 사용
+- 4.3 첫 tool MCP 노출 (`ae_get_active_comp`) — dispatcher.exec 경유 검증
+- 4.4 production wiring + 사용자 검증
+
+**Phase 4 진입 시 챙길 것 (mistakes.md 인덱스)**:
+- #4 ConPTY tree kill 재검증 (claude CLI 자식 프로세스)
+- #2 Node 24 좀비 (node-pty native ABI)
+- #3 .cmd shim (`process.execPath` + entry .mjs 직접 spawn 패턴 유지)
+- #11 4-faces — production wiring sub-step에서 비슷한 함정 재발 가능성 (idle scenario Gate §13 강제)
+- D3 `ae_run_extendscript` per-call approval modal — 첫 tool로 도입 시 D3 + AST validator 골든셋 동시 검증
+
+### Phase 3 이슈 정리 (모두 해소)
+
+- ~~사이드카 crashed (panel-disconnect grace) 잔존~~ → **함정 #12로 등재 + Phase 3.7 follow-up 5에서 해결** (heartbeat echo).
+- ~~debug probe revert 대기~~ → **Phase 3.9 part 1에서 revert 완료** (commit `a40acc4`).
+- ~~plan.md §14 Phase 3 회고 추가~~ → **§15 신설 완료** (commit `e448bf0`).
 
 ---
 
@@ -268,118 +282,91 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## J. 새 웹 Claude에 보낼 메시지 템플릿 (오늘 아침용)
+## J. 새 웹 Claude에 보낼 메시지 템플릿 (Phase 4 진입용)
 
 ```
-어제 Phase 3.7 follow-up 4 (jsx ASCII-only fix) 적용 후 멈춤. 
-오늘 아침 AE 검증 결과 보고:
+Phase 3 완료 (commit a40acc4 → part 3까지). 사용자 검증 a/b/c/d 모두 통과.
+- round-trip 6ms (목표 100ms 대비 16배 여유)
+- 5분+ idle 안정 (heartbeat fix 작동)
+- mistakes.md 12 함정 / Validation Gates 13개 / 139 tests
 
-1. AE 완전 재시작 했음.
-2. panel 열렸을 때:
-   - 첫 alert (TypeError: Cannot convert to ...): [있다 / 없다]
-   - DEBUG panel probe 결과 (특히 핵심 라인):
-     typeof $["com.aeclaude.panel"] → [object / undefined / 다른]
-     (다른 14개 fragment 결과 한 줄씩 또는 변화 있는 것만)
-3. spike 버튼 클릭 결과:
-   - 녹색 latency 표시: "Total: Xms (AE: Yms, WS: Zms)"
-   - 또는 빨강 에러 코드 + 메시지
+Phase 4 (MCP 서버 + claude CLI PTY 통합) 진입.
 
-PROJECT_CONTEXT.md / mistakes.md / CLAUDE.md / plan.md 모두 EOD 시점 최신.
-git log --oneline | head -15 로 commit 추적 가능.
+요청 사항:
+- Phase 4 sub-step 분할 합의 (4.1 MCP skeleton → 4.2 claude PTY → 4.3 첫 tool 노출 → ...)
+- 또는 사용자가 정의한 sub-step 순서가 있으면 그것 따라.
 
-검증 통과 시: 3.9 정리 (debug probe revert + Phase 3 회고) 진입.
-검증 fail 시: probe 결과로 추가 진단.
+진입 전 챙길 mistakes (#4 ConPTY tree kill / #2 Node 24 ABI / #3 .cmd shim /
+#11 4-faces 재발 / Gate §13 idle scenario).
+
+D3 ae_run_extendscript per-call approval은 Phase 4 첫 tool로 도입할지 별도?
+
+PROJECT_CONTEXT.md / mistakes.md / CLAUDE.md / plan.md (§15 Phase 3 회고) 모두 최신.
+git log --oneline | head -20 로 Phase 3 sub-step + follow-up + 3.9 part 1-3 모두 추적 가능.
 ```
 
 ---
 
-## K. 재진입 절차 (CLI용 — 오늘 아침 첫 명령어)
+## K. 재진입 절차 (CLI용 — Phase 4 진입 첫 명령어)
 
 새 채팅 또는 같은 채팅 재개 시 이 순서로 실행:
 
 ```bash
 # 1. 컨텍스트 파일들 빠르게 확인 (CLI 자동)
 cd "C:/Users/user/Desktop/성윤/에펙 클로드"
-git log --oneline | head -15           # 최근 commits — 어디까지 왔는지
+git log --oneline | head -20           # Phase 3 sub-step + follow-up + 3.9 part 1-3 추적
 git status -s                           # 깨끗해야 (eye/ untracked만)
 
-# 2. 빌드/sync 정합성 (이전 작업 잔존 검증)
+# 2. Phase 3 산출물 정합성 (Phase 4 시작 전 baseline)
 diff -q dist/cep/jsx/index.js \
         "/c/Users/user/AppData/Roaming/Adobe/CEP/extensions/com.aeclaude.panel/jsx/index.js"
 # → 출력 0 = sync OK
 
-# 3. 산출물 ASCII-only 검증 (Phase 3.7 follow-up 4 효과 유지)
+# 3. Phase 3 산출물 게이트 (§10/§11/§12 효과 유지)
+grep -c "localhost:3000" dist/cep/main/index.html         # → 0 (production build)
+grep -c "__proto__" dist/cep/jsx/index.js                  # → 0 (Gate §11)
 LC_ALL=C perl -ne 'BEGIN{$c=0} for(split //){$c++ if ord($_)>127} END{print "non-ASCII bytes: $c\n"}' \
-  dist/cep/jsx/index.js
-# → "non-ASCII bytes: 0" 기대
+  dist/cep/jsx/index.js                                    # → "non-ASCII bytes: 0" (Gate §12)
 
-# 4. 회귀 테스트 (검증이 fail이어서 추가 fix 필요 시)
+# 4. 회귀 테스트 baseline (Phase 4 sub-step 시작 전 그린 확인)
 source ~/.bashrc && cd sidecar && npm test 2>&1 | tail -3 && cd ..
 npm test 2>&1 | tail -3
-# → sidecar 94/94 + panel 43/43
+# → sidecar 95/95 + panel 44/44 = 139/139
 
-# 5. 사용자 검증 결과 받으면 분기 (메시지 템플릿 §J 참조)
+# 5. Phase 4 sub-step 합의 후 진입 (메시지 템플릿 §J 참조)
 ```
 
-### 검증 통과 시 (3.9 정리 절차)
+### Phase 4 sub-step 진입 권장 순서
 
 ```bash
-# 1. debug probe revert (3a54075의 main.tsx 변경분 되돌림)
-#    main.tsx에서 PROBE_FRAGMENTS / probes state / useEffect probe / ProbePanel 제거
-#    devSlot은 유지 (3.7 본 산출물의 일부)
-#    → 별도 commit "Phase 3.9: revert debug probe (3a54075)"
+# 4.1 MCP server skeleton (사이드카 stdio MCP server start)
+#    - dispatcher.exec를 MCP tool로 노출 (claude CLI 없이 standalone 검증 가능)
+#    - 별도 commit "Phase 4.1: MCP server skeleton + dispatcher tool exposure"
 
-# 2. PROJECT_CONTEXT.md §H 정정 누적 (3.1 + 3.6 + 3.7 발견 흡수)
+# 4.2 claude PTY 교체 (cmd.exe → claude CLI)
+#    - mistakes #4 (ConPTY tree kill) 재검증 — claude 자식 프로세스 cleanup
+#    - mistakes #2 (Node 24 ABI) 재검증
+#    - mistakes #3 (.cmd shim) — claude CLI도 .cmd shim일 수 있음
 
-# 3. plan.md §14에 Phase 3 회고 sub-section 추가 (Phase 2 회고 패턴 따라):
-#    - 통계 (commits, tests, traps)
-#    - 발견 + 해결 함정 (#10 + #11 4 faces)
-#    - architectural learning (D-A~D-G)
-#    - Phase 4 진입 준비 노트
+# 4.3 첫 tool MCP 노출 (ae_get_active_comp)
+#    - claude CLI에서 MCP tool 호출 → dispatcher → panel WS exec → ExtendScript → result
+#    - 풀 round-trip 검증
 
-# 4. 최종 commit "Phase 3 complete: ExtendScript bridge end-to-end (137 tests, 2 traps documented)"
-
-# 5. PROJECT_CONTEXT.md 다시 갱신 (Phase 3 ✅ 완료 표시 + Phase 4 다음 status)
-```
-
-### 검증 fail 시 (추가 진단 절차)
-
-```bash
-# probe 결과를 보고:
-# - $["com.aeclaude.panel"] 여전히 undefined → file encoding 외 다른 원인
-#   → 옵션 B (UTF-8 BOM 추가) 시도 또는 panel inspector 콘솔 직접 평가
-# - $["com.aeclaude.panel"]는 object지만 spike 클릭 시 fail → 다른 layer 문제
-#   → useExtendScriptBridge / dispatcher / panelBridge wiring 재점검
-
-# 추가 진단 필요 시:
-LC_ALL=C perl -ne '...' dist/cep/jsx/index.js   # 현재 산출물 상태
-sed -n 'N,Mp' dist/cep/jsx/index.js              # IIFE 특정 line 확인
+# 4.4 production wiring + 사용자 검증 (idle scenario Gate §13 포함)
 ```
 
 ---
 
 ## 자주 참조되는 1줄 메모 (chat 도중 빠르게)
 
-- **Phase 3 commit 범위**: `5c6a177` (3.1) → `6f9ee9e` (3.7 follow-up 4). 14개. `git log --oneline | grep "Phase 3"` 모두 표시.
-- **CLAUDE.md Validation Gates 12개**: Security / Undo / Approval / Schema / Pagination / Localhost / Mutex / **Phase exit (build)** / Script generator / jsx host registration / jsx no-namespace-import / jsx ASCII-only.
+- **Phase 3 commit 범위**: `5c6a177` (3.1) → 3.9 part 3 (this commit). 17개. `git log --oneline | grep -E "Phase 3"` 모두 표시.
+- **CLAUDE.md Validation Gates 13개**: Security / Undo / Approval / Schema / Pagination / Localhost / Mutex / **Phase exit (build)** / Script generator / jsx host registration / jsx no-namespace-import / jsx ASCII-only / **Idle scenario** (§13 신설).
 - **Out of scope (v1.0 금지)**: Premiere / 모바일 원격 / Skill 시스템 / 음성 / SQLite 채팅 히스토리 / UXP / 모델 ID UI 변경.
 - **사용자 작업 패턴**: research → plan annotate → CLI implement sub-step + commit + 한 줄 보고 → 사용자 OK → 다음 sub-step.
-- **현재 워킹트리 상태**: clean (eye/ untracked만, 사용자 스크린샷 dump). debug probe는 commit `3a54075` + `6f9ee9e`에 박혀있음.
+- **현재 워킹트리 상태**: clean (eye/ untracked만, 사용자 스크린샷 dump). debug probe는 commit `3a54075` + `6f9ee9e`에 박혀있고 `a40acc4` (3.9 part 1)에서 revert됨.
 
 ---
 
-## 미세 메모 누적 (3.9 정리 시 흡수)
+**문서 마지막 갱신**: 2026-05-06. Phase 3 complete (3.9 part 3 commit과 함께). Phase 4 진입 대기.
 
-지금 액션 X, Phase 3.9 정리 commit에서 처리:
-
-- **§H 정정 누적**: 3.1 (`exec/result` 이미 protocol.ts에 있어서 새 type 추가 X) + 3.6 (panelBridge 양방향 — Phase 1이 단방향만 의도된 단계적 진화) + 3.7 (jsx file encoding 함정) → §H 통합 정정 commit.
-- **PROJECT_CONTEXT.md "use prefix" 표기**: 일부 진짜 React hook (useTerminal), 일부 순수 factory (useExtendScriptBridge). 각 jsdoc에 표기.
-- **PROJECT_CONTEXT.md namespace import 의식 부재** (3.1 발견 시 의도된 단계적 진화) — 함정 등재 X, §H 메모 흡수.
-- **debug probe (3a54075) revert**: main.tsx에서 PROBE_FRAGMENTS / probes state / probe useEffect / ProbePanel 제거. devSlot은 본 산출물이라 유지.
-- **3.6 dispatcher 미래 메모**: timeoutMs default 30s를 protocol.ts DEFAULT_TIMEOUT_MS 상수로 박음 (이미 적용 ✅).
-
----
-
-**문서 마지막 갱신**: 2026-05-05 EOD. Phase 3.7 follow-up 4 commit (`6f9ee9e`) 직후. 사용자 AE 검증 대기 중.
-
-다음 갱신 시점: 검증 통과 후 3.9 commit과 같이.
+다음 갱신 시점: Phase 4 sub-step 진행하면서 EOD 또는 phase exit.
