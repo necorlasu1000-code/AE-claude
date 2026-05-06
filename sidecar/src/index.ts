@@ -33,6 +33,7 @@ import {
 } from "./lifecycle/lockfile.js";
 import { PidWatchdog } from "./lifecycle/watchdog.js";
 import { registerMcpWithClaude } from "./mcp/registerWithClaude.js";
+import { resolveShellPath } from "./shellResolve.js";
 import { AEError } from "./tools/_errors.js";
 
 const SIDECAR_VERSION = "0.1.0";
@@ -163,9 +164,16 @@ async function main(): Promise<void> {
   // rest of the boot graph (lockfile, WS, MCP register) working uniformly.
   let pty: PtyLike;
   let initialServerError: { code: string; userMessage: string; developerHint: string } | undefined;
+  // Phase 4.4 fix (mistakes #14) — resolve PATH before node-pty spawn.
+  // node-pty (unlike child_process.spawn) does NOT do PATH lookup, so a bare
+  // command like "claude" fails with ENOENT even when the binary is on PATH
+  // and reachable from a regular shell. resolveShellPath returns the input
+  // unchanged on lookup failure (fail-safe), preserving the existing dummyPty
+  // ENOENT path below as the single source of "shell not found" UX.
+  const resolvedShell = resolveShellPath(cfg.shell);
   try {
     pty = new PtyHost({
-      cmd: cfg.shell,
+      cmd: resolvedShell,
       args: cfg.shellArgs,
       cols: 80,
       rows: 24,

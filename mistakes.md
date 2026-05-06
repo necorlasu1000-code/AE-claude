@@ -504,6 +504,75 @@ src/mcp/wsClient.ts(141,17): Conversion of type ... may be a mistake.
 - **monorepo phase exit gate**: monorepo 각 package root에서 build 강제. CI 부재 환경에서는 사용자가 직접 양쪽 실행 책임. CLAUDE.md에 명시 → 자동 가드.
 - **integration test의 resolve trigger 점검**: ready/init/connect 같은 "준비 완료" 신호가 main() 마지막 라인을 의미하지 않음. main() 끝까지 통과 검증 (alive 검사) 별도 시나리오 추가.
 
+## ✅ Phase 4.4 fix (#14) — node-pty PATH lookup 부재 (child_process.spawn과 다른 spawn 메커니즘)
+
+**증상**: Phase 4.4 사용자 dogfood — panel 띄우면 spike round-trip은 정상 (6ms), 하지만 **xterm 영역 검은 화면 + 키 입력 부분 손실** (한글 마지막 글자만 남음). hotfix #13 적용 후에도 동일.
+
+**진단 trace** (사이드카 file probe 결과):
+
+```
+[probe:main:enter]   pid=18508, cwd="...에펙 클로드/sidecar"           ← main() 진입 OK
+[probe:main:cfg]     shell="claude", args=["--model","claude-opus-4-7"]  ← cfg 정확
+[probe:pty.spawn:try] cmd="claude", cwd="...sidecar"
+[probe:pty.spawn:error] {
+  "message": "File not found: ",
+  "name": "Error",
+  "stack": ["...WindowsPtyAgent..."],
+  "detectedAsShellNotFound": true
+}                                                                        ← node-pty가 ENOENT
+[probe:dummypty:enter] reason="shell-not-found"                          ← dummyPty fallback
+```
+
+즉 같은 사이드카 process에서 **두 spawn 메커니즘이 다르게 동작**:
+
+| 위치 | spawn 메커니즘 | 결과 |
+|---|---|---|
+| `registerWithClaude.ts:132` | `child_process.spawn("claude", [...])` | ✅ exit 0 (PATH lookup 정상) — 4.2 mcp:register:success 로그가 증거 |
+| `index.ts:170` (`new PtyHost`) | `node-pty spawn("claude", [...])` | ❌ `WindowsPtyAgent: File not found` |
+
+**Root cause**: **node-pty는 PATH lookup을 하지 않음**. `child_process.spawn`은 PATH 환경변수를 walk해서 binary를 찾지만, node-pty는 Windows ConPTY API에 path를 verbatim 전달 — 절대 path 또는 cwd-relative path만 받음. 같은 환경 / 같은 cwd / 같은 PATH에서 한 쪽은 OK, 다른 쪽은 ENOENT.
+
+**왜 보호망 통과**:
+1. **단위 test mock** (`shellResolve.test.ts`는 fix 시점 추가): Phase 4.3 시점의 panelBridge / mcp / dispatcher mock은 모두 PtyLike 자체를 mock — node-pty / spawn 메커니즘 차이를 건드리지 않음.
+2. **통합 test override**: `spawn-helper.ts`의 default `AE_CLAUDE_SHELL=cmd.exe` (Windows) / `bash` (else). cmd.exe는 절대 path도, PATH lookup도 모두 OK인 special case — node-pty의 PATH 부재를 안 드러냄. 즉 14 통합 시나리오 전부 cmd.exe 의존성 때문에 본 함정이 dormant.
+3. **Hotfix #13 (PtyLike + sidecar tsc)** 검증도 cmd.exe override 사용 — 같은 이유로 못 잡음.
+4. **사용자 dogfood**가 첫 검증 — production wiring (claude shell)이 처음 등장한 시점에서만 발현. 사이드카 stderr는 panel launcher.ts:148이 buffer에만 누적해서 정상 부팅 시 외부 노출 0 → file probe (`C:\temp\ae-probe.log`)로 우회 진단.
+
+**Fix (Phase 4.4 fix)**: `which` 패키지로 사전 PATH lookup. `sidecar/src/shellResolve.ts` 신규:
+
+```ts
+export function resolveShellPath(shell: string, whichFn = defaultWhichSync): string {
+  if (isAbsolute(shell)) return shell;
+  try { return whichFn(shell); }
+  catch { return shell; }   // fail-safe → PtyHost ENOENT → dummyPty
+}
+```
+
+`index.ts` main()에서 PtyHost 생성 직전 호출:
+```ts
+const resolvedShell = resolveShellPath(cfg.shell);
+pty = new PtyHost({ cmd: resolvedShell, ... });
+```
+
+**fail-safe 의도** (jsdoc에도 박힘): which throw 시 입력 그대로 반환 → PtyHost ENOENT → 기존 dummyPty fallback path (Phase 4.3 hotfix #13 산출). 즉 resolveShellPath는 **"shell not found" UX의 단일 source를 깨지 않음** — 추가 분기 없이 PATH lookup gap만 메움.
+
+**which 패키지 import 함정** (이 fix에서도 한 번 발현, mistakes #11/#13의 친척):
+- `which` v6+는 `module.exports = which; which.sync = whichSync` (CJS).
+- ESM `import { sync as whichSync } from "which"` → `SyntaxError: does not provide an export named 'sync'` (named export로 인식 안 됨).
+- 정답: `import which from "which"` + `which.sync(cmd)` 호출.
+- 첫 사이드카 build는 strict tsc 0 에러였지만 vitest run에서 11 fail 발생 — runtime ESM resolution이 strict tsc보다 엄격. 동일 fix commit에 같이 박음.
+
+**디버그법** (다음 비슷한 case 발생 시):
+- 사이드카 stderr 외부 노출 0 → file probe 패턴 (절대 ASCII path, 한국어/공백 path 회피).
+- spawn 메커니즘 둘 (`child_process.spawn` vs `node-pty`)이 동일 입력에 다르게 동작하면 **PATH lookup 차이 의심** — `which.sync` 또는 `where <cmd>`로 사전 검증.
+- Windows 환경에서 ENOENT 메시지가 ConPTY 측에서 오면 (`WindowsPtyAgent: File not found`) 100% PATH lookup 부재.
+
+**메타 가이드 (Phase 5+ 30 tool 진입 전 핵심)**:
+- **production wiring (실제 사용자 binary)이 처음 등장하는 sub-step은 항상 file probe + dogfood로 검증** — 단위 test mock + integration override는 spawn 메커니즘 차이 같은 OS-layer 함정을 dormant 상태로 통과시킴.
+- **외부 dependency의 spawn 메커니즘 가정 명시**: PATH lookup 여부 / encoding / signal handling / stdio 흐름 등은 라이브러리별 다름. PtyHost (node-pty) 같은 OS 직결 컴포넌트는 추가 사전 검증 layer (`resolveShellPath` 같은 helper) 박는 게 안전.
+- **third-party 패키지 ESM/CJS 차이**: import 문법이 strict tsc 통과해도 runtime에서 fail 가능. 신규 npm 패키지 도입 시 vitest run 직접 실행으로 import 동작 확인 (단위 test 1개라도) — strict tsc만 의존하지 말 것.
+- **함정 #11 4 faces + #13 + #14 통합 메타**: production ground truth (ES3 ExtendScript / Windows ConPTY / node-pty PATH / claude TUI 등)는 단위 mock + integration override로 100% 시뮬 불가능. **사용자 dogfood가 항상 마지막 검증**.
+
 
 
 **증상**: panel을 6-8번 열고 닫은 후 작업관리자에 Node 좀비 ~20개. 메모리별 두 개씩 짝지어 (큰 + 작은) 누적. fix-1, fix-2 후에도 발생.
