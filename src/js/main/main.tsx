@@ -47,34 +47,6 @@ interface SpikeMeasurement {
   result: ExecResult | null;
 }
 
-// Phase 3.7 follow-up 3 (debug) — temporary inline ExtendScript env probe.
-// Sequentially evaluates short fragments via __adobe_cep__.evalScript on
-// panel mount (DEV-only). Each result lands in panel UI so the user can
-// read off ExtendScript environment state without opening the inspector.
-// Removed in a separate revert commit once root cause is identified.
-const PROBE_FRAGMENTS: string[] = [
-  "1",
-  "typeof JSON",
-  "typeof JSON.parse",
-  "typeof JSON.stringify",
-  "typeof __objectFreeze",
-  "typeof __defProp",
-  "typeof $",
-  "typeof app",
-  "typeof BridgeTalk",
-  'typeof $["com.aeclaude.panel"]',
-  '$["com.aeclaude.panel"] && typeof $["com.aeclaude.panel"].tools',
-  '$["com.aeclaude.panel"] && $["com.aeclaude.panel"].tools && typeof $["com.aeclaude.panel"].tools.ae_get_active_comp',
-  "typeof BridgeTalk !== 'undefined' && BridgeTalk.appName",
-  "app && app.appName",
-  "typeof Date.prototype.toJSON",
-];
-
-interface ProbeResult {
-  frag: string;
-  result: string;
-}
-
 export const App = () => {
   const [bgColor, setBgColor] = useState(FALLBACK_BG);
 
@@ -82,28 +54,6 @@ export const App = () => {
     if (window.cep) {
       subscribeBackgroundColor(setBgColor);
     }
-  }, []);
-
-  // ─── DEBUG (Phase 3.7 follow-up 3) — ExtendScript env probe ──────
-  const [probes, setProbes] = useState<ProbeResult[]>([]);
-  useEffect(() => {
-    if (!IS_DEV) return;
-    const w = window as unknown as {
-      __adobe_cep__?: { evalScript(s: string, cb: (r: string) => void): void };
-    };
-    if (!w.__adobe_cep__) return;
-    const cep = w.__adobe_cep__;
-
-    let i = 0;
-    const next = () => {
-      if (i >= PROBE_FRAGMENTS.length) return;
-      const frag = PROBE_FRAGMENTS[i++];
-      cep.evalScript(frag, (result) => {
-        setProbes((prev) => [...prev, { frag, result }]);
-        next();
-      });
-    };
-    next();
   }, []);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -230,7 +180,6 @@ export const App = () => {
         flexDirection: "column",
       }}
     >
-      {IS_DEV && <ProbePanel probes={probes} totalExpected={PROBE_FRAGMENTS.length} />}
       <TerminalView
         containerRef={containerRef}
         status={terminal.status}
@@ -241,42 +190,6 @@ export const App = () => {
     </div>
   );
 };
-
-// ─── DEBUG (Phase 3.7 follow-up 3) ─────────────────────────────────
-// Renders probe fragment results as a list. Removed in revert commit
-// once ExtendScript env state is confirmed.
-function ProbePanel({ probes, totalExpected }: { probes: ProbeResult[]; totalExpected: number }) {
-  return (
-    <div
-      style={{
-        background: "#1a1a1a",
-        color: "#e8e8e8",
-        padding: "6px 8px",
-        fontSize: 10,
-        fontFamily: '"JetBrains Mono", Consolas, monospace',
-        borderBottom: "2px solid #4a9eff",
-        maxHeight: 200,
-        overflowY: "auto",
-      }}
-    >
-      <div style={{ color: "#4a9eff", marginBottom: 4, fontWeight: 600 }}>
-        DEBUG · ExtendScript env probe ({probes.length}/{totalExpected})
-      </div>
-      {probes.length === 0 ? (
-        <div style={{ color: "#888" }}>(probing… if stuck here, evalScript itself is broken or panel→sidecar runtime mismatch)</div>
-      ) : (
-        probes.map((p, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: "1px 0" }}>
-            <span style={{ color: "#9ad77f" }}>{p.frag}</span>
-            <span style={{ color: "#f4b942", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-              {JSON.stringify(p.result)}
-            </span>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
 
 // ─── Dev controls subcomponent ──────────────────────────────────────
 // Out of production zxp via the IS_DEV gate above; vite replaces
