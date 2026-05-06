@@ -60,6 +60,7 @@ After Effects 패널 안에 Claude Code CLI 터미널을 띄우고, MCP를 통�
 ```
 
 **왜 사이드카 분리:**
+
 - CEP 11/12의 내장 Node는 15라 `node-pty` prebuilt 안 맞음 → 별도 Node.js 프로세스가 안전
 - MCP 서버는 stdio로 `claude`에 붙어야 하므로 PTY host와 같은 프로세스에 두는 게 깔끔
 - AE UI 블로킹 회피 (Node 사이드카가 무거운 작업 전담)
@@ -70,26 +71,29 @@ After Effects 패널 안에 Claude Code CLI 터미널을 띄우고, MCP를 통�
 ## 3. 기술 스택
 
 ### CEP 패널 (Frontend)
-| 라이브러리 | 용도 |
-|---|---|
-| **bolt-cep** | CEP 보일러플레이트 (Vite + React + TS, ZXP 패키징, evalTS) |
-| **@xterm/xterm** | 터미널 렌더러 |
-| **@xterm/addon-fit** | 패널 리사이즈 시 터미널 자동 핏 |
-| **@xterm/addon-web-links** | 출력 안의 URL 클릭 가능 |
-| **@xterm/addon-webgl** | GPU 가속 렌더링 |
-| **types-for-adobe** | ExtendScript AE 타입 정의 |
-| **CSInterface.js** | CEP ↔ ExtendScript 브릿지 (Bolt 내장) |
+
+| 라이브러리                 | 용도                                                       |
+| -------------------------- | ---------------------------------------------------------- |
+| **bolt-cep**               | CEP 보일러플레이트 (Vite + React + TS, ZXP 패키징, evalTS) |
+| **@xterm/xterm**           | 터미널 렌더러                                              |
+| **@xterm/addon-fit**       | 패널 리사이즈 시 터미널 자동 핏                            |
+| **@xterm/addon-web-links** | 출력 안의 URL 클릭 가능                                    |
+| **@xterm/addon-webgl**     | GPU 가속 렌더링                                            |
+| **types-for-adobe**        | ExtendScript AE 타입 정의                                  |
+| **CSInterface.js**         | CEP ↔ ExtendScript 브릿지 (Bolt 내장)                     |
 
 ### 사이드카 (Backend Node.js)
-| 라이브러리 | 용도 |
-|---|---|
-| **node-pty** | PTY 스폰 (claude CLI를 의사터미널에 띄움) |
-| **@modelcontextprotocol/sdk** | MCP 서버 구현 |
-| **ws** | CEP 패널 ↔ 사이드카 WebSocket |
-| **zod** | MCP tool input 스키마 |
-| **execa** | 보조 child_process 호출 |
+
+| 라이브러리                    | 용도                                      |
+| ----------------------------- | ----------------------------------------- |
+| **node-pty**                  | PTY 스폰 (claude CLI를 의사터미널에 띄움) |
+| **@modelcontextprotocol/sdk** | MCP 서버 구현                             |
+| **ws**                        | CEP 패널 ↔ 사이드카 WebSocket            |
+| **zod**                       | MCP tool input 스키마                     |
+| **execa**                     | 보조 child_process 호출                   |
 
 ### 패키징
+
 - **Bolt CEP의 ZXP 빌드 스크립트** (`yarn zxp`)
 - **ZXPInstaller** (사용자가 설치할 때 사용)
 - 사이드카 Node 바이너리는 ZXP에 포함하거나 첫 실행 시 다운로드
@@ -100,15 +104,15 @@ After Effects 패널 안에 Claude Code CLI 터미널을 띄우고, MCP를 통�
 
 > 직접 fork 아님. 아키텍처와 코드 패턴만 학습 후 새로 빌드.
 
-| 레포 | 참고 포인트 |
-|---|---|
-| `hyperbrew/bolt-cep` | 패널 셸 전체 구조 (이게 베이스) |
-| `hodor/ae-mcp` | MCP ↔ WebSocket ↔ CEP 패턴 — 가장 가까운 레퍼런스 ⭐ |
-| `Dakkshin/after-effects-mcp` | 기본 tool 셋, mcp-bridge-auto.jsx 패턴 |
-| `tigerm/adobe-after-effects-mcp` | 이펙트/키프레임/마커 tool 확장 |
-| `Aodaruma/after-effects-mcp-rs` | Rust 버전 — 깔끔한 tool 네이밍 컨벤션 |
-| `microsoft/node-pty` | Windows ConPTY API 사용 예제 |
-| `xtermjs/xterm.js` | 터미널 + addon 셋업 |
+| 레포                             | 참고 포인트                                            |
+| -------------------------------- | ------------------------------------------------------ |
+| `hyperbrew/bolt-cep`             | 패널 셸 전체 구조 (이게 베이스)                        |
+| `hodor/ae-mcp`                   | MCP ↔ WebSocket ↔ CEP 패턴 — 가장 가까운 레퍼런스 ⭐ |
+| `Dakkshin/after-effects-mcp`     | 기본 tool 셋, mcp-bridge-auto.jsx 패턴                 |
+| `tigerm/adobe-after-effects-mcp` | 이펙트/키프레임/마커 tool 확장                         |
+| `Aodaruma/after-effects-mcp-rs`  | Rust 버전 — 깔끔한 tool 네이밍 컨벤션                  |
+| `microsoft/node-pty`             | Windows ConPTY API 사용 예제                           |
+| `xtermjs/xterm.js`               | 터미널 + addon 셋업                                    |
 
 특히 **hodor/ae-mcp의 `run_script` + WebSocket 구조**가 본 프로젝트 핵심 통신 패턴과 동일하므로 통신 로직은 이걸 표준으로 삼고, 그 위에 PTY/Claude CLI 통합을 얹는다.
 
@@ -179,6 +183,7 @@ ae-claude-panel/
 모든 tool 이름은 `ae_*` 프리픽스로 통일. 기본 ID 기반 타겟팅 (compId/layerId).
 
 ### 프로젝트 / 컴프
+
 - `ae_get_project_info` — 프로젝트 메타 (FPS, 해상도, 컴프 수)
 - `ae_list_comps` — 모든 컴프 목록
 - `ae_create_comp` — 새 컴프 (name, w, h, fps, duration, bgColor)
@@ -186,6 +191,7 @@ ae-claude-panel/
 - `ae_set_active_comp` — 활성 컴프 변경
 
 ### 레이어
+
 - `ae_list_layers` — 컴프 안의 레이어 목록
 - `ae_add_solid_layer` — 솔리드 추가
 - `ae_add_text_layer` — 텍스트 (font, size, color, position)
@@ -198,12 +204,14 @@ ae-claude-panel/
 - `ae_reorder_layer`
 
 ### 키프레임 / 애니메이션
+
 - `ae_set_keyframe` — 특정 시간에 프로퍼티 키 설정
 - `ae_get_keyframes` — 레이어/프로퍼티의 모든 키 조회
 - `ae_set_keyframe_easing` — easyEaseIn/Out, custom bezier
 - `ae_remove_keyframe`
 
 ### 이펙트
+
 - `ae_list_available_effects` — 설치된 이펙트 카탈로그
 - `ae_apply_effect` — 레이어에 이펙트 추가 (matchName 기반)
 - `ae_describe_effect` — 이펙트 파라미터 메타
@@ -211,22 +219,26 @@ ae-claude-panel/
 - `ae_remove_effect`
 
 ### 익스프레션
+
 - `ae_set_expression` — 프로퍼티에 익스프레션 적용
 - `ae_get_expression`
 - `ae_remove_expression`
 
 ### 마커 / 음원
+
 - `ae_add_marker`
 - `ae_list_markers`
 - `ae_audio_to_markers` — 오디오 피크 자동 마커화 (waveform 분석)
 
 ### 임포트 / 익스포트
+
 - `ae_import_file` — 파일 임포트
 - `ae_add_to_render_queue` — 렌더 큐 추가
 - `ae_set_render_settings`
 - `ae_start_render`
 
 ### Escape Hatch
+
 - `ae_run_extendscript` — 임의 ExtendScript 실행 (Claude가 직접 코드 작성하는 케이스)
 
 각 tool은 zod 스키마 + 상세 description. Claude가 정확히 사용하도록 description에 example 포함.
@@ -236,6 +248,7 @@ ae-claude-panel/
 ## 7. 주요 통신 시퀀스
 
 ### 7-1. 패널 부팅
+
 1. 사용자가 AE에서 `Window > Extensions > AE-Claude` 클릭
 2. CEP 패널 로드 → `index.tsx` 진입
 3. `launcher.ts`가 ExtendScript의 `system.callSystem()`으로 사이드카 Node 프로세스 기동
@@ -248,6 +261,7 @@ ae-claude-panel/
 6. 사용자에게 Claude CLI 프롬프트 표시
 
 ### 7-2. 사용자 채팅 → AE 조작
+
 1. 사용자가 xterm에 "현재 컴프에 페이드인 만들어줘" 입력
 2. xterm `onData` → WebSocket → 사이드카 PTY → claude CLI stdin
 3. Claude가 MCP tool 호출 결정 (`ae_get_active_comp` → `ae_set_keyframe` x2)
@@ -258,6 +272,7 @@ ae-claude-panel/
 8. 결과 JSON이 반대로 거슬러 사이드카 → MCP → Claude → PTY → xterm 출력
 
 ### 7-3. 종료
+
 - 패널 닫힘 이벤트 → 사이드카에 SIGTERM
 - 사이드카가 PTY와 MCP 정리 후 종료
 
@@ -266,18 +281,21 @@ ae-claude-panel/
 ## 8. 구현 단계 (Phase별)
 
 ### Phase 0: 환경 셋업
+
 - `yarn create bolt-cep ae-claude-panel` (React + TS + AE 선택)
 - regedit `PlayerDebugMode=1` (CSXS.11)
 - AE에서 "Allow Scripts to Write Files and Access Network" 활성
 - `yarn dev` 동작 확인 (빈 패널이 AE에 뜨는지)
 
 ### Phase 1: 사이드카 프로토타입 (AE 무관)
+
 - `sidecar/`에 별도 Node 프로젝트 생성
 - node-pty로 그냥 `bash` 또는 `cmd` 스폰
 - WebSocket 서버 띄우고, Node CLI 클라이언트로 PTY I/O 송수신 검증
 - 단독으로 `node sidecar/dist/index.js` 실행해서 동작 확인
 
 ### Phase 2: 패널 ↔ 사이드카 연결 ✅ (완료 2026-05-05)
+
 - 패널에 xterm.js 마운트
 - CSInterface로 사이드카 spawn
 - WebSocket으로 PTY I/O 바인딩
@@ -288,11 +306,13 @@ ae-claude-panel/
 - **상세 회고는 §14 참조**
 
 ### Phase 3: ExtendScript 브릿지 정립
+
 - 사이드카에서 WebSocket으로 `{type:"exec", script:"app.project.numItems"}` 전송
 - 패널이 받아서 `evalScript()` → 결과 회신
 - 왕복 latency 측정, 에러 핸들링
 
 ### Phase 4: MCP 서버 + Claude CLI
+
 - 사이드카에 `@modelcontextprotocol/sdk` MCP 서버 추가 (stdio)
 - 첫 tool: `ae_get_project_info` (Phase 3 브릿지 사용)
 - 사이드카 부팅 시 `claude mcp add` 자동 실행
@@ -300,11 +320,13 @@ ae-claude-panel/
 - 패널에서 "현재 프로젝트 정보 알려줘" → Claude가 tool 호출 → 응답
 
 ### Phase 5: 핵심 tool 구현
+
 - 컴프, 레이어, 키프레임, 이펙트, 익스프레션 — 6장 카탈로그 우선순위대로
 - 각 tool에 Bolt CEP의 `evalTS<T>()` 시그니처 적용 (E2E 타입 안전)
 - 단위 테스트: tool 호출 → 실제 AE 상태 변화 확인
 
 ### Phase 6: UX 다듬기
+
 - 패널 상단에 상태 바 (사이드카 연결, MCP 연결, claude 실행 중 표시)
 - "Restart Claude" / "Clear Terminal" 버튼
 - 다크/라이트 테마 자동 적용 (AE 테마 동기화)
@@ -312,6 +334,7 @@ ae-claude-panel/
 - 로그 패널 (debug 모드)
 
 ### Phase 7: 패키징 / 배포
+
 - `yarn zxp`로 ZXP 빌드
 - 사이드카 Node.js 바이너리 동봉 (Node 20 portable)
 - README + 설치 가이드
@@ -322,16 +345,16 @@ ae-claude-panel/
 
 ## 9. 알려진 위험 / 대응
 
-| 위험 | 대응 |
-|---|---|
-| CEP의 Node 버전 불일치로 node-pty 빌드 실패 | 사이드카 분리로 회피 (이게 본 설계의 핵심 이유) |
-| Windows ConPTY와 ANSI 시퀀스 미스매치 | xterm.js의 conpty 호환 모드 + Windows 11 / Win10 1809+ 전제 |
-| ExtendScript 동기 실행 → AE UI 블로킹 | 무거운 작업은 청크로 분할, 진행 상황 WebSocket으로 스트리밍 |
-| `claude mcp add`가 stdio MCP를 매번 재등록 | 사용자 홈의 `.claude.json` 직접 검사 후 idempotent하게 등록 |
-| Claude가 잘못된 ExtendScript 호출 → AE 크래시 | 모든 tool 함수에 try/catch + 결과 검증, `ae_run_extendscript`는 위험 명시 |
-| AE 프로젝트 미저장 상태에서 자동화 실행 → 작업 손실 | 첫 tool 호출 직전에 "auto-save before AI ops" 옵션 (기본 ON) |
-| WebSocket 포트 충돌 | 0번 포트 바인딩 후 OS 할당 포트를 패널에 전달 |
-| 사이드카가 좀비로 남음 | 패널 unload 이벤트 + 사이드카 heartbeat (10초 timeout) |
+| 위험                                                | 대응                                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------------------- |
+| CEP의 Node 버전 불일치로 node-pty 빌드 실패         | 사이드카 분리로 회피 (이게 본 설계의 핵심 이유)                           |
+| Windows ConPTY와 ANSI 시퀀스 미스매치               | xterm.js의 conpty 호환 모드 + Windows 11 / Win10 1809+ 전제               |
+| ExtendScript 동기 실행 → AE UI 블로킹               | 무거운 작업은 청크로 분할, 진행 상황 WebSocket으로 스트리밍               |
+| `claude mcp add`가 stdio MCP를 매번 재등록          | 사용자 홈의 `.claude.json` 직접 검사 후 idempotent하게 등록               |
+| Claude가 잘못된 ExtendScript 호출 → AE 크래시       | 모든 tool 함수에 try/catch + 결과 검증, `ae_run_extendscript`는 위험 명시 |
+| AE 프로젝트 미저장 상태에서 자동화 실행 → 작업 손실 | 첫 tool 호출 직전에 "auto-save before AI ops" 옵션 (기본 ON)              |
+| WebSocket 포트 충돌                                 | 0번 포트 바인딩 후 OS 할당 포트를 패널에 전달                             |
+| 사이드카가 좀비로 남음                              | 패널 unload 이벤트 + 사이드카 heartbeat (10초 timeout)                    |
 
 ---
 
@@ -395,28 +418,28 @@ Phase 0~1을 한 번에 묶어서 Claude Code CLI에 던질 수 있는 프롬프
 
 ### 통계
 
-| 항목 | 수치 |
-|---|---|
-| Commit 수 (Phase 2.0 → 2.8.4 fix-3) | 26 |
-| 사이드카 테스트 | 74 (Phase 2 시작 시 0) |
-| 패널 테스트 | 22 (Phase 2 시작 시 0) |
-| 총 자동 회귀 테스트 | 96 |
-| 발견 + 영구 박힌 함정 (mistakes.md) | 9 |
-| Architectural decisions 추가 | 0 (D1–D11 사전 확정 유지) |
+| 항목                                | 수치                      |
+| ----------------------------------- | ------------------------- |
+| Commit 수 (Phase 2.0 → 2.8.4 fix-3) | 26                        |
+| 사이드카 테스트                     | 74 (Phase 2 시작 시 0)    |
+| 패널 테스트                         | 22 (Phase 2 시작 시 0)    |
+| 총 자동 회귀 테스트                 | 96                        |
+| 발견 + 영구 박힌 함정 (mistakes.md) | 9                         |
+| Architectural decisions 추가        | 0 (D1–D11 사전 확정 유지) |
 
 ### 발견 + 해결된 함정 9개 (mistakes.md 영구 등재)
 
-| # | 함정 | Phase | Fix 메커니즘 |
-|---|---|---|---|
-| 1 | bash non-interactive에서 .bashrc 자동 source 안 됨 | 0 | BASH_ENV setx 영구 등록 |
-| 2 | sidecar npm install이 시스템 Node 24로 빌드 (fnm 미발동) | 0 | `sidecar/.nvmrc=20` + 설치 명령에 `source ~/.bashrc &&` prefix |
-| 3 | Node 20.12+ spawn EINVAL on .cmd files (CVE-2024-27980) | 2.5.1 | `process.execPath` + tsx/dist/cli.mjs 직접 |
-| 4 | ConPTY가 SIGTERM/SIGKILL 모두 무시 (12s hang) | 2.5.4 | tree kill (taskkill /F /T) + 8s hard cap |
-| 5 | Windows process.kill SIGTERM = TerminateProcess (graceful 불가) | 2.5.5.0 | WS-level `sys.shutdown` 메시지 신설 |
-| 6 | bolt-cep `npm run dev` ENOENT (`dist/cep/main/index.html`) | 2.6 | `mkdir -p dist/cep/main` 사전 생성 (또는 `npm run build` 1회) |
-| 7 | spawn shell:true + Windows path-with-space/한글 → cmd.exe args 파싱 잘림 | 2.8.4 fix-1 | spawn cwd: SIDECAR_ROOT + 상대 경로 args |
-| 8 | React StrictMode가 useTerminal heavy side-effect 두 번 invoke → 사이드카 double-spawn race | 2.8.4 fix-2 | `<React.StrictMode>` 제거 (CEP에선 SSR/concurrent 무관) |
-| 9 | CEP panel close → React unmount async cleanup이 못 끝나 sys.shutdown 미도달 → 사이드카 좀비 | 2.8.4 fix-3 | PanelBridge disconnect grace timer (5s default) → self-shutdown |
+| #   | 함정                                                                                        | Phase       | Fix 메커니즘                                                    |
+| --- | ------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------- |
+| 1   | bash non-interactive에서 .bashrc 자동 source 안 됨                                          | 0           | BASH_ENV setx 영구 등록                                         |
+| 2   | sidecar npm install이 시스템 Node 24로 빌드 (fnm 미발동)                                    | 0           | `sidecar/.nvmrc=20` + 설치 명령에 `source ~/.bashrc &&` prefix  |
+| 3   | Node 20.12+ spawn EINVAL on .cmd files (CVE-2024-27980)                                     | 2.5.1       | `process.execPath` + tsx/dist/cli.mjs 직접                      |
+| 4   | ConPTY가 SIGTERM/SIGKILL 모두 무시 (12s hang)                                               | 2.5.4       | tree kill (taskkill /F /T) + 8s hard cap                        |
+| 5   | Windows process.kill SIGTERM = TerminateProcess (graceful 불가)                             | 2.5.5.0     | WS-level `sys.shutdown` 메시지 신설                             |
+| 6   | bolt-cep `npm run dev` ENOENT (`dist/cep/main/index.html`)                                  | 2.6         | `mkdir -p dist/cep/main` 사전 생성 (또는 `npm run build` 1회)   |
+| 7   | spawn shell:true + Windows path-with-space/한글 → cmd.exe args 파싱 잘림                    | 2.8.4 fix-1 | spawn cwd: SIDECAR_ROOT + 상대 경로 args                        |
+| 8   | React StrictMode가 useTerminal heavy side-effect 두 번 invoke → 사이드카 double-spawn race  | 2.8.4 fix-2 | `<React.StrictMode>` 제거 (CEP에선 SSR/concurrent 무관)         |
+| 9   | CEP panel close → React unmount async cleanup이 못 끝나 sys.shutdown 미도달 → 사이드카 좀비 | 2.8.4 fix-3 | PanelBridge disconnect grace timer (5s default) → self-shutdown |
 
 **패턴**: 모든 함정의 root cause가 "추측 → 빨강 테스트 → 진단 → 빨강 테스트 추가 → 초록"의 TDD 사이클로 해소됨. Karpathy 원칙 4 (Goal-Driven Execution)의 적용 효과.
 
@@ -431,55 +454,139 @@ Phase 0~1을 한 번에 묶어서 Claude Code CLI에 던질 수 있는 프롬프
 Phase 3 = "ExtendScript 브릿지 정립" — 사이드카가 WS로 `{type:"exec", tool, input}` 전송 → 패널이 `evalScript()`로 ExtendScript 호출 → 결과 회신.
 
 **Phase 2 자산 활용**:
-- `sidecar/src/protocol.ts` — D6 typed envelope. Phase 3은 `tool.exec` / `tool.result` envelope 추가만 (기존 sys.* / pty.* 와 통합).
+
+- `sidecar/src/protocol.ts` — D6 typed envelope. Phase 3은 `tool.exec` / `tool.result` envelope 추가만 (기존 sys._ / pty._ 와 통합).
 - `sidecar/src/ws/panelBridge.ts` — primary client + request_id 라우팅이 이미 완비. Phase 3은 새 메시지 타입 핸들러만 추가.
 - `src/js/main/sidecar/useTerminal.ts` — WS message router 패턴 확립. Phase 3은 `tool.exec` 수신 → `evalScript` 호출 → `tool.result` 송신 path 추가.
 - `defineAETool` HOF (Phase 1 확립) — Phase 3 첫 엔드투엔드 tool (`ae_get_active_comp`)이 이 HOF를 통과해서 D4 (undo group + crash recovery)에 자동 wiring.
 
 **Phase 3 진입 시 주의 (mistakes.md에서 미리 챙길 것)**:
+
 - ExtendScript는 ES3. JSON 사용 시 `_polyfills/json2.js` (D8 디렉토리 규칙). vite로 합본 빌드.
 - `evalScript` 콜백 reference 누수 위험 — Phase 3 spike에서 long-running 5+ 호출 후 메모리 그래프 확인.
 - AST validator (Phase 1 D7) 검증된 패턴만 jsx로 합본. `system.callSystem` / `File` / `Folder` / `Socket` / `eval` / `Function` / `#include` / computed member access 금지.
 - 왕복 latency 목표 ≤ 100ms (plan §8 Phase 3 검증 기준).
 
 **Phase 4-5 미리 alert (mistakes.md에 등재된 follow-up)**:
+
 - Phase 4 PTY 교체 시 #4 (ConPTY tree kill) 재검증 — claude CLI가 자식 프로세스 띄우면 tree kill로 모두 정리되는지.
 - Phase 4 첫 spawn 후 #2 (Node 24 좀비) 재발 가능성. node-pty native module이 panel runtime이 spawn한 Node 버전과 ABI 일치하는지 확인.
 - Phase 5 tool 추가 시 D8 (per-tool collocation) + D7 (AST validator 골든셋 통과) + D4 (`defineAETool` HOF) 일관 적용.
 
 ---
 
+## 15. Phase 3 회고 (2026-05-06)
+
+**Phase 3 완료**: 사이드카 ↔ 패널 ↔ ExtendScript 브릿지 production wiring. AE에서 사용자 spike 버튼 클릭 → `ae_get_active_comp` round-trip **6ms** (Phase 3 검증 기준 ≤100ms 대비 16배 여유). 1분+ idle 후 사이드카 살아있음 (heartbeat bidirectional echo). Phase 4 (MCP + claude PTY) 전제 모두 충족.
+
+### 통계
+
+| 항목                                | 수치                                |
+| ----------------------------------- | ----------------------------------- |
+| Commit 수 (Phase 3.1 → 3.9 part 3)  | 17                                  |
+| 사이드카 테스트                     | 95 (Phase 3 시작 시 74, +21)        |
+| 패널 테스트                         | 44 (Phase 3 시작 시 22, +22)        |
+| 총 자동 회귀 테스트                 | 139 (Phase 3 시작 시 96, +43)       |
+| 발견 + 영구 박힌 함정 (mistakes.md) | 3 (#10, #11, #12) — 누적 12         |
+| Architectural decisions 추가        | 0 (D1–D11 사전 확정 유지)           |
+| Validation Gates 추가               | 6 (§8 phase exit + §9–§13)          |
+
+### 발견 + 해결된 함정 3개 (mistakes.md 영구 등재)
+
+| #   | 함정                                                                                                            | Phase                    | Fix 메커니즘                                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| 10  | `npm test` 통과만으로 phase 닫음 → production tsc strict + vite build에서 에러 늦게 발견                        | Phase 2 → 3 진입 시점    | Gate §8 신설: phase exit 전 npm test + npm run build 둘 다 그린                                                    |
+| 11  | production ES3 ExtendScript + Windows host 차이가 build-tool/source 가정과 부딪침 (4 faces)                     | Phase 3.7 ~ follow-up 4  | Gate §9–§12 신설 (panel script generator / jsx host registration / no namespace import / jsx ASCII-only)           |
+| 12  | `sys.heartbeat` 단방향 broadcast + 양방향 watchdog 모순 → panel idle ~35s 후 사이드카 자체 shutdown              | Phase 3.7 follow-up 5    | useTerminal.ts router에 echo case 추가 + Gate §13 (idle scenario gate)                                             |
+
+### #11의 네 면 통합 정리
+
+함정 #11은 Phase 3.7 production wiring 첫 등장 시점에 **연속 4번 발화** — 각 face가 별개 root cause처럼 보이지만 같은 메타 패턴.
+
+| 면 (commit)                                    | 잘못된 가정                                              | production ground truth                                | Fix                                                                       |
+| ---------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| (a) panel script generator (b282d01)           | mock 짧은 ns (`"ns"`)                                    | dotted ns (`"com.aeclaude.panel"`)                     | bracket notation `$[ns]` + acorn parse 검증 (Gate §9)                     |
+| (b) jsx host 등록 (ecd9d2c — future-proof)     | bolt-cep switch가 항상 `"aftereffects"` literal 반환     | versioned `BridgeTalk.appName` 가능성                  | switch에 `default: host[ns] = aeft;` 추가 (Gate §10)                      |
+| (c) rollup namespace import (a9f2167)          | ESM `import * as`의 `__proto__: null` 표준 패턴          | ExtendScript SpiderMonkey prototype null setter throw  | named imports + 객체 literal (Gate §11)                                   |
+| (d) file encoding (6f9ee9e)                    | UTF-8 (no BOM) source 기본                               | system codepage 추정 (Windows Korean = cp949)          | jsx layer ASCII only (Gate §12)                                           |
+
+**공통 root**: build tool / unit test mock / boilerplate / source code 모두 production ground truth와 형식 차이를 자동 가드 못 함. 모든 면이 production wiring 첫 등장 시점에서만 드러남. probe (3a54075) 결과로 (b)는 fix-2가 실제 root cause 아니었음 확인됨 — `BridgeTalk.appName === "aftereffects"` literal 반환이라 default 도달 안 해도 OK였지만 future-proof safety net으로 유지.
+
+### #12의 통찰: Phase 2 결함이 Phase 3 통합에서 드러남
+
+heartbeat protocol design intent (D6 bidirectional)은 정확했지만 Phase 2 wiring이 broadcast 절반만 구현. Phase 2 검증 시나리오는 모두 active interaction (5초마다 메시지 오감 → `lastRecvAt` 자동 갱신)이라 결함이 dormant. Phase 3 사용자 dogfood (1분+ idle 시나리오)에서 처음 발화 → Gate §13 (idle scenario gate) 신설로 phase exit 시 idle scenario 강제.
+
+**메타 학습**: 단방향 wiring + 양방향 expectation 같은 protocol contract 결함은 단위 테스트의 active path만으론 dormant. timer-driven close path (heartbeat watchdog, lockfile renewal, GC 등)는 별도 시나리오로 panelBridge.test.ts에 누적해야. scenario 14 (idle close path) 추가가 그 패턴.
+
+### Architectural learning
+
+**1. Sub-step 분할 (3.1 → 3.9)의 효과**: Phase 2가 26 commit을 한 단위로 묶었던 것과 대조적으로 Phase 3는 sub-step 단위 진행 — 3.1 protocol jsdoc / 3.2 ES3 polyfill collocation / 3.3 defineJsxTool HOF + 첫 tool / 3.4 D7 골든셋 / 3.5 panel-side bridge / 3.6 dispatcher / 3.7 production wiring + 5 follow-ups / 3.9 정리. 각 sub-step이 독립 검증 + 독립 commit이라 회귀 bisect 정확도 ↑. Phase 4-5에서 동일 패턴 (4.1 MCP server skeleton → 4.2 claude PTY → 4.3 첫 tool MCP 노출 등).
+
+**2. Production wiring 첫 등장의 발견 가치**: Phase 3.7에서 4 faces가 모두 첫 등장에 발화 — Phase 3.8 (사용자 검증) 단계까지 미뤘으면 4 faces를 한 번에 진단해야 했고 root cause 분리가 어려웠을 것. **production wiring sub-step (3.7)을 분리하고 거기서 한 번에 검증한 결정의 가치**. Phase 4의 MCP + claude PTY 통합도 별도 sub-step (4.7~)으로 분리 예정.
+
+**3. 작은 결정 게이트의 누적 효과**: Phase 3.3 시점의 시그니처 합의 (`function tool(_input, ctx, h)` wrap, plain return + try/catch handle, schema/handler/impl.jsx/test 4파일 collocation)가 **Phase 5 30 tool 패턴 확립 0 비용**. 신규 tool 추가 = 1 디렉토리 + 1 골든 case + 1 wrap. 시그니처를 늦게 합의했으면 매 tool 추가마다 패턴 재의논 필요. D8 collocation + D7 골든셋 + D4 HOF의 사전 확정이 이 효과의 토대.
+
+**4. 사용자 "Stop when confused" 강제 효과**: Phase 3.7 follow-up 1~5 동안 매 fix 후 AE 재시작 + 결과 보고 강제 — 가설 정확도 ↑ + 미발견 면 누적 발견 (3.7 → follow-up 5까지 4 + 1 면 5개 누적). Production AE 환경 ground truth는 mock + 단위 테스트로 100% 시뮬 불가능 → CLI가 매번 사전 점검을 사용자에게 의존하는 게 정답. inline ExtendScript probe (3a54075) 패턴은 root cause 가설 검증 시간 ↓에 결정적 — Phase 4 진입 시 같은 패턴 임시 활용 후 revert (3.9 part 1).
+
+### Phase 4 진입 준비
+
+Phase 4 = "MCP 서버 + claude PTY 통합". 사이드카가 MCP 서버를 stdio로 띄우고, AE-tool들을 MCP tool로 노출. claude CLI가 자식 PTY로 실행되어 사용자 입력 ↔ MCP 호출 ↔ AE 조작.
+
+**Phase 3 자산 활용**:
+
+- `sidecar/src/dispatcher/toolDispatcher.ts` (Phase 3.6) — MCP tool call → dispatcher.exec → panel WS exec → ExtendScript → result. MCP 서버는 dispatcher만 호출하면 됨.
+- `sidecar/src/protocol.ts` typed envelope (D6) — exec/result/error/cancel/progress chunking + heartbeat (Phase 3 follow-up 5 bidirectional) 모두 완비. Phase 4는 새 envelope 타입 추가 0 또는 최소.
+- `defineJsxTool` HOF + collocation 패턴 (Phase 3.3) — Phase 5 30 tool 진입 시 동일 패턴 복제.
+- `ae_get_active_comp` 골든 ref tool — D7 validator 골든셋 첫 case (Phase 3.4). 신규 tool은 같은 case 형식으로 추가.
+- `useExtendScriptBridge` (Phase 3.5) + `main.tsx` onUnhandledMessage 라우팅 (Phase 3.7) — panel ↔ ExtendScript 라운드트립 완비.
+
+**Phase 4 진입 시 주의 (mistakes.md에서 미리 챙길 것)**:
+
+- PTY 교체 시 #4 (ConPTY tree kill) 재검증 — claude CLI가 자식 프로세스 띄우면 tree kill로 모두 정리되는지.
+- 첫 spawn 후 #2 (Node 24 좀비) 재발 가능성. node-pty native module ABI 일치 확인.
+- MCP server stdio handshake 시 #3 (.cmd shim 문제) 재발 가능성. `process.execPath` + entry .mjs 직접 spawn 패턴 유지.
+- D3 `ae_run_extendscript` per-call approval modal — Phase 4의 첫 tool로 도입 시 D3 + AST validator 골든셋 동시 검증.
+- Phase 4 production wiring sub-step (4.7~)에서 #11 4-faces와 비슷한 production-only 함정 재발 가능성. 사용자 dogfood + idle scenario (Gate §13) 강제.
+
+**Phase 5-7 미리 alert**:
+
+- Phase 5 30 tool 추가 시 D8 (collocation) + D7 (골든셋) + D4 (`defineAETool` HOF) 일관 적용. 1 tool = 1 디렉토리 + 1 case + 1 wrap.
+- Phase 6 UX (status bar 5상태 + Recent AI ops 카드) — design tokens (CLAUDE.md Design Tokens) 적용. 한국어/다국어 i18n은 panel layer 책임 (jsx layer는 ASCII only — Gate §12).
+- Phase 7 ZXP packaging — D9 GitHub Actions matrix + portable Node 20.
+
+---
+
 ## GSTACK REVIEW REPORT
 
-| Review | Trigger | Why | Runs | Status | Findings |
-|--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | issues_open | HOLD mode, 5 critical decisions (D1-D5), 6 critical gaps registered as P1-P3 |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean | 4 implementation decisions (D6-D9), test coverage diagram (~145 cases mapped), distribution pipeline locked in |
-| Design Review | `/plan-design-review` | UI/UX gaps | 1 | issues_open | score 3/10 → 8/10, 1 design decision (D11), 7-pass review, 7 surfaces × 5 states matrix added, design tokens locked in |
-| Codex Review | `/codex review` | Independent 2nd opinion | 0 | skipped | codex CLI unavailable on this machine |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | n/a | end-user product, not dev tool |
+| Review        | Trigger               | Why                             | Runs | Status      | Findings                                                                                                               |
+| ------------- | --------------------- | ------------------------------- | ---- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| CEO Review    | `/plan-ceo-review`    | Scope & strategy                | 1    | issues_open | HOLD mode, 5 critical decisions (D1-D5), 6 critical gaps registered as P1-P3                                           |
+| Eng Review    | `/plan-eng-review`    | Architecture & tests (required) | 1    | clean       | 4 implementation decisions (D6-D9), test coverage diagram (~145 cases mapped), distribution pipeline locked in         |
+| Design Review | `/plan-design-review` | UI/UX gaps                      | 1    | issues_open | score 3/10 → 8/10, 1 design decision (D11), 7-pass review, 7 surfaces × 5 states matrix added, design tokens locked in |
+| Codex Review  | `/codex review`       | Independent 2nd opinion         | 0    | skipped     | codex CLI unavailable on this machine                                                                                  |
+| DX Review     | `/plan-devex-review`  | Developer experience gaps       | 0    | n/a         | end-user product, not dev tool                                                                                         |
 
 - **UNRESOLVED:** 0 (10 critical decisions resolved via AskUserQuestion gates: D1-D9 + D11)
 - **VERDICT:** CEO + ENG + DESIGN REVIEWED — ready to implement. All required gates passed.
 
 ### CEO Decisions (D1–D5)
 
-| # | Topic | Decision | Plan delta |
-|---|---|---|---|
-| D1 | Implementation approach | A (In-Panel Terminal + Sidecar, full integration) | 현재 plan §2-3 그대로 유지 |
-| D2 | Review mode | HOLD SCOPE | 확장 0, rigor only |
-| D3 | `ae_run_extendscript` 안전 정책 | B (per-call approval + AST allow-list, FS/네트워크/system.callSystem 차단) | §6 escape hatch 명세 보강, 새 모듈 `validateExtendScriptAst.ts` |
-| D4 | Undo grouping + crash recovery | A (tool당 1 undoGroup + 세션 시작 자동저장 + 5 tool마다 점진저장) | tool wrapper HOF 추가, §9 위험 표 보강 |
-| D5 | Packaging + signing | A (self-signed ZXP + Node 바이너리 동봉) | §3 패키징 결정 확정 |
+| #   | Topic                           | Decision                                                                   | Plan delta                                                      |
+| --- | ------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| D1  | Implementation approach         | A (In-Panel Terminal + Sidecar, full integration)                          | 현재 plan §2-3 그대로 유지                                      |
+| D2  | Review mode                     | HOLD SCOPE                                                                 | 확장 0, rigor only                                              |
+| D3  | `ae_run_extendscript` 안전 정책 | B (per-call approval + AST allow-list, FS/네트워크/system.callSystem 차단) | §6 escape hatch 명세 보강, 새 모듈 `validateExtendScriptAst.ts` |
+| D4  | Undo grouping + crash recovery  | A (tool당 1 undoGroup + 세션 시작 자동저장 + 5 tool마다 점진저장)          | tool wrapper HOF 추가, §9 위험 표 보강                          |
+| D5  | Packaging + signing             | A (self-signed ZXP + Node 바이너리 동봉)                                   | §3 패키징 결정 확정                                             |
 
 ### Eng Decisions (D6–D9)
 
-| # | Topic | Decision | Plan delta |
-|---|---|---|---|
-| D6 | WebSocket 프로토콜 명세 | A (typed envelope full spec) — discriminated union, request_id correlation, cancel/progress/chunking/heartbeat | 신규 모듈 `sidecar/src/protocol.ts` (~150 LOC) — panel/sidecar 공유 import |
-| D7 | AST validator 구현 | A (acorn + adversarial test suite + indirection 차단 + #include preprocess) | `_validateAst.ts` ~200 LOC + `adversarial.test.ts` 골든셋 (per-tool case 누적) |
-| D8 | Tool 코드 조직 | A (per-tool collocation: `tools/<ae_name>/{schema,handler,impl.jsx,test}`) | §5 디렉토리 구조 재설계, 빌드 스크립트로 jsx 합본 |
-| D9 | Distribution pipeline | B (portable Node 20 + node_modules + GitHub Actions Win/Mac matrix) | §12 시작 명령 + `.github/workflows/release.yml` |
+| #   | Topic                   | Decision                                                                                                       | Plan delta                                                                     |
+| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| D6  | WebSocket 프로토콜 명세 | A (typed envelope full spec) — discriminated union, request_id correlation, cancel/progress/chunking/heartbeat | 신규 모듈 `sidecar/src/protocol.ts` (~150 LOC) — panel/sidecar 공유 import     |
+| D7  | AST validator 구현      | A (acorn + adversarial test suite + indirection 차단 + #include preprocess)                                    | `_validateAst.ts` ~200 LOC + `adversarial.test.ts` 골든셋 (per-tool case 누적) |
+| D8  | Tool 코드 조직          | A (per-tool collocation: `tools/<ae_name>/{schema,handler,impl.jsx,test}`)                                     | §5 디렉토리 구조 재설계, 빌드 스크립트로 jsx 합본                              |
+| D9  | Distribution pipeline   | B (portable Node 20 + node_modules + GitHub Actions Win/Mac matrix)                                            | §12 시작 명령 + `.github/workflows/release.yml`                                |
 
 ### Eng Architecture Findings (E1–E7) — 위 D6-D9로 모두 해결됨
 
@@ -521,14 +628,14 @@ ExtendScript:  manual checklist (AE 인스턴스 필요, CI 자동화 불가)
 
 ### Worktree Parallelization Strategy
 
-| Lane | Steps | Modules | 비고 |
-|---|---|---|---|
-| **A** (foundation) | Phase 0 → Phase 1 사이드카 protocol.ts → \_define.ts → \_validateAst.ts | `sidecar/src/protocol.ts`, `sidecar/src/tools/_*.ts` | 모든 tool의 baseline. 직렬. |
-| **B** (panel shell) | App.tsx, status bar, approval dialog, terminal mount | `src/js/main/*` | A의 protocol.ts 완료 후 시작 (의존: D6 spec) |
-| **C** (tool batch 1) | 5 MVP tool (`ae_get_active_comp`, `ae_create_comp`, `ae_add_solid_layer`, `ae_set_keyframe`, `ae_run_extendscript`) | `tools/ae_get_active_comp/`, ... 5 폴더 | A 완료 후 **5 lane 병렬 가능** (D8 collocation 덕분에 lane 간 conflict 0) |
-| **D** (tool batch 2) | 25개 잔여 tool | `tools/ae_*/` 25 폴더 | C 검증 후 **25 lane 병렬 가능** |
-| **E** (CI + distribution) | GitHub Actions matrix, ZXP 빌드, release script | `.github/workflows/`, `scripts/build-zxp.ts` | D9. A와 병렬 가능 (의존 X) |
-| **F** (LLM eval) | 골든셋 + eval runner | `evals/`, `tests/_helpers/mockAe.ts` | A 완료 후 시작 |
+| Lane                      | Steps                                                                                                               | Modules                                              | 비고                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| **A** (foundation)        | Phase 0 → Phase 1 사이드카 protocol.ts → \_define.ts → \_validateAst.ts                                             | `sidecar/src/protocol.ts`, `sidecar/src/tools/_*.ts` | 모든 tool의 baseline. 직렬.                                               |
+| **B** (panel shell)       | App.tsx, status bar, approval dialog, terminal mount                                                                | `src/js/main/*`                                      | A의 protocol.ts 완료 후 시작 (의존: D6 spec)                              |
+| **C** (tool batch 1)      | 5 MVP tool (`ae_get_active_comp`, `ae_create_comp`, `ae_add_solid_layer`, `ae_set_keyframe`, `ae_run_extendscript`) | `tools/ae_get_active_comp/`, ... 5 폴더              | A 완료 후 **5 lane 병렬 가능** (D8 collocation 덕분에 lane 간 conflict 0) |
+| **D** (tool batch 2)      | 25개 잔여 tool                                                                                                      | `tools/ae_*/` 25 폴더                                | C 검증 후 **25 lane 병렬 가능**                                           |
+| **E** (CI + distribution) | GitHub Actions matrix, ZXP 빌드, release script                                                                     | `.github/workflows/`, `scripts/build-zxp.ts`         | D9. A와 병렬 가능 (의존 X)                                                |
+| **F** (LLM eval)          | 골든셋 + eval runner                                                                                                | `evals/`, `tests/_helpers/mockAe.ts`                 | A 완료 후 시작                                                            |
 
 **Conflict flags**: Lane B와 Lane C는 protocol.ts 변경 시 양쪽 영향. D6 spec 락인 후엔 충돌 없음.
 **Execution**: A → (B || C 5-lane || E || F) → D 25-lane → 통합 테스트.
@@ -537,13 +644,13 @@ ExtendScript:  manual checklist (AE 인스턴스 필요, CI 자동화 불가)
 
 CEO Failure Modes Registry에 보강:
 
-| Codepath | Failure | Rescued? | Test? | User sees | Action |
-|---|---|---|---|---|---|
-| `protocol.ts` chunking | 청크 손실/순서 뒤섞임 | ❌ → P1 | ❌ | 응답 깨짐 | seq + total 검증, missing 시 retry |
-| `_validateAst.ts` | adversarial 우회 | ✅ D7 | ✅ 골든셋 (per-tool 누적) | 차단 + 사유 표시 | CI 회귀 |
-| Sidecar lockfile | stale lock (이전 AE 프로세스 좀비) | ❌ → E4 | ❌ | spawn 실패 | PID 폴링 + stale detection |
-| `node-pty` Mac arm64 | prebuilt mismatch | ❌ → D9 | ❌ | 사이드카 spawn 실패 | Actions runner별 prebuild |
-| Tool dispatcher mutex | deadlock (재귀 호출) | ❌ → P4 | ⚠ test | hang | reentrant guard, timeout 30s 강제 |
+| Codepath               | Failure                            | Rescued? | Test?                     | User sees           | Action                             |
+| ---------------------- | ---------------------------------- | -------- | ------------------------- | ------------------- | ---------------------------------- |
+| `protocol.ts` chunking | 청크 손실/순서 뒤섞임              | ❌ → P1  | ❌                        | 응답 깨짐           | seq + total 검증, missing 시 retry |
+| `_validateAst.ts`      | adversarial 우회                   | ✅ D7    | ✅ 골든셋 (per-tool 누적) | 차단 + 사유 표시    | CI 회귀                            |
+| Sidecar lockfile       | stale lock (이전 AE 프로세스 좀비) | ❌ → E4  | ❌                        | spawn 실패          | PID 폴링 + stale detection         |
+| `node-pty` Mac arm64   | prebuilt mismatch                  | ❌ → D9  | ❌                        | 사이드카 spawn 실패 | Actions runner별 prebuild          |
+| Tool dispatcher mutex  | deadlock (재귀 호출)               | ❌ → P4  | ⚠ test                   | hang                | reentrant guard, timeout 30s 강제  |
 
 ### Outside Voice
 
@@ -557,21 +664,21 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
 
 ### Design Decision (D11 — Onboarding)
 
-| # | Topic | Decision | 구현 시사점 |
-|---|---|---|---|
+| #   | Topic                | Decision                                           | 구현 시사점                                                                                                                                                                   |
+| --- | -------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D11 | First-run onboarding | B (auto-detect + inline progress + 실패 시만 고침) | 패널 열림 시 3개 체크 병렬 실행, 성공 시 1초 내 "Ready" 표시. 실패 단계만 actionable 다이얼로그 (`claude not found at $(which claude). [Install]`). 4-step wizard 만들지 않음 |
 
 ### UI Surface 인벤토리 (7개)
 
-| # | Surface | 면적 | 상호작용 |
-|---|---|---|---|
-| 1 | xterm 터미널 | ~60% | 주 입력/출력. `JetBrains Mono` 14px |
-| 2 | 헤더 상태바 (24px) | ~5% | 시스템 상태 표시 + 액션 (Stop/Restart/Logs) |
-| 3 | Recent AI ops 카드 (80px) | ~15% | 가로 스크롤, click=AE select, hover=expand |
-| 4 | D3 승인 다이얼로그 (modal) | overlay | 코드 프리뷰 + AST 결과 + Approve/Reject |
-| 5 | Stop 버튼 | 헤더 일부 | text "Stop" (icon 아님), in-flight cancel |
-| 6 | Onboarding (D11=B) | 전체 (실패 시만) | auto-detect 우선, 실패 단계별 안내 |
-| 7 | 에러 모달 (auto-save 실패 등) | overlay | warning icon + 진행/취소 분기 |
+| #   | Surface                       | 면적             | 상호작용                                    |
+| --- | ----------------------------- | ---------------- | ------------------------------------------- |
+| 1   | xterm 터미널                  | ~60%             | 주 입력/출력. `JetBrains Mono` 14px         |
+| 2   | 헤더 상태바 (24px)            | ~5%              | 시스템 상태 표시 + 액션 (Stop/Restart/Logs) |
+| 3   | Recent AI ops 카드 (80px)     | ~15%             | 가로 스크롤, click=AE select, hover=expand  |
+| 4   | D3 승인 다이얼로그 (modal)    | overlay          | 코드 프리뷰 + AST 결과 + Approve/Reject     |
+| 5   | Stop 버튼                     | 헤더 일부        | text "Stop" (icon 아님), in-flight cancel   |
+| 6   | Onboarding (D11=B)            | 전체 (실패 시만) | auto-detect 우선, 실패 단계별 안내          |
+| 7   | 에러 모달 (auto-save 실패 등) | overlay          | warning icon + 진행/취소 분기               |
 
 ### Visual Hierarchy (Pass 1)
 
@@ -611,6 +718,7 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
 ```
 
 **디자인 결정**:
+
 - Modal in-panel (별도 OS 다이얼로그 X) — 컨텍스트 안 끊김
 - "Approve & Run" 우측 (긍정 액션 컨벤션), keyboard focus는 **Reject**에 default (안전한 기본)
 - AST 차단 시: ❌ + Line N 하이라이트 + 차단 사유, 단일 [Dismiss] 버튼
@@ -630,6 +738,7 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
 ```
 
 **Empty state**:
+
 ```
 │  Recent AI ops                                                    │
 │  No AI operations yet. Try: "create a 1080p comp" or              │
@@ -637,6 +746,7 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
 ```
 
 **디자인 결정**:
+
 - 가로 스크롤 (세로 = 패널 높이 잡아먹음, AE 사이드 패널)
 - 카드 폭 ~85px, 5-6개 한 화면
 - Click = AE select (`comp.activeItem`, `layer.selected = true`)
@@ -646,28 +756,28 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
 
 ### 5상태 매트릭스 (7 surfaces × 5 states, Pass 2)
 
-| Feature | LOADING | EMPTY | ERROR | SUCCESS | PARTIAL |
-|---|---|---|---|---|---|
-| 사이드카 부팅 | "Starting sidecar… (3s)" 회색 점 | n/a | "❌ claude CLI not found. [Install guide]" | 초록 점 + "Ready" | 노랑 점 + "MCP not connected" |
-| Claude 응답 | xterm 깜빡 `▌` + 우측 spinner | n/a | "❌ API timeout (30s). Retry?" | 응답 출력 + 카드 | streaming 토큰 |
-| Tool 실행 | "🎬 Running ae_set_keyframe…" inline | n/a | "❌ AE timeout. Auto-saved at 2:32pm. [Reconnect]" | "✓ done (1.2s)" + 카드 + undo label | "3/5 keyframes (2 failed)" |
-| D3 승인 | n/a | n/a | AST 차단 ❌ + 사유 + Dismiss | 코드 실행 + 결과 카드 | n/a |
-| Recent AI ops 카드 | n/a | "No AI ops yet. Try: '...'" | n/a | 카드 slide-in 200ms | n/a |
-| Stop 버튼 | "Cancelling…" 회색 처리 | n/a | "Already running, can't interrupt ExtendScript. Wait or Force Restart?" | "Cancelled" toast 1.5s | n/a |
-| Onboarding (D11=B) | step별 inline spinner | n/a | step별 fix 가이드 + retry/skip | 1초 내 "Ready! Try '...'" | "✓ claude OK, ⚠ MCP retry" |
+| Feature            | LOADING                              | EMPTY                       | ERROR                                                                   | SUCCESS                             | PARTIAL                       |
+| ------------------ | ------------------------------------ | --------------------------- | ----------------------------------------------------------------------- | ----------------------------------- | ----------------------------- |
+| 사이드카 부팅      | "Starting sidecar… (3s)" 회색 점     | n/a                         | "❌ claude CLI not found. [Install guide]"                              | 초록 점 + "Ready"                   | 노랑 점 + "MCP not connected" |
+| Claude 응답        | xterm 깜빡 `▌` + 우측 spinner        | n/a                         | "❌ API timeout (30s). Retry?"                                          | 응답 출력 + 카드                    | streaming 토큰                |
+| Tool 실행          | "🎬 Running ae_set_keyframe…" inline | n/a                         | "❌ AE timeout. Auto-saved at 2:32pm. [Reconnect]"                      | "✓ done (1.2s)" + 카드 + undo label | "3/5 keyframes (2 failed)"    |
+| D3 승인            | n/a                                  | n/a                         | AST 차단 ❌ + 사유 + Dismiss                                            | 코드 실행 + 결과 카드               | n/a                           |
+| Recent AI ops 카드 | n/a                                  | "No AI ops yet. Try: '...'" | n/a                                                                     | 카드 slide-in 200ms                 | n/a                           |
+| Stop 버튼          | "Cancelling…" 회색 처리              | n/a                         | "Already running, can't interrupt ExtendScript. Wait or Force Restart?" | "Cancelled" toast 1.5s              | n/a                           |
+| Onboarding (D11=B) | step별 inline spinner                | n/a                         | step별 fix 가이드 + retry/skip                                          | 1초 내 "Ready! Try '...'"           | "✓ claude OK, ⚠ MCP retry"   |
 
 ### User Journey 감정 곡선 (Pass 3)
 
-| Step | 행동 | 감정 | 디자인 제공 |
-|---|---|---|---|
-| 1 | Window > Extensions 클릭 | 호기심 + 약간 불안 | 1초 내 패널 표시 |
-| 2 | claude 프롬프트 보임 | 안도 (친숙) | 익숙한 chrome |
-| 3 | 첫 명령 입력 | 회의 ("진짜 될까") | streaming 응답 |
-| 4 | AE에 컴프 생성됨 | 놀람 + 신뢰 | 카드 slide-in 200ms |
-| 5 | 두 번째 명령 → 적용됨 | 자신감 | 카드 누적 |
-| 6 | 잘못된 결과 발생 | 불안 ("AI가 망쳤나") | undo 1번 알림, "Undo this" 버튼 |
-| 7 | Cmd+Z → 깨끗하게 복구 | 안도 (안전) | 카드 회색 처리, "Reverted" badge |
-| 8 | 1주일 후 매일 사용 | 효율 / 의존 | 자동 부팅 + 명령 히스토리 |
+| Step | 행동                     | 감정                 | 디자인 제공                      |
+| ---- | ------------------------ | -------------------- | -------------------------------- |
+| 1    | Window > Extensions 클릭 | 호기심 + 약간 불안   | 1초 내 패널 표시                 |
+| 2    | claude 프롬프트 보임     | 안도 (친숙)          | 익숙한 chrome                    |
+| 3    | 첫 명령 입력             | 회의 ("진짜 될까")   | streaming 응답                   |
+| 4    | AE에 컴프 생성됨         | 놀람 + 신뢰          | 카드 slide-in 200ms              |
+| 5    | 두 번째 명령 → 적용됨    | 자신감               | 카드 누적                        |
+| 6    | 잘못된 결과 발생         | 불안 ("AI가 망쳤나") | undo 1번 알림, "Undo this" 버튼  |
+| 7    | Cmd+Z → 깨끗하게 복구    | 안도 (안전)          | 카드 회색 처리, "Reverted" badge |
+| 8    | 1주일 후 매일 사용       | 효율 / 의존          | 자동 부팅 + 명령 히스토리        |
 
 핵심 변환점: **step 4 (첫 성공)** + **step 7 (첫 안전한 undo)**. 이 두 모먼트의 motion/feedback이 신뢰의 코드.
 
@@ -689,29 +799,42 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
   /* AE host에서 받아옴, fallback 값 */
   --bg: var(--ae-bg, #2d2d2d);
   --fg: var(--ae-fg, #e8e8e8);
-  --accent: #4a9eff;     /* OK status, primary action */
-  --warn: #f4b942;       /* MCP partial, validation warning */
-  --error: #e85a5a;      /* AST 차단, AE crash */
-  --muted: #6b6b6b;      /* timestamps, dim text */
-  --border: rgba(255,255,255,0.08);
+  --accent: #4a9eff; /* OK status, primary action */
+  --warn: #f4b942; /* MCP partial, validation warning */
+  --error: #e85a5a; /* AST 차단, AE crash */
+  --muted: #6b6b6b; /* timestamps, dim text */
+  --border: rgba(255, 255, 255, 0.08);
 
   /* Spacing scale (5단계) */
-  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
 
   /* Radius */
-  --r-card: 4px; --r-modal: 8px; --r-chrome: 0;
+  --r-card: 4px;
+  --r-modal: 8px;
+  --r-chrome: 0;
 
   /* Typography */
   --f-mono: "JetBrains Mono", Consolas, Menlo, monospace;
   --f-ui: "Source Sans 3", -apple-system, sans-serif;
-  --t-body: 13px; --t-mono: 14px; --t-small: 11px;
+  --t-body: 13px;
+  --t-mono: 14px;
+  --t-small: 11px;
 
   /* Motion */
-  --m-fast: 150ms; --m-normal: 200ms; --m-ease: cubic-bezier(0.2, 0, 0, 1);
+  --m-fast: 150ms;
+  --m-normal: 200ms;
+  --m-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --m-fast: 0ms; --m-normal: 0ms; }
+  :root {
+    --m-fast: 0ms;
+    --m-normal: 0ms;
+  }
 }
 ```
 
@@ -724,38 +847,38 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
 
 ### Responsive & A11y 명세 (Pass 6)
 
-| Aspect | 명세 |
-|---|---|
-| 최소 크기 | 320×400px (xterm ~40 col) |
-| 권장 크기 | 480×600px |
-| Recent AI ops 카드 | 패널 폭 < 400px 시 hide |
-| Keyboard nav | Tab: 헤더 액션 → terminal → ops 카드 → loop. Esc: modal close. Cmd/Ctrl+L: clear |
-| Focus ring | --accent 2px outline, AE 다크/라이트 양쪽 visible |
-| Screen reader | aria-label 모든 status dot, role=dialog/aria-modal modal, role=listitem 카드 |
-| Color contrast | AA (4.5:1) 강제 — body text |
-| Touch target | 헤더 버튼 32×32px 최소, 카드 60×60px 최소 |
-| Reduced motion | `prefers-reduced-motion: reduce` 시 카드 slide-in 즉시 표시 |
+| Aspect             | 명세                                                                             |
+| ------------------ | -------------------------------------------------------------------------------- |
+| 최소 크기          | 320×400px (xterm ~40 col)                                                        |
+| 권장 크기          | 480×600px                                                                        |
+| Recent AI ops 카드 | 패널 폭 < 400px 시 hide                                                          |
+| Keyboard nav       | Tab: 헤더 액션 → terminal → ops 카드 → loop. Esc: modal close. Cmd/Ctrl+L: clear |
+| Focus ring         | --accent 2px outline, AE 다크/라이트 양쪽 visible                                |
+| Screen reader      | aria-label 모든 status dot, role=dialog/aria-modal modal, role=listitem 카드     |
+| Color contrast     | AA (4.5:1) 강제 — body text                                                      |
+| Touch target       | 헤더 버튼 32×32px 최소, 카드 60×60px 최소                                        |
+| Reduced motion     | `prefers-reduced-motion: reduce` 시 카드 slide-in 즉시 표시                      |
 
 ### Approved Mockups
 
-| Surface | Format | Path | Direction |
-|---|---|---|---|
+| Surface            | Format          | Path                         | Direction                                                                    |
+| ------------------ | --------------- | ---------------------------- | ---------------------------------------------------------------------------- |
 | D3 승인 다이얼로그 | ASCII wireframe | plan.md `Design Review` 섹션 | In-panel modal, code preview + AST result + Approve/Reject (focus on Reject) |
-| Recent AI ops 카드 | ASCII wireframe | plan.md `Design Review` 섹션 | 가로 스크롤, monochrome icons, hover-expand, click=AE select |
+| Recent AI ops 카드 | ASCII wireframe | plan.md `Design Review` 섹션 | 가로 스크롤, monochrome icons, hover-expand, click=AE select                 |
 
 (DALL-E mockup 미사용 — OpenAI API 키 미설정 + CEP 패널은 ASCII wireframe이 더 정확. 필요 시 `~/.claude/skills/gstack/design/dist/design setup` 실행.)
 
 ### Design Pass Scores
 
-| Pass | Initial | Final | 핵심 fix |
-|---|---|---|---|
-| 1. Information Architecture | 4/10 | 8/10 | 3-tier visual hierarchy 명시 (header/terminal/cards) |
-| 2. Interaction State Coverage | 2/10 | 9/10 | 7×5 state matrix 채움, empty state warmth 명시 |
-| 3. User Journey & Emotion | 6/10 | 8/10 | 8-step storyboard + 변환점 (step 4, step 7) 명시 |
-| 4. AI Slop Risk | 6/10 | 9/10 | 폰트/아이콘/컬러 lock-in, blacklist 통과 |
-| 5. Design System Alignment | 1/10 | 6/10 | mini design tokens (CLAUDE.md 갱신), full DESIGN.md 보류 |
-| 6. Responsive & A11y | 2/10 | 8/10 | 키보드 nav + focus ring + a11y + reduced motion 명세 |
-| 7. Unresolved Decisions | 6 issues | 5 fixed + D11 | onboarding(D11=B) + xterm 컬러/Stop=text/expand=hover/skip option 단일 권고 |
+| Pass                          | Initial  | Final         | 핵심 fix                                                                    |
+| ----------------------------- | -------- | ------------- | --------------------------------------------------------------------------- |
+| 1. Information Architecture   | 4/10     | 8/10          | 3-tier visual hierarchy 명시 (header/terminal/cards)                        |
+| 2. Interaction State Coverage | 2/10     | 9/10          | 7×5 state matrix 채움, empty state warmth 명시                              |
+| 3. User Journey & Emotion     | 6/10     | 8/10          | 8-step storyboard + 변환점 (step 4, step 7) 명시                            |
+| 4. AI Slop Risk               | 6/10     | 9/10          | 폰트/아이콘/컬러 lock-in, blacklist 통과                                    |
+| 5. Design System Alignment    | 1/10     | 6/10          | mini design tokens (CLAUDE.md 갱신), full DESIGN.md 보류                    |
+| 6. Responsive & A11y          | 2/10     | 8/10          | 키보드 nav + focus ring + a11y + reduced motion 명세                        |
+| 7. Unresolved Decisions       | 6 issues | 5 fixed + D11 | onboarding(D11=B) + xterm 컬러/Stop=text/expand=hover/skip option 단일 권고 |
 
 **Overall: 3/10 → 8/10**.
 
@@ -790,18 +913,18 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
 
 ### Failure Modes Registry (요약)
 
-| Codepath | Failure | Rescued? | Test? | User sees | Action |
-|---|---|---|---|---|---|
-| 사이드카 spawn | 좀비 프로세스 | ⚠ | ❌ | 재시작 안내 | heartbeat + 자동 재기동 |
-| WebSocket 포트 handoff | 통보 실패 | ❌ → P1#3 | ❌ | "Connecting…" 영구 | stdout JSON line |
-| Claude CLI auth 만료 | PTY exit 1 | ⚠ | ❌ | exit code | "Restart Claude" 자동 제안 |
-| AE process killed | evalScript hang | ❌ → P1#8 | ❌ | hang | 30s timeout + dump |
-| WS drop + in-flight | 응답 영구 손실 | ❌ → P1#9 | ❌ | 응답 없음 | request_id correlation |
-| `ae_run_extendscript` injection | 임의 코드 실행 | ✅ D3=B | ⚠ | 승인 다이얼로그 | AST allow-list |
-| Multi-step undo | 30번 Cmd+Z | ✅ D4=A | ⚠ | 단일 Cmd+Z | undoGroup wrapper |
-| `list_*` token overflow | Claude context full | ❌ → P2#11 | ❌ | 메시지 잘림 | pagination + summary |
-| Auto-save 실패 | 데이터 손실 위험 | ❌ → P1#7 | ❌ | "진행할까요?" | 중단 + 다이얼로그 |
-| ZXP unsigned | ZXPInstaller 강제 | ✅ D5=A | n/a | 설치 안내 | self-signed cert |
+| Codepath                        | Failure             | Rescued?   | Test? | User sees          | Action                     |
+| ------------------------------- | ------------------- | ---------- | ----- | ------------------ | -------------------------- |
+| 사이드카 spawn                  | 좀비 프로세스       | ⚠         | ❌    | 재시작 안내        | heartbeat + 자동 재기동    |
+| WebSocket 포트 handoff          | 통보 실패           | ❌ → P1#3  | ❌    | "Connecting…" 영구 | stdout JSON line           |
+| Claude CLI auth 만료            | PTY exit 1          | ⚠         | ❌    | exit code          | "Restart Claude" 자동 제안 |
+| AE process killed               | evalScript hang     | ❌ → P1#8  | ❌    | hang               | 30s timeout + dump         |
+| WS drop + in-flight             | 응답 영구 손실      | ❌ → P1#9  | ❌    | 응답 없음          | request_id correlation     |
+| `ae_run_extendscript` injection | 임의 코드 실행      | ✅ D3=B    | ⚠    | 승인 다이얼로그    | AST allow-list             |
+| Multi-step undo                 | 30번 Cmd+Z          | ✅ D4=A    | ⚠    | 단일 Cmd+Z         | undoGroup wrapper          |
+| `list_*` token overflow         | Claude context full | ❌ → P2#11 | ❌    | 메시지 잘림        | pagination + summary       |
+| Auto-save 실패                  | 데이터 손실 위험    | ❌ → P1#7  | ❌    | "진행할까요?"      | 중단 + 다이얼로그          |
+| ZXP unsigned                    | ZXPInstaller 강제   | ✅ D5=A    | n/a   | 설치 안내          | self-signed cert           |
 
 **Critical gaps remaining**: 0 (모두 P1 항목으로 등록됨). Eng review에서 구체적 구현 검증 권장.
 
@@ -822,4 +945,3 @@ Codex CLI 미설치 → Outside Voice 스킵. 사용자가 별도로 `/codex con
 
 - **`/plan-eng-review`** (required gate) — 위 P1 9개 항목의 구체적 구현 설계 검증 (특히 D3 AST validator, D4 wrapper HOF, WebSocket reconnect protocol).
 - **`/plan-design-review`** (recommended) — 패널 UI 인터랙션 상태 5종(loading/empty/error/success/partial) 디자인.
-
