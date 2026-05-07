@@ -1,13 +1,20 @@
 // Phase 3.3 -- unit tests for the first jsx bridge tool.
+// Phase 5.1.1 (D-M, option A) -- moved from src/jsx/aeft/tools/ae_get_active_comp/handler.test.ts.
+// File renamed handler.test.ts -> impl.test.ts (vitest *.test.ts glob match,
+// CLAUDE.md D8 table synced).
 //
-// Runs under root vitest config (node env). Tests exercise the wrapper
-// envelope shape via the public `(rawInput, ctxOverride) => string` surface,
-// not internals -- same way the panel's useExtendScriptBridge will call it
-// in Phase 3.5.
+// Runs under sidecar's vitest config (node env, sidecar/vitest.config.ts).
+// Tests exercise the wrapper envelope shape via the public
+// `(rawInput, ctxOverride) => string` surface, not internals -- same way
+// the panel's useExtendScriptBridge calls it (Phase 3.5).
 
 import { describe, it, expect } from "vitest";
-import { ae_get_active_comp } from "./handler";
-import { makeMockApp, makeMockComp, makeMockNonCompItem } from "../_mockApp";
+import { ae_get_active_comp } from "./impl";
+import {
+  makeMockApp,
+  makeMockComp,
+  makeMockNonCompItem,
+} from "../../../../src/jsx/aeft/tools/_mockApp";
 
 describe("ae_get_active_comp", () => {
   it("happy path -- returns active comp metadata in {ok:true,output} envelope", () => {

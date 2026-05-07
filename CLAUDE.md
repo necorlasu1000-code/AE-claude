@@ -88,7 +88,7 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 | D5 | Packaging | self-signed ZXP + Node 바이너리 동봉 | 첫 실행에 인터넷 의존 X, ZXPInstaller 우회 안내 |
 | D6 | WS 프로토콜 | typed envelope (discriminated union) + request_id + cancel/progress/chunking/heartbeat | `sidecar/src/protocol.ts`가 single source of truth, panel/sidecar 양쪽 import |
 | D7 | AST validator | acorn + adversarial test suite (per-tool 골든셋 누적, indirection/computed/eval/include 차단) | 새 ExtendScript 코드 추가 시 골든셋 통과 필수 |
-| D8 | Tool 코드 조직 | per-tool collocation: `tools/<ae_name>/{schema, handler, impl.jsx, test}` | tool 추가 = 1 디렉토리 추가. 도메인별 분할 금지 |
+| D8 | Tool 코드 조직 | per-tool collocation: `tools/<ae_name>/{schema, handler, impl, impl.test}` | tool 추가 = 1 디렉토리 추가. 도메인별 분할 금지 |
 | D9 | Distribution | portable Node 20 + node_modules + GitHub Actions Win/Mac matrix | `pkg`/`bun --compile`/SEA 사용 금지 — deprecation 위험 |
 | D-H | claude CLI 인증 | claude CLI에 위임 (auto-detect: `ANTHROPIC_API_KEY` env inherit / OAuth fallback) | 사이드카에 인증 코드 0. spawn 시 env 그대로 inherit. dev = API key, 사용자 = OAuth — 분기 X |
 | D-I | MCP server process 모델 | claude CLI가 spawn하는 별도 stdio entry script (`sidecar/src/mcp/server.ts`) | 사이드카 main은 PTY+WS만. MCP server는 standalone child. entry script가 panel WS에 reverse-connect → dispatcher.exec 라우팅 → result envelope → MCP response. main 사이드카 stdio는 launcher contract용 그대로 |
@@ -100,7 +100,7 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 이 게이트들은 PR/커밋 전에 통과해야 한다. 우회 금지.
 
 1. **Security gate** — `tools/_validateAst.test.ts`의 adversarial 골든셋 통과 (D7).
-   새 `tools/<ae_name>/impl.jsx` 추가 시 validator를 통과하는 패턴인지 사전 확인 + 해당 패턴을 case 1+ 로 골든셋에 추가.
+   새 `tools/<ae_name>/impl.ts` 추가 시 validator를 통과하는 패턴인지 사전 확인 + 해당 패턴을 case 1+ 로 골든셋에 추가.
    `system.callSystem`/`File`/`Folder`/`Socket`/`eval`/`Function`/`#include`/computed member access는 사용 금지.
    골든셋 case는 실제 handler wrap 구조 (`function tool(_input, ctx, h) {...}`) 미러링 필수 — top-level `return`은 acorn ECMA-262 parse error로 reject됨.
 
@@ -171,15 +171,15 @@ ae-claude-panel/
 │   │   ├── ae_create_comp/
 │   │   │   ├── schema.ts                # zod input/output
 │   │   │   ├── handler.ts               # sidecar handler
-│   │   │   ├── impl.jsx                 # ExtendScript impl
-│   │   │   ├── test.ts                  # mock-AE 단위 테스트
+│   │   │   ├── impl.ts                  # ExtendScript impl (panel jsx layer, ES3 + types-for-adobe)
+│   │   │   ├── impl.test.ts             # mock-AE 단위 테스트 (vitest *.test.ts glob)
 │   │   │   └── README.md                # tool 1줄 설명 + example
 │   │   └── ae_*/...                     # 30개, 동일 shape
 │   ├── pty/, mcp/, ws/, utils/
 │   └── index.ts
 ├── src/js/main/                         # CEP panel (React)
 │   └── (protocol.ts를 sidecar에서 import)
-├── src/jsx/                             # 빌드 시점에 tools/*/impl.jsx 합본
+├── src/jsx/                             # 빌드 시점에 sidecar/src/tools/*/impl.ts 합본 (@aeTools alias, vite.es.config.ts)
 │   └── _polyfills/json2.js              # ES3 JSON polyfill (C3)
 ├── tests/_helpers/mockAe.ts             # WebSocket fixture responder (T1)
 ├── evals/golden/                        # LLM eval suite (P3#19)

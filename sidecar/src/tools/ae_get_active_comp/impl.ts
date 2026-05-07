@@ -1,4 +1,6 @@
 // Phase 3.3 -- first ExtendScript bridge tool (read-only spike).
+// Phase 5.1.1 (D-M, option A) -- moved from src/jsx/aeft/tools/ae_get_active_comp/handler.ts.
+// Reachable via @aeTools/ae_get_active_comp/impl alias (vite.es.config.ts rollup).
 //
 // Returns metadata about the currently active composition. Used by Phase 4
 // MCP server as the first endpoint to verify the panel<->jsx round-trip
@@ -9,8 +11,13 @@
 // calls. Type discrimination via `typeName` (string compare) instead of
 // `instanceof CompItem` -- instanceof works in real AE but ReferenceErrors
 // in vitest (no AE class globals).
+//
+// Layer note (5.1.1 transitional): panel jsx _define.ts still lives at
+// src/jsx/aeft/tools/_define.ts (Phase 3.3 location). 4-step up relative
+// import below is intentional minimal-move; Phase 5.1.2 architecture
+// refactor will collocate panel jsx HOF + decide alias for it.
 
-import { defineJsxTool, JsxCompItem } from "../_define";
+import { defineJsxTool, JsxCompItem } from "../../../../src/jsx/aeft/tools/_define";
 
 export type AeGetActiveCompInput = Record<string, never>;
 
