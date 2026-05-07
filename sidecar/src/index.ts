@@ -20,8 +20,9 @@
 
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { PanelBridge, type ExecCtx, type ExecHandler, type PtyLike } from "./ws/panelBridge.js";
+import { PanelBridge, type PtyLike } from "./ws/panelBridge.js";
 import { createToolDispatcher, type ToolDispatcher } from "./dispatcher/toolDispatcher.js";
+import { makeDispatcherExecHandler } from "./dispatcher/execHandler.js";
 import { PtyHost } from "./pty/ptyHost.js";
 import { PROTOCOL_VERSION } from "./protocol.js";
 import {
@@ -34,7 +35,6 @@ import {
 import { PidWatchdog } from "./lifecycle/watchdog.js";
 import { registerMcpWithClaude } from "./mcp/registerWithClaude.js";
 import { resolveShellPath } from "./shellResolve.js";
-import { AEError } from "./tools/_errors.js";
 
 const SIDECAR_VERSION = "0.1.0";
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -112,16 +112,6 @@ function parseConfig(): Config {
 function logDebug(cfg: Config, ...args: unknown[]): void {
   if (cfg.debug) console.error("[sidecar]", ...args);
 }
-
-// Phase 4 stub: real exec dispatch wires to MCP tool registry.
-const stubExecHandler: ExecHandler = async (tool: string, _input: unknown, _ctx: ExecCtx) => {
-  throw new AEError(
-    "AENotImplementedError",
-    `Tool '${tool}' is not wired yet (Phase 4 MCP integration pending).`,
-    "Phase 2 sidecar exposes PTY + WS only. exec messages will return errors until Phase 4.",
-    { phase: 2, tool },
-  );
-};
 
 // Phase 4.3 — when the configured shell binary isn't on PATH, the sidecar
 // still boots so the panel can connect and learn why instead of seeing an
@@ -239,7 +229,12 @@ async function main(): Promise<void> {
   // (resolved at call time), then assign bridge with onToolResponse wired to
   // dispatcher.handleIncoming. Mirrors the in-process integration test pattern
   // (sidecar/src/__integration__/integration-dispatcher.test.ts wireDispatcherAndBridge).
-  // dispatcher is module-internal — exported when Phase 4 MCP layer needs it.
+  //
+  // Phase 4.4 fix-4 (mistakes #15) — execHandler is the production assembly
+  // point that wires MCP role's exec → dispatcher.exec → panel WS exec →
+  // ExtendScript → result. Earlier sub-phases left a throwing stub here, so
+  // /mcp showed "× failed" in panel-side claude even though every unit /
+  // integration test was green (mocks bypassed this exact wiring).
   let bridge: PanelBridge;
   const dispatcher: ToolDispatcher = createToolDispatcher({
     send: (msg) => bridge.sendToPrimary(msg),
@@ -247,7 +242,7 @@ async function main(): Promise<void> {
 
   bridge = new PanelBridge({
     pty,
-    execHandler: stubExecHandler,
+    execHandler: makeDispatcherExecHandler(dispatcher),
     port: cfg.port,
     host: cfg.host,
     sidecarVersion: SIDECAR_VERSION,
@@ -255,9 +250,6 @@ async function main(): Promise<void> {
     onToolResponse: dispatcher.handleIncoming,
     initialServerError,
   });
-  // Reference dispatcher to keep tsc happy during Phase 3.7 — Phase 4 MCP
-  // layer reads/exports it. No runtime cost.
-  void dispatcher;
 
   const { port: actualPort } = await bridge.start();
   logDebug(cfg, "bridge listening on", `${cfg.host}:${actualPort}`);

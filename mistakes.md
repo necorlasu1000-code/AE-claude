@@ -962,3 +962,74 @@ acorn-walk의 `simple` walker는 `MemberExpression`을 만났을 때:
 - ES3 한계 (no `Proxy`, no `Reflect`)라 우회 패턴이 ES6+보다 적음. 단 `with`, `arguments.callee` 같은 옛 기능은 ES3에서도 작동하니 잊지 말 것.
 
 **확장이 어렵다 싶으면**: 정적 분석에 한계 있다고 판단되는 패턴은 fix 시도 전에 사용자에게 알려라. "이 패턴은 정적 차단 어렵고 런타임 sandbox가 더 적절합니다" 같은 솔직한 보고. 추측으로 fragile fix 금지.
+
+## 함정 #15 — production assembly point가 단위/통합 mock 외부에 있어 모든 test green이지만 production fail (Phase 4.4 fix-4)
+
+**컨텍스트**: Phase 4.1 (D-J role-aware routing) 작업 후 Phase 4.4 dogfood 시 panel `/mcp`가 `ae-mcp · × failed` 표시. 사이드카 unit (~127) + integration (~14) + panel (~44) 모두 그린 상태에서 발현. 함정 #11/#13/#14의 "production wiring first encounter" family와는 **다른 메타 패턴** — dev/prod 분기 누락이 아니라, **production wiring 그 자체가 mock 안에서 검증되지 않음**.
+
+**Aspect**: production assembly point (즉 main()의 객체 wiring 코드)가 단위 테스트 어디에도 import 안 되고, 통합 테스트도 mock execHandler를 직접 주입 → wiring 그 자체가 dormant 상태로 모든 test 통과.
+
+**Symptom**:
+- `/mcp` UI가 `× failed`로 표시 (사용자 dogfood 단계 (f) "현재 컴프 알려줘" 시도 시점에야 발현).
+- panel 안의 claude (= 사용자 dogfood 환경 자체)가 `git/grep`으로 사이드카 코드 직접 분석 → `sidecar/src/index.ts:117-124`의 `stubExecHandler`가 throw하는 것 발견. **사용자 dogfood 환경 = 진단 도구**라는 메타 학습.
+- ae-mcp connect 자체는 OK (claude CLI가 stdio child spawn + handshake까지는 성공) — 단 첫 actual tool call에서 `AENotImplementedError` throw → panel claude는 이를 "× failed" connection metadata로 표시.
+
+**Root cause**:
+```ts
+// sidecar/src/index.ts:117 (Phase 4.1 commit 시점부터)
+const stubExecHandler: ExecHandler = async (tool, _input, _ctx) => {
+  throw new AEError("AENotImplementedError", `Tool '${tool}' is not wired yet`, ...);
+};
+// ...
+bridge = new PanelBridge({
+  ...,
+  execHandler: stubExecHandler,   // ← Phase 4 wiring 누락
+  onToolResponse: dispatcher.handleIncoming,
+});
+```
+
+`plan.md` line 596 D-I + line 537 (Phase 3.6 toolDispatcher 설명) 모두 "MCP tool call → **dispatcher.exec** → panel WS exec → ExtendScript → result"를 명시했지만, Phase 4.1 sub-step의 D-J role-aware routing 작업 시 이 wiring 코드는 추가되지 않음.
+
+**왜 모든 test가 green이었나** (메타 핵심):
+- `integration-mcp.test.ts:43,60,105` — mock `execHandler: vi.fn(async () => ({ ok: true }))`를 PanelBridge에 직접 주입.
+- `integration-dispatcher.test.ts:87,173` — mock execHandler 또는 dispatcher.exec 직접 호출, production assembly와 다른 wiring.
+- `panelBridge.test.ts:90~,460,485,508` — 모두 mock execHandler.
+- 단위 테스트 어디서도 `index.ts`의 `bridge = new PanelBridge({execHandler: stubExecHandler, ...})` 라인을 import하지 않음 (main()이 module-level immediate invocation이라 test에서 import하면 sidecar boot 시작됨 → 자연스레 격리됨).
+→ **production assembly point가 모든 test scope 외부**. unit + integration 그린 = wiring correctness 보장 X.
+
+**Fix (Phase 4.4 fix-4)**:
+
+1. `sidecar/src/dispatcher/execHandler.ts` (신규) — adapter 분리:
+   ```ts
+   export function makeDispatcherExecHandler(dispatcher: ToolDispatcher): ExecHandler {
+     return async (tool, input, _ctx) => {
+       const result = await dispatcher.exec({ tool, input });
+       if (result.ok) return result.data;
+       throw new AEError(result.code, result.userMessage, result.developerHint, ...);
+     };
+   }
+   ```
+   `DispatcherResult ok=true → data return / ok=false → AEError throw` 변환. `panelBridge.toErrorMsg`가 `e instanceof AEError` 체크로 code/userMessage/developerHint triple 보존.
+
+2. `sidecar/src/index.ts`:
+   - `stubExecHandler` 삭제 (orphan import `AEError`도 같이).
+   - `execHandler: stubExecHandler` → `execHandler: makeDispatcherExecHandler(dispatcher)`.
+   - `void dispatcher` (Phase 3.7 tsc-happy 잔재) 삭제.
+
+3. `sidecar/src/dispatcher/execHandler.test.ts` (신규) — helper 단위 테스트: ok / error / 임의 code 통과.
+
+4. `sidecar/src/__integration__/integration-production-wiring.test.ts` (신규) — production assembly 그 자체 검증. real PanelBridge + real dispatcher + real makeDispatcherExecHandler + lazy back-reference + mock panel ws (?role=panel) + mock mcp ws (?role=mcp). mcp 측 exec → panel 측 exec 도착 → result 회신 → mcp 측 result 도달 round-trip + error path. **이 테스트가 #15 회귀 방지의 single source of truth**.
+
+**예방 (미래 패턴)**:
+1. **production assembly point는 항상 helper로 추출 + 단위 테스트**. main()에 inline wiring 코드를 박지 말 것 — 적어도 한 줄짜리 wiring도 별도 함수로 빼서 import 가능하게.
+2. **assembly-point integration test 패턴**: Phase 5+ 새 wiring 추가 시 `sidecar/src/__integration__/integration-production-*.test.ts` 형태로 production-equivalent path 직접 검증. mock injection 회피, real wiring 그래프 그대로.
+3. **panel 안의 claude를 진단 도구로 활용**: 사용자 dogfood 환경의 panel xterm 안 claude는 사이드카 코드를 git/grep으로 직접 분석할 수 있어, mock 없는 production root cause 짚기에 가장 효과적. CLAUDE.md§Phase exit gate 검증 시나리오에 "panel 안 claude가 코드 분석으로 wiring 누락 catch 가능한가" 질문 추가 가치 있음.
+4. **boot 시점 sanity 가능성**: 사이드카 main()의 ready JSON에 `execHandler: "wired" | "stub"` flag 또는 사이드카 자체 self-test (boot 직후 더미 exec 한 번 통과 확인) — 옵션. Phase 5+ 30 tool 진행 시 wiring 누락 패턴이 다시 나타나면 검토 가치.
+
+**메타 함정 family 비교** (#11 / #13 / #14 / #15):
+- #11 / #13 / #14: **production ground truth (ES3 SpiderMonkey / node-pty PATH / dev vs prod build artifact / entry guard suffix)와 단위 mock의 차이**. 즉 *외부 의존성의 시뮬레이션 정확도* 함정. dogfood가 catch.
+- #15: **wiring code 자체가 mock 외부에 위치**. 즉 *production assembly point의 dependency injection gap* 함정. dogfood가 catch — 단 발현 메커니즘은 다름 (외부 의존성 시뮬 vs 내부 wiring 누락).
+
+두 family는 같은 dogfood 검증 패턴에 의존하지만 fix 방향이 다름:
+- #11/#13/#14 가족 fix → 외부 의존성에 더 가까운 검증 layer 추가 (which 사전 lookup, file probe, dev/prod 분기 helper, suffix list 확장).
+- #15 fix → production assembly point를 helper로 추출 + 그 helper의 단위 테스트 + assembly graph 그 자체의 integration test.
