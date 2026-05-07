@@ -554,6 +554,61 @@ Phase 4 = "MCP 서버 + claude PTY 통합". 사이드카가 MCP 서버를 stdio�
 - Phase 6 UX (status bar 5상태 + Recent AI ops 카드) — design tokens (CLAUDE.md Design Tokens) 적용. 한국어/다국어 i18n은 panel layer 책임 (jsx layer는 ASCII only — Gate §12).
 - Phase 7 ZXP packaging — D9 GitHub Actions matrix + portable Node 20.
 
+### Phase 4 회고 (2026-05-07, MCP 서버 + claude PTY 통합 완료)
+
+Phase 4 sub-step (4.0 → 4.4) + 4개 layered fix + 메타 함정 #15 신설로 9개 commit. 사용자 dogfood 4 시나리오 (e/f/g/h) 모두 ✅ — Phase 4 본질 검증 (자연어 → ae_get_active_comp full round-trip) 통과.
+
+**Sub-step 진행**:
+
+| # | Commit | 산출물 |
+|---|---|---|
+| 4.0 | `541c759` | 결정 게이트 D-H~D-K + backward compat 강제 |
+| 4.1 | `7abcfd1` | MCP server skeleton + dispatcher tool exposure |
+| 4.2 | `4400f8c` | claude mcp add auto-registration on sidecar boot |
+| 4.3 | `e4238b9` | PTY shell cmd.exe → claude (production) + spawn-helper integration override |
+| 4.3 hotfix | `f7e1575` | PtyLike onExit (Trap A) + sidecar build gate (Trap B, 함정 #13) |
+| 4.4 fix | `3bdd6ae` | node-pty PATH lookup via which (mistakes #14 Aspect A) |
+| 4.4 fix-2 | `9889af0` | MCP entry path dev/prod resolution (Aspect B) |
+| 4.4 fix-3 | `d9028cc` | MCP entry guard dev/prod suffix (Aspect C) |
+| 4.4 fix-4 | `da691a1` | wire ExecHandler → dispatcher.exec (mistakes #15 신설) |
+
+**Dogfood 결과 (4 시나리오 모두 ✅)**:
+- (e) "안녕" chat sanity ✅
+- (f) "현재 컴프 알려줘" → ae_get_active_comp MCP full round-trip ✅ (Phase 4 본질 검증)
+- (g) 1시간+ idle 후 chat + tool 정상 동작 ✅ (#12 heartbeat 회귀 0)
+- (h) panel close 후 잔존 0 ✅ (#4 ConPTY tree kill 회귀 0)
+- 보조: claude 자체 내장 PowerShell tool 정상 동작 — Phase 4 wiring이 ae-mcp만 영향 (다른 MCP/tool에 부작용 0).
+
+**메타 학습 — layered dogfood loop**: Phase 4.4 한 sub-step에서 4개의 다른 production wiring 함정이 layered로 발현. 각 fix 후 다음 dogfood loop에서 다음 layer가 reachable.
+
+| Fix | 함정 family | 발견 메커니즘 |
+|---|---|---|
+| 4.4 fix (#14 Aspect A) | dev/prod 분기 — node-pty PATH lookup 부재 vs child_process.spawn | 사이드카가 boot 자체 fail. file probe (절대 ASCII path)로 root cause 단정 |
+| 4.4 fix-2 (Aspect B) | dev/prod 분기 — MCP entry path가 dev에서 src/.js (존재 X) | panel `/mcp` × failed. `claude mcp get ae-mcp` 진단으로 path 확인 |
+| 4.4 fix-3 (Aspect C) | dev/prod 분기 — MCP entry guard suffix `.js`만 검사 | `.claude.json` 직독으로 args .ts 확인 + entry guard 코드 비교 |
+| 4.4 fix-4 (#15 신설) | production assembly point가 mock 외부 — stubExecHandler 박힘 | panel xterm 안 claude가 git/grep으로 코드 직접 분석 → root cause 짚음 |
+
+**메타 학습 — production wiring first encounter 함정의 두 family**:
+- **#11 / #13 / #14 family**: 외부 의존성 시뮬레이션 정확도 (ES3 SpiderMonkey / node-pty PATH / dev vs prod build artifact / entry guard suffix). 단위 mock + integration override가 production ground truth와 어긋남. fix = 외부에 더 가까운 검증 layer 추가 (which 사전 lookup, file probe, dev/prod helper, suffix list 확장).
+- **#15 family (신설)**: production assembly point가 mock 외부 위치. wiring code가 main()에 inline + 모든 test가 mock execHandler 직접 주입 → 그 wiring 자체는 dormant 상태로 통과. fix = helper 추출 + helper 단위 테스트 + production-equivalent integration test.
+
+두 family 모두 dogfood가 catch — 단 #11/#13/#14는 외부 의존성 시뮬, #15는 내부 wiring 누락이라 fix 방향이 다름.
+
+**메타 학습 — panel 안 claude를 진단 도구로 활용**: 사용자 dogfood 환경의 panel xterm 안 claude는 사이드카 코드를 git/grep으로 직접 분석할 수 있어, **mock 없는 production root cause 짚기에 가장 효과적**. fix-4 root cause는 panel claude가 직접 짚어옴 (`stubExecHandler` 그대로 throw). 이 패턴은 Phase 5+ 30 tool 추가 시도 dogfood 검증의 핵심 도구로 유지.
+
+**메타 학습 — production assembly point는 helper로 추출**: Phase 5+ 새 wiring 추가 시 main()에 inline wiring 박지 말 것. 한 줄짜리 wiring도 별도 함수 + 단위 테스트 + production-equivalent integration test (production graph 1:1 wired). assembly graph 그 자체의 회귀 방지 가드.
+
+**Phase 4 자산 (Phase 5 활용)**:
+- `sidecar/src/mcp/server.ts` — MCP stdio entry. 30 tool 추가 시 `server.registerTool(...)` 한 줄 + dispatcher 통과로 자동 wiring. dispatcher의 generic forward 덕에 schema/handler 사이드카 분리 안 해도 동작.
+- `sidecar/src/dispatcher/execHandler.ts` (Phase 4.4 fix-4) — production assembly point helper. Phase 5+에서 여러 dispatcher 추가 시 같은 helper 패턴 복제 (단 현재 1개만 필요).
+- `sidecar/src/__integration__/integration-production-wiring.test.ts` — production assembly graph 회귀 방지 가드. 신규 wiring 추가 시 같은 패턴 신규 시나리오 추가.
+- `registerMcpWithClaude` (Phase 4.2) + `resolveMcpSpawn` (4.4 fix-2) + `resolveShellPath` (4.4 fix) — Phase 7 ZXP 패키징 시 자동 prod mode 전환 (코드 변경 0).
+
+**Phase 5 진입 시 챙길 것**:
+- D8 collocation 정식 확립 — `sidecar/src/tools/<ae_name>/{schema,handler,impl.jsx,test}` 4파일 패턴. ae_get_active_comp은 Phase 3.3 spike 결과 panel jsx side에만 있으므로 Phase 5 첫 tool 작업 시 D8 정식 분리 (또는 그대로 두고 신규 tool부터 D8 적용 — 결정 필요).
+- Phase 4의 9 commit + 4 layered fix 패턴이 Phase 5에서 재발할 가능성. 30 tool 추가 시 매 5개마다 dogfood loop + idle scenario Gate §13 확인.
+- D3 `ae_run_extendscript` per-call approval modal — Phase 5 첫 destructive tool 도입 시 함께.
+
 ---
 
 ## GSTACK REVIEW REPORT

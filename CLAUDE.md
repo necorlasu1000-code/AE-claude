@@ -199,9 +199,9 @@ ae-claude-panel/
 | 0 | bolt-cep 부팅, regedit `PlayerDebugMode=1`, AE script 권한 | 빈 패널이 AE에 뜨는지 | ✅ 완료 |
 | 1 | `protocol.ts` (D6), `_define.ts` (C1), `_validateAst.ts` + 골든셋 (D7) | 단위 테스트 100%, adversarial 골든셋 모두 통과 | ✅ 완료 |
 | 2 | 패널 ↔ 사이드카 WS 연결, xterm 마운트, cmd.exe 인터랙션, graceful shutdown | 패널에서 `dir` 명령 결과 보임, resize 동작, 좀비 0 | ✅ 완료 (2026-05-05, 96 tests, 9 mistakes 등재) |
-| 3 | ExtendScript 브릿지 (`{type:'exec', tool, input}` ↔ jsx 함수 lookup) | 왕복 latency ≤100ms, 에러 path 검증 | ⏳ 다음 |
-| 4 | MCP 서버 + claude PTY, `ae_get_active_comp` 첫 tool | 패널에서 "현재 프로젝트 정보" → tool 호출 → 응답 | |
-| 5 | MVP 5 tool (collocation 패턴 확립), 그 후 25 tool 병렬 | mock-AE 풀 스택 테스트 + manual 5 시나리오 | |
+| 3 | ExtendScript 브릿지 (`{type:'exec', tool, input}` ↔ jsx 함수 lookup) | 왕복 latency ≤100ms, 에러 path 검증 | ✅ 완료 (2026-05-06, 139 tests, 12 mistakes) |
+| 4 | MCP 서버 + claude PTY, `ae_get_active_comp` 첫 tool | 패널에서 "현재 프로젝트 정보" → tool 호출 → 응답 | ✅ 완료 (2026-05-07, sidecar 132 + panel 44, 15 mistakes, dogfood e/f/g/h ✅) |
+| 5 | MVP 5 tool (collocation 패턴 확립), 그 후 25 tool 병렬 | mock-AE 풀 스택 테스트 + manual 5 시나리오 | ⏳ 다음 |
 | 6 | UX (status bar 5 상태, "Recent AI ops" 카드, Stop 버튼, onboarding) | 매뉴얼 QA 체크리스트 | |
 | 7 | ZXP 빌드 + GitHub Actions matrix (D9) + 릴리즈 | Win-x64/Mac-x64/Mac-arm64 ZXP 자동 생성 | |
 

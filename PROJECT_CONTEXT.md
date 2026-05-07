@@ -17,11 +17,11 @@ AE ↔ CEP Panel (React + xterm.js)
      claude CLI (Opus 4.7)
 ```
 
-**현재 위치 (2026-05-06)**: **Phase 3 ✅ 완료**. 사용자 AE 검증 시나리오 a/b/c/d 모두 통과 (round-trip 6ms, 5분+ idle 안정, 메모리 누수 0, AENoActiveCompError 정확). debug probe revert 완료 (3.9 part 1). **Phase 4 (MCP 서버 + claude CLI PTY) 진입 대기.**
+**현재 위치 (2026-05-07)**: **Phase 4 ✅ 완료**. 사용자 AE dogfood 4 시나리오 (e/f/g/h) 모두 통과 — 자연어 → ae_get_active_comp MCP full round-trip ✅, 1시간+ idle 안정, panel close 잔존 0. **Phase 5 (30 MCP tool + D8 collocation) 진입 대기.**
 
 **작업 폴더**: `C:\Users\user\Desktop\성윤\에펙 클로드` (한글 path — 함정 #7)
 
-**진실의 원천**: `plan.md` (전체 비전 + 페이즈 + GSTACK 리뷰 + §14 Phase 2 회고 + §15 Phase 3 회고), `CLAUDE.md` (코딩 게이트, 13 Validation Gates), `mistakes.md` (영구 학습, 12 함정), 본 문서 (온보딩 인덱스 + 재진입 절차).
+**진실의 원천**: `plan.md` (전체 비전 + 페이즈 + GSTACK 리뷰 + Phase 2/3/4 회고), `CLAUDE.md` (코딩 게이트, 13 Validation Gates), `mistakes.md` (영구 학습, **15 함정**), 본 문서 (온보딩 인덱스 + 재진입 절차).
 
 ---
 
@@ -123,15 +123,36 @@ AE ↔ CEP Panel (React + xterm.js)
 - 시나리오 d (latency p95 ≤100ms): 6ms = 16배 여유 ✅
 - 추가: 5분+ idle 후 사이드카 살아있음 (heartbeat fix 검증) ✅
 
-### Phase 4-7 (다음 이상)
-- **Phase 4** ⏳ — MCP 서버 + claude CLI (PTY 교체 + dispatcher MCP wiring) — **다음 진입 대상**
-- Phase 5 — 30 MCP tool (D8 collocation 패턴 확립 후 lane 분할 병렬)
+### ✅ Phase 4 — MCP 서버 + claude PTY 통합 완료 (sidecar 132 + panel 44, 2026-05-07)
+
+| # | Sub-step | Commit | 상태 |
+|---|---|---|---|
+| 4.0 | 결정 게이트 D-H~D-K + backward compat 강제 | `541c759` | ✅ |
+| 4.1 | MCP server skeleton + dispatcher tool exposure | `7abcfd1` | ✅ |
+| 4.2 | claude mcp add auto-registration on sidecar boot | `4400f8c` | ✅ |
+| 4.3 | PTY shell cmd.exe → claude (production) + spawn-helper integration override | `e4238b9` | ✅ |
+| 4.3 hotfix | PtyLike onExit (Trap A) + sidecar build gate (Trap B, 함정 #13) | `f7e1575` | ✅ |
+| 4.4 fix | node-pty PATH lookup via `which` (mistakes #14 Aspect A) | `3bdd6ae` | ✅ |
+| 4.4 fix-2 | MCP entry path dev/prod resolution (Aspect B) | `9889af0` | ✅ |
+| 4.4 fix-3 | MCP entry guard dev/prod suffix (Aspect C) | `d9028cc` | ✅ |
+| 4.4 fix-4 | wire ExecHandler → dispatcher.exec (mistakes #15 신설) | `da691a1` | ✅ |
+| **4.5** | **Phase 4 회고 + 문서 갱신** | (this commit) | ✅ |
+
+**Phase 4 dogfood 결과** (2026-05-07):
+- (e) "안녕" chat sanity ✅
+- (f) "현재 컴프 알려줘" → ae_get_active_comp MCP full round-trip ✅ (Phase 4 본질 검증)
+- (g) 1시간+ idle 후 chat + tool 정상 동작 ✅ (#12 heartbeat 회귀 0)
+- (h) panel close 후 잔존 0 ✅ (#4 ConPTY tree kill 회귀 0)
+- 보조: claude 자체 내장 PowerShell tool 정상 — Phase 4 wiring이 ae-mcp만 영향.
+
+### Phase 5-7 (다음 이상)
+- **Phase 5** ⏳ — 30 MCP tool (D8 collocation 패턴 확립 후 lane 분할 병렬) — **다음 진입 대상**
 - Phase 6 — UX (logger.ts, Recent AI ops 카드, status bar 5상태)
 - Phase 7 — ZXP 빌드 + GitHub Actions matrix (D9)
 
 ---
 
-## E. 12개 발견 함정 (mistakes.md 인덱스)
+## E. 15개 발견 함정 (mistakes.md 인덱스)
 
 | # | 함정 한 줄 | Phase | 해결 메커니즘 |
 |---|---|---|---|
@@ -146,7 +167,10 @@ AE ↔ CEP Panel (React + xterm.js)
 | 9 | Panel close → React unmount async cleanup이 `sys.shutdown` 미도달 → 좀비 | 2.8.4 | PanelBridge disconnect grace timer (5s) |
 | 10 | `npm test` 통과만으로 phase 닫음 → production tsc 타입 에러 늦게 발견 | 2 follow-up | Validation Gate §8: phase exit = `npm test` AND `npm run build` 둘 다 |
 | 11 | production wiring 시점에 mock/boilerplate/build-tool/source 가정이 ES3 ExtendScript 환경 차이에 시험됨 — 4 faces | 3.7 | 각 face마다 fix + Gate §9-§12 |
-| **12** | **`sys.heartbeat` 단방향 broadcast + 양방향 watchdog 모순 → panel idle ~35s 후 사이드카 자체 shutdown** | **3.7 follow-up 5** | **useTerminal.ts router에 echo case + Gate §13 (idle scenario gate)** |
+| 12 | `sys.heartbeat` 단방향 broadcast + 양방향 watchdog 모순 → panel idle ~35s 후 사이드카 자체 shutdown | 3.7 follow-up 5 | useTerminal.ts router에 echo case + Gate §13 (idle scenario gate) |
+| 13 | PtyLike interface가 onExit/kill 누락 + 사이드카 tsc 별도 미실행 → tsx runtime에서만 발현 | 4.3 hotfix | PtyLike에 onExit + kill 추가 + Gate §8 monorepo 양쪽 build 명시 |
+| 14 | production wiring 첫 등장 — dev/prod 분기 누락 family (3 aspects) | 4.4 fix/fix-2/fix-3 | Aspect A: which 사전 lookup / Aspect B: resolveMcpSpawn dev/prod / Aspect C: entry guard suffix list |
+| **15** | **production assembly point가 단위/통합 mock 외부 — 모든 test green이지만 production fail** | **4.4 fix-4** | **makeDispatcherExecHandler helper 추출 + production-equivalent integration test** |
 
 ### #11 4-faces (Phase 3.7 wiring 발견 누적)
 
@@ -159,32 +183,60 @@ AE ↔ CEP Panel (React + xterm.js)
 
 probe 결과 (3a54075)로 face (2)는 `BridgeTalk.appName === "aftereffects"` literal 반환 확인 — fix-2가 실제 root cause 아님. fix-2는 future-proof safety net으로 유지.
 
+### #14 3-aspects (Phase 4.4 layered fix)
+
+| Aspect | 가정 (잘못된) | Production ground truth | Fix |
+|---|---|---|---|
+| A: spawn 메커니즘 | node-pty PATH lookup OK (child_process.spawn처럼) | node-pty는 PATH lookup X — bare `claude`로 ENOENT | `resolveShellPath` (which 사전 lookup) |
+| B: MCP entry path | dist build 산출물 가정 | dev mode = src/.ts (.js 존재 X) | `resolveMcpSpawn` (import.meta.url 기반 dev/prod 분기) |
+| C: entry guard suffix | `.js` suffix만 체크 | dev tsx는 `.ts` suffix → guard skip → MCP server 등록 X | suffix list에 `.ts` 두 줄 (forward + backslash) |
+
+### #15 vs #11/#13/#14 메타 family 비교
+
+- #11/#13/#14 family: **외부 의존성 시뮬레이션 정확도** 함정 (ES3 SpiderMonkey / node-pty PATH / dev vs prod build artifact / entry guard suffix). 단위 mock + integration override가 production ground truth와 어긋남.
+- #15 family: **production assembly point가 mock 외부**. wiring code가 main()에 inline + 모든 test가 mock execHandler 직접 주입 → 그 wiring 자체는 dormant 상태로 통과.
+
+두 family 모두 dogfood가 catch — 단 fix 방향 다름. #11/#13/#14 → 외부에 더 가까운 검증 layer 추가. #15 → helper 추출 + production-equivalent integration test.
+
 ---
 
-## F. 핵심 파일 구조 (Phase 3.7 산출 반영)
+## F. 핵심 파일 구조 (Phase 4 산출 반영)
 
 ```
 C:\Users\user\Desktop\성윤\에펙 클로드\
-├── plan.md                              # 비전 + 페이즈 + §14 Phase 2 회고 + §15 Phase 3 회고
-├── CLAUDE.md                            # 13 Validation Gates + D1-D11 + Karpathy 4원칙
-├── mistakes.md                          # 12 함정 영구 학습 (#11 4-faces + #12 heartbeat)
+├── plan.md                              # 비전 + 페이즈 + Phase 2/3/4 회고 + GSTACK 리뷰
+├── CLAUDE.md                            # 13 Validation Gates + D1-D11 + D-A~D-K + Karpathy 4원칙
+├── mistakes.md                          # 15 함정 영구 학습 (#11 4-faces + #14 3-aspects + #15 신설)
 ├── PROJECT_CONTEXT.md                   # 본 파일
 ├── eye/                                 # 사용자 스크린샷 dump (gitignored 아님, untracked)
 │
 ├── sidecar/                             # Node.js 사이드카
 │   ├── .nvmrc = 20                      # 함정 #2 방어
 │   └── src/
-│       ├── index.ts                     # 부팅 + dispatcher lazy back-ref wiring (Phase 3.7)
+│       ├── index.ts                     # 부팅 + dispatcher lazy back-ref + makeDispatcherExecHandler wiring (Phase 4.4 fix-4)
 │       ├── protocol.ts                  # D6 typed envelope + Phase 3.1 jsdoc
-│       ├── pty/, ws/, lifecycle/        # Phase 2 산출
-│       ├── ws/panelBridge.ts            # 양방향 라우팅 + onToolResponse + sendToPrimary (Phase 3.6)
-│       ├── dispatcher/                  # Phase 3.6 신규
+│       ├── shellResolve.ts              # which 사전 lookup (Phase 4.4 fix, 함정 #14 Aspect A)
+│       ├── pty/, lifecycle/             # Phase 2 산출
+│       ├── ws/panelBridge.ts            # 양방향 라우팅 + onToolResponse + sendToPrimary + role-aware (Phase 3.6 + Phase 4.1 D-J)
+│       ├── dispatcher/                  # Phase 3.6 + Phase 4.4 fix-4
 │       │   ├── toolDispatcher.ts        # createToolDispatcher (request_id + timeout + cancel + latency)
-│       │   └── toolDispatcher.test.ts   # 13 cases
+│       │   ├── toolDispatcher.test.ts   # 13 cases
+│       │   ├── execHandler.ts           # makeDispatcherExecHandler adapter (Phase 4.4 fix-4, mistakes #15)
+│       │   └── execHandler.test.ts      # 3 unit cases
+│       ├── mcp/                         # Phase 4.1 + 4.2 + 4.4 fix-3
+│       │   ├── server.ts                # MCP stdio entry (D-I) + dev/prod entry guard suffix (Phase 4.4 fix-3)
+│       │   ├── server.test.ts           # 4 cases
+│       │   ├── wsClient.ts              # ?role=mcp reverse-connect + FIFO exec queue
+│       │   ├── wsClient.test.ts         # cases
+│       │   ├── registerWithClaude.ts    # claude mcp add idempotent + spawnCommand/spawnArgs API (Phase 4.2 + 4.4 fix-2)
+│       │   └── registerWithClaude.test.ts
 │       ├── tools/                       # Phase 1 + 향후 Phase 5
 │       │   ├── _define.ts, _errors.ts, _validateAst.ts + .test.ts (Phase 1)
-│       └── __integration__/             # Phase 2/3 통합 테스트
-│           └── integration-dispatcher.test.ts (Phase 3.6, in-process)
+│       └── __integration__/             # Phase 2/3/4 통합 테스트
+│           ├── integration-dispatcher.test.ts (Phase 3.6)
+│           ├── integration-mcp.test.ts  (Phase 4.1)
+│           ├── integration-shell-not-found.test.ts (Phase 4.3)
+│           └── integration-production-wiring.test.ts (Phase 4.4 fix-4, mistakes #15 회귀 가드)
 │
 ├── src/jsx/                             # ExtendScript (ES3, target=es3, ASCII only — Phase 3.7 follow-up 4)
 │   ├── _polyfills/json2.js              # ES3 JSON polyfill (Phase 3.2)
@@ -216,64 +268,64 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## G. 통계 (Phase 3 complete 시점)
+## G. 통계 (Phase 4 complete 시점)
 
 | 항목 | 수치 |
 |---|---|
-| Phase 3 commits (3.1 → 3.9 part 3) | 17 |
-| 누적 commits (Phase 0 → 현재) | 43+ |
-| Sidecar 테스트 | 95 (was 75 in Phase 2, +20) |
-| Panel 테스트 | 44 (was 22 in Phase 2, +22) |
-| 총 자동 회귀 테스트 | **139** (was 96 in Phase 2, +43) |
-| 영구 등재 함정 (mistakes.md) | **12** (was 9, +3) |
-| Validation Gates (CLAUDE.md) | **13** (was 7, +6: §8/§9/§10/§11/§12/§13) |
-| Architectural decisions | D1-D11 (10) + D-A~D-G (Phase 3, 7) |
+| Phase 4 commits (4.0 → 4.4 fix-4 + 4.5) | 10 |
+| 누적 commits (Phase 0 → 현재) | 55+ |
+| Sidecar 테스트 | **132** (was 95 in Phase 3, +37: dispatcher execHandler 3 + integration-mcp 2 + integration-shell-not-found 2 + registerWithClaude 6 + wsClient + server.test + integration-production-wiring 2 + 등) |
+| Panel 테스트 | 44 (변경 0) |
+| 총 자동 회귀 테스트 | **176** (was 139 in Phase 3, +37) |
+| 영구 등재 함정 (mistakes.md) | **15** (was 12, +3: #13 + #14 family + #15) |
+| Validation Gates (CLAUDE.md) | 13 (변경 0 — Phase 4는 기존 게이트 적용) |
+| Architectural decisions | D1-D11 (10) + D-A~D-G (Phase 3, 7) + D-H~D-K (Phase 4, 4) |
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 3 complete, Phase 4 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 4 complete, Phase 5 진입 대기)
 
 ### 현재 상태
 
-**Phase 3 ✅ 완료** (2026-05-06, commit `a40acc4` part 1 → part 3 시점). 사용자 AE 검증 시나리오 a/b/c/d 모두 통과 + heartbeat fix로 5분+ idle 유지 확인. **Phase 4 (MCP 서버 + claude PTY) 진입 대기.**
+**Phase 4 ✅ 완료** (2026-05-07, commit `da691a1` 4.4 fix-4 → 4.5 회고 commit). dogfood 4 시나리오 (e/f/g/h) 모두 통과. **Phase 5 (30 MCP tool + D8 collocation 패턴 확립) 진입 대기.**
 
 ### 검증된 실측치
 
-- Round-trip latency: 6ms (AE 5ms, WS 1ms) — 목표 ≤100ms 대비 **16배 여유**
-- Idle 안정성: 5분+ idle 후 사이드카 살아있음 (heartbeat bidirectional echo 작동)
-- 메모리 누수: 10회 spike 클릭 변화 0
-- 에러 path: AENoActiveCompError 5ms (코드 + latency 정확)
-- Production 산출물: localhost:3000 0매치 / `__proto__` 0매치 / non-ASCII 0
+- MCP full round-trip: 자연어 → claude → ae-mcp → dispatcher → panel WS → ExtendScript → result → claude 자연어 응답 동작 (정확한 latency는 Phase 5에서 측정)
+- Phase 3 round-trip latency 6ms 그대로 유지 (Phase 4는 MCP 한 hop 추가만)
+- Idle 안정성: 1시간+ idle 후 chat + tool 정상 동작 (#12 heartbeat 회귀 0)
+- panel close 후 잔존 0 (#4 ConPTY tree kill 회귀 0)
+- 보조: claude 자체 내장 PowerShell tool 정상 — Phase 4 wiring이 ae-mcp만 영향, 다른 MCP/tool에 부작용 0
+- Production 산출물: localhost:3000 0매치 / `__proto__` 0매치 / non-ASCII 0 (Phase 3 게이트 유지)
 
-### Phase 3에서 흡수된 정정 (3.1 + 3.6 + 3.7 발견)
+### Phase 4에서 흡수된 정정
 
-이전 PROJECT_CONTEXT.md / plan.md / 작업 가설에 있던 부정확한 표현이 실제 작업 중 정정된 항목:
+1. **"Phase 4 sub-step 4.7~ 분리"** → 실제로 4.0/4.1/4.2/4.3/4.4 + layered fix 4개로 진행. 4.4 dogfood가 production wiring first encounter 함정 4개 (which / entry path / entry guard / dispatcher wiring) layered로 발현. plan.md "4.7~" 표현은 회고 시점에 4.4 fix-N으로 바뀜.
+2. **"D-J role-aware routing 작업 시 dispatcher 통과 자동 wiring"** 가정 → 사실 4.1 commit은 stubExecHandler를 그대로 둠. plan.md D-I (line 596)에 "dispatcher.exec 통과" 명시되어 있었으나 코드 누락 — 4.4 fix-4에서 layered 발견 (mistakes #15 신설).
+3. **"Phase 4의 PTY 교체로 #4 ConPTY tree kill 재검증 필요"** → claude PTY로 교체 후에도 OS-level tree kill 동작. Phase 2의 인프라 그대로 사용.
+4. **"#11 4-faces가 Phase 4에서 재발할 수 있다"** → 4 faces 자체는 ExtendScript layer 함정이라 재발 없음. 단 같은 메타 패턴 (production wiring first encounter)이 다른 layer에서 발현 — #14 family (3 aspects, 외부 의존성 시뮬) + #15 (production assembly point DI gap) 신설.
 
-1. **"Phase 3은 새 envelope 타입 추가"** → 사실 `exec`/`result`/`error`는 Phase 1 protocol.ts에 사전 존재. Phase 3.1은 jsdoc만 추가 (ExtendScript bridge envelope으로의 의미 부여). 신규 타입 0.
-2. **"panelBridge 양방향 라우팅 의식 부재"** → Phase 1은 단방향 (panel → sidecar)을 의도된 단계로 구현. Phase 3.6에서 sidecar → panel 확장 + `onToolResponse` 추가. **결함 아닌 단계적 진화.**
-3. **"ns 형식 가정 (panel script generator)"** → mock 짧은 ns + dotted ns 형식 차이가 production wiring 첫 등장에서 발화. Bracket notation `$[ns]`로 통일 + jsx layer 영어 literal 통일 (file encoding fix). Gate §9/§12로 영구 박힘.
+### Phase 5 진입 readiness
 
-### Phase 4 진입 readiness
+**Phase 5 = 30 MCP tool 추가 + D8 collocation 패턴 확립.** 다음 sub-step 분할 권장:
 
-**Phase 4 = MCP 서버 + claude CLI PTY 통합.** 다음 sub-step 분할 권장 (3.x 패턴 답습):
+- 5.0 결정 게이트 — D3 `ae_run_extendscript` 첫 도입 시점 / D8 collocation 정식 분리 (ae_get_active_comp 포함 여부) / lane 분할 전략
+- 5.1 MVP 5 tool 직렬 — `tools/<ae_name>/{schema,handler,impl.jsx,test}` 4파일 패턴 확립 + 1 tool씩 dispatcher 통과 round-trip 검증
+- 5.2~ 25 tool 병렬 (D8 덕분에 lane 충돌 0)
 
-- 4.1 MCP server skeleton (사이드카에 stdio MCP server start) — claude CLI 없이 dispatcher만 노출
-- 4.2 claude PTY 교체 (cmd.exe → claude CLI) — Phase 2의 PTY 인프라 그대로 사용
-- 4.3 첫 tool MCP 노출 (`ae_get_active_comp`) — dispatcher.exec 경유 검증
-- 4.4 production wiring + 사용자 검증
+**Phase 5 진입 시 챙길 것 (mistakes.md 인덱스)**:
+- #11 4-faces — 새 jsx tool 추가 시 ASCII only / namespace import 금지 / host 등록 default fallback 같은 게이트 §10/§11/§12 자동 적용
+- #15 — 새 wiring 추가 시 production-equivalent integration test 신규 시나리오 + helper 추출 패턴 유지
+- D3 + AST validator (D7) — 첫 destructive tool 도입 시 골든셋에 case 추가 + needsApproval 적용
+- D4 destructive tool wrapping — `defineAETool({destructive: true})` 자동 undoGroup
+- Validation Gate §13 idle scenario — 매 5 tool마다 dogfood loop + 1분+ idle 확인
 
-**Phase 4 진입 시 챙길 것 (mistakes.md 인덱스)**:
-- #4 ConPTY tree kill 재검증 (claude CLI 자식 프로세스)
-- #2 Node 24 좀비 (node-pty native ABI)
-- #3 .cmd shim (`process.execPath` + entry .mjs 직접 spawn 패턴 유지)
-- #11 4-faces — production wiring sub-step에서 비슷한 함정 재발 가능성 (idle scenario Gate §13 강제)
-- D3 `ae_run_extendscript` per-call approval modal — 첫 tool로 도입 시 D3 + AST validator 골든셋 동시 검증
+### Phase 4 이슈 정리 (모두 해소)
 
-### Phase 3 이슈 정리 (모두 해소)
-
-- ~~사이드카 crashed (panel-disconnect grace) 잔존~~ → **함정 #12로 등재 + Phase 3.7 follow-up 5에서 해결** (heartbeat echo).
-- ~~debug probe revert 대기~~ → **Phase 3.9 part 1에서 revert 완료** (commit `a40acc4`).
-- ~~plan.md §14 Phase 3 회고 추가~~ → **§15 신설 완료** (commit `e448bf0`).
+- ~~ae-mcp `× failed` (panel /mcp)~~ → **Phase 4.4 fix → fix-4 layered로 catch + #14 family 3 aspects + #15 신설** (commit `da691a1`)
+- ~~사이드카 boot crash (PtyLike onExit 미구현)~~ → **Phase 4.3 hotfix #13 등재 + Gate §8 monorepo 양쪽 build 명시** (commit `f7e1575`)
+- ~~debug probe 잔여~~ → fix-1 commit에 자연 정리됨 (sidecar/src 안 0 매치 확인)
+- ~~plan.md Phase 4 회고 추가~~ → **이 commit (4.5)에서 추가 완료**
 
 ---
 
@@ -291,91 +343,101 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## J. 새 웹 Claude에 보낼 메시지 템플릿 (Phase 4 진입용)
+## J. 새 웹 Claude에 보낼 메시지 템플릿 (Phase 5 진입용)
 
 ```
-Phase 3 완료 (commit a40acc4 → part 3까지). 사용자 검증 a/b/c/d 모두 통과.
-- round-trip 6ms (목표 100ms 대비 16배 여유)
-- 5분+ idle 안정 (heartbeat fix 작동)
-- mistakes.md 12 함정 / Validation Gates 13개 / 139 tests
+Phase 4 완료 (commit da691a1 4.4 fix-4 → 4.5 회고). 사용자 dogfood (e/f/g/h) 모두 통과.
+- "현재 컴프 알려줘" → ae_get_active_comp MCP full round-trip ✅ (Phase 4 본질 검증)
+- 1시간+ idle 안정 (#12 heartbeat 회귀 0)
+- panel close 잔존 0 (#4 ConPTY tree kill 회귀 0)
+- mistakes.md 15 함정 (#13 + #14 family 3 aspects + #15 신설) / Validation Gates 13개 / 176 tests
 
-Phase 4 (MCP 서버 + claude CLI PTY 통합) 진입.
+Phase 5 (30 MCP tool + D8 collocation 패턴 확립) 진입.
 
 요청 사항:
-- Phase 4 sub-step 분할 합의 (4.1 MCP skeleton → 4.2 claude PTY → 4.3 첫 tool 노출 → ...)
+- Phase 5 sub-step 분할 합의 (5.0 결정 게이트 → 5.1 MVP 5 tool 직렬 → 5.2~ 25 tool 병렬 lane)
+- 5.0 결정 게이트 — D3 ae_run_extendscript 도입 시점 / D8 collocation ae_get_active_comp 포함 여부 / lane 전략
 - 또는 사용자가 정의한 sub-step 순서가 있으면 그것 따라.
 
-진입 전 챙길 mistakes (#4 ConPTY tree kill / #2 Node 24 ABI / #3 .cmd shim /
-#11 4-faces 재발 / Gate §13 idle scenario).
+진입 전 챙길 mistakes:
+- #11 4-faces — 새 jsx tool 추가 시 Gate §10/§11/§12 자동 적용
+- #15 — 새 wiring 추가 시 production-equivalent integration test + helper 추출 패턴 유지
+- #14 family — Phase 7 ZXP 패키징 시 dev/prod 분기 helper들 (resolveShellPath / resolveMcpSpawn / entry guard suffix) 모두 자동 prod mode 전환
 
-D3 ae_run_extendscript per-call approval은 Phase 4 첫 tool로 도입할지 별도?
+D3 + AST validator (D7) 첫 destructive tool 진입 시점은 5.0 게이트에서 결정.
 
-PROJECT_CONTEXT.md / mistakes.md / CLAUDE.md / plan.md (§15 Phase 3 회고) 모두 최신.
-git log --oneline | head -20 로 Phase 3 sub-step + follow-up + 3.9 part 1-3 모두 추적 가능.
+PROJECT_CONTEXT.md / mistakes.md / CLAUDE.md / plan.md (Phase 4 회고) 모두 최신.
+git log --oneline | head -20 로 Phase 4 sub-step (4.0~4.4 fix-4 + 4.5) 모두 추적 가능.
 ```
 
 ---
 
-## K. 재진입 절차 (CLI용 — Phase 4 진입 첫 명령어)
+## K. 재진입 절차 (CLI용 — Phase 5 진입 첫 명령어)
 
 새 채팅 또는 같은 채팅 재개 시 이 순서로 실행:
 
 ```bash
 # 1. 컨텍스트 파일들 빠르게 확인 (CLI 자동)
 cd "C:/Users/user/Desktop/성윤/에펙 클로드"
-git log --oneline | head -20           # Phase 3 sub-step + follow-up + 3.9 part 1-3 추적
+git log --oneline | head -20           # Phase 4 sub-step (4.0 → 4.5) 모두 추적
 git status -s                           # 깨끗해야 (eye/ untracked만)
 
-# 2. Phase 3 산출물 정합성 (Phase 4 시작 전 baseline)
+# 2. Phase 4 산출물 정합성 (Phase 5 시작 전 baseline)
 diff -q dist/cep/jsx/index.js \
         "/c/Users/user/AppData/Roaming/Adobe/CEP/extensions/com.aeclaude.panel/jsx/index.js"
 # → 출력 0 = sync OK
 
-# 3. Phase 3 산출물 게이트 (§10/§11/§12 효과 유지)
+# 3. Phase 4 산출물 게이트 (§10/§11/§12 효과 유지)
 grep -c "localhost:3000" dist/cep/main/index.html         # → 0 (production build)
 grep -c "__proto__" dist/cep/jsx/index.js                  # → 0 (Gate §11)
 LC_ALL=C perl -ne 'BEGIN{$c=0} for(split //){$c++ if ord($_)>127} END{print "non-ASCII bytes: $c\n"}' \
   dist/cep/jsx/index.js                                    # → "non-ASCII bytes: 0" (Gate §12)
 
-# 4. 회귀 테스트 baseline (Phase 4 sub-step 시작 전 그린 확인)
-source ~/.bashrc && cd sidecar && npm test 2>&1 | tail -3 && cd ..
-npm test 2>&1 | tail -3
-# → sidecar 95/95 + panel 44/44 = 139/139
+# 4. 회귀 테스트 baseline (Phase 5 sub-step 시작 전 그린 확인)
+source ~/.bashrc && cd sidecar && npm run build && npm test 2>&1 | tail -3 && cd ..
+npm run build && npm test 2>&1 | tail -3
+# → sidecar 132/132 + panel 44/44 = 176/176 (Gate §8 monorepo 양쪽 build 명시 — #13 방어)
 
-# 5. Phase 4 sub-step 합의 후 진입 (메시지 템플릿 §J 참조)
+# 5. Phase 4 ae-mcp 등록 baseline 확인 (claude CLI 측)
+#    - .claude.json projects[<cwd>].mcpServers.ae-mcp 엔트리 존재 확인
+#    - 사이드카 부팅 시 자동 idempotent remove + add (Phase 4.2)
+#    - 첫 panel 띄우면 /mcp로 ae-mcp ✓ connected 보일 것
+
+# 6. Phase 5 sub-step 합의 후 진입 (메시지 템플릿 §J 참조)
 ```
 
-### Phase 4 sub-step 진입 권장 순서
+### Phase 5 sub-step 진입 권장 순서
 
 ```bash
-# 4.1 MCP server skeleton (사이드카 stdio MCP server start)
-#    - dispatcher.exec를 MCP tool로 노출 (claude CLI 없이 standalone 검증 가능)
-#    - 별도 commit "Phase 4.1: MCP server skeleton + dispatcher tool exposure"
+# 5.0 결정 게이트
+#    - D3 ae_run_extendscript 도입 시점 (첫 tool? 마지막? 별도?)
+#    - D8 collocation ae_get_active_comp을 sidecar/src/tools/로 정식 분리할지 (Phase 3.3 spike 결과 panel jsx side에만 존재)
+#    - lane 분할 전략 (5 MVP 직렬 → 25 병렬 / 모두 직렬 / 모두 병렬)
+#    - 별도 commit "Phase 5.0: decision gate"
 
-# 4.2 claude PTY 교체 (cmd.exe → claude CLI)
-#    - mistakes #4 (ConPTY tree kill) 재검증 — claude 자식 프로세스 cleanup
-#    - mistakes #2 (Node 24 ABI) 재검증
-#    - mistakes #3 (.cmd shim) — claude CLI도 .cmd shim일 수 있음
+# 5.1 MVP 5 tool 직렬 — collocation 패턴 확립
+#    - tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts} 4파일 패턴 첫 적용
+#    - 각 tool마다 dispatcher 통과 round-trip 검증 + golden case 1+ + integration test
+#    - mistakes #11 4-faces / #15 (production assembly point) 자동 가드 적용
 
-# 4.3 첫 tool MCP 노출 (ae_get_active_comp)
-#    - claude CLI에서 MCP tool 호출 → dispatcher → panel WS exec → ExtendScript → result
-#    - 풀 round-trip 검증
-
-# 4.4 production wiring + 사용자 검증 (idle scenario Gate §13 포함)
+# 5.2~ 25 tool 병렬 (D8 덕분에 lane 충돌 0)
+#    - lane 분할 전략에 따라 그룹화 (예: 컴프 / 레이어 / 키프레임 / 이펙트 / 익스프레션)
+#    - 매 5 tool마다 dogfood loop + idle scenario Gate §13 확인
 ```
 
 ---
 
 ## 자주 참조되는 1줄 메모 (chat 도중 빠르게)
 
-- **Phase 3 commit 범위**: `5c6a177` (3.1) → 3.9 part 3 (this commit). 17개. `git log --oneline | grep -E "Phase 3"` 모두 표시.
-- **CLAUDE.md Validation Gates 13개**: Security / Undo / Approval / Schema / Pagination / Localhost / Mutex / **Phase exit (build)** / Script generator / jsx host registration / jsx no-namespace-import / jsx ASCII-only / **Idle scenario** (§13 신설).
+- **Phase 4 commit 범위**: `541c759` (4.0) → 4.5 (this commit). 10개. `git log --oneline | grep -E "Phase 4"` 모두 표시.
+- **CLAUDE.md Validation Gates 13개**: Security / Undo / Approval / Schema / Pagination / Localhost / Mutex / **Phase exit (monorepo 양쪽 build)** / Script generator / jsx host registration / jsx no-namespace-import / jsx ASCII-only / **Idle scenario**.
 - **Out of scope (v1.0 금지)**: Premiere / 모바일 원격 / Skill 시스템 / 음성 / SQLite 채팅 히스토리 / UXP / 모델 ID UI 변경.
-- **사용자 작업 패턴**: research → plan annotate → CLI implement sub-step + commit + 한 줄 보고 → 사용자 OK → 다음 sub-step.
-- **현재 워킹트리 상태**: clean (eye/ untracked만, 사용자 스크린샷 dump). debug probe는 commit `3a54075` + `6f9ee9e`에 박혀있고 `a40acc4` (3.9 part 1)에서 revert됨.
+- **사용자 작업 패턴**: research → plan annotate → CLI implement sub-step + commit + 한 줄 보고 → 사용자 OK → 다음 sub-step. **추측 fix 금지** — root cause 확정 후 fix 옵션 + 사용자 OK → 코딩.
+- **현재 워킹트리 상태**: clean (eye/ + sidecar/.claude/ untracked만). Phase 4 layered fix 4개 모두 commit됨. probe 잔여 0 (sidecar/src 0 매치).
+- **메타 학습 — layered dogfood loop**: production wiring first encounter sub-step (Phase 4.4)은 단일 dogfood로 모든 함정 catch 불가능. fix-N 후 다음 dogfood loop에서 다음 layer가 reachable. Phase 5+ 30 tool 추가 시도 같은 패턴 가정.
 
 ---
 
-**문서 마지막 갱신**: 2026-05-06. Phase 3 complete (3.9 part 3 commit과 함께). Phase 4 진입 대기.
+**문서 마지막 갱신**: 2026-05-07. Phase 4 complete (4.5 commit과 함께). Phase 5 진입 대기.
 
-다음 갱신 시점: Phase 4 sub-step 진행하면서 EOD 또는 phase exit.
+다음 갱신 시점: Phase 5 sub-step 진행하면서 EOD 또는 phase exit.
