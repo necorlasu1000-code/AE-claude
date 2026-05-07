@@ -48,10 +48,25 @@ export interface JsxCompItem extends JsxItemLike {
   numLayers: number;
 }
 
+// Phase 5.1.4 -- extracted to a named interface so 30-tool growth (5.1.4~)
+// extends one place instead of inlining shape per tool. Fields stay
+// optional so Phase 3.3 ae_get_active_comp callers (only touch
+// activeItem) keep type-checking unchanged.
+export interface JsxProjectLike {
+  activeItem: JsxItemLike | null;
+  /** ExtendScript's app.project.numItems -- total items in project pane.
+   *  Optional in the type to keep older test fixtures compatible; production
+   *  AE always populates it. */
+  numItems?: number;
+  /** ExtendScript's app.project.item(i) -- 1-based item accessor.
+   *  ItemCollection is also indexable via items[i] in real AE; we standardize
+   *  on the function-call form for mock simplicity (callable indexable is
+   *  awkward in vitest). Optional for the same reason as numItems. */
+  item?(index: number): JsxItemLike;
+}
+
 export interface JsxAppLike {
-  project: {
-    activeItem: JsxItemLike | null;
-  };
+  project: JsxProjectLike;
 }
 
 export interface JsxToolCtx {

@@ -5,5 +5,9 @@
 // Phase 5.1.1 (D-M, option A) -- tools collocated under sidecar/src/tools/<ae>/impl.ts,
 // reachable via @aeTools alias (vite.es.config.ts rollup config). 5.1.0 dormant
 // alias becomes active at this line on first encounter.
+//
+// Phase 5.1.4 — ae_list_comps (MVP 1/5, comp lane). Same alias path; one
+// named export + one entry in tools sub-namespace per tool.
 
 export { ae_get_active_comp } from "@aeTools/ae_get_active_comp/impl";
+export { ae_list_comps } from "@aeTools/ae_list_comps/impl";

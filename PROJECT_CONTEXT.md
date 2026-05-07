@@ -161,8 +161,9 @@ AE ↔ CEP Panel (React + xterm.js)
 | 5.1.0 | vite-cep-plugin alias config (옵션 B) — `@aeTools` rollup alias dormant 등록 | `7977d27` | ✅ |
 | 5.1.1 | `ae_get_active_comp` D-M 단순 이동 (옵션 A + C) — alias first encounter + CLAUDE.md D8 표 sync | `711fd6d` | ✅ |
 | 5.1.2 | 좀비 fix (mistakes #16) — D-J multi-role grace timer panel-only count gate | `87226ae` | ✅ |
-| 5.1.3 | Architecture refactor — handler.ts (defineAETool wrap) + AENoActiveCompError 클래스 (글로벌 _errors.ts) + tools registry + makeDispatcherExecHandler 확장 (registry lookup + ctx.panelExec wiring) + mcp/server.ts inputSchema | (본 commit) | ✅ |
-| 5.1.4~5.1.6 | 4 새 MVP tool 직렬 (각 lane reference example) | | ⏳ **다음 진입 대상** |
+| 5.1.3 | Architecture refactor — handler.ts (defineAETool wrap) + AENoActiveCompError 클래스 (글로벌 _errors.ts) + tools registry + makeDispatcherExecHandler 확장 (registry lookup + ctx.panelExec wiring) + mcp/server.ts inputSchema | `ecae373` | ✅ |
+| 5.1.4 | `ae_list_comps` (read-only, MVP 1/5 컴프 lane) — D8 4파일 collocation 첫 신규 tool. JsxProjectLike 추출 + _mockApp.ts items[] 확장 | (본 commit) | ✅ |
+| 5.1.5~5.1.6 | 3 새 MVP tool 직렬 (레이어/키프레임/이펙트 lane reference) | | ⏳ **다음 진입 대상** |
 | 5.2 | 컴프 lane (병렬) | | |
 | 5.3 | 레이어 lane (병렬) | | |
 | 5.4 | 키프레임 lane (병렬) | | |
@@ -307,19 +308,24 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.3 ✅, 5.1.4 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.4 ✅, 5.1.5 진입 대기)
 
 ### 현재 상태
 
-**Phase 5.1.3 ✅ architecture refactor 완료** (2026-05-08, 본 commit). 4 영역 wiring first encounter 무사 통과 (mistakes #15 layered risk 의식 — 단계별 build 검증):
-- (A) `handler.ts` 신설 — `defineAETool` HOF wrap + ctx.panelExec 호출 + AEError code === "AENoActiveCompError" → typed `AENoActiveCompError` 변환
-- (B) `AENoActiveCompError` 클래스 신설 — 글로벌 `_errors.ts` 9번째 클래스
-- (C) tools registry 신설 — `sidecar/src/tools/index.ts` (manual import per C1)
-- (D) `makeDispatcherExecHandler` 확장 — registered path (registry lookup → defineAETool invoke) + fallback path (Phase 4 dumb forward 보존, panel-direct/dev spike 보호)
+**Phase 5.1.4 ✅ `ae_list_comps` 추가 완료** (2026-05-08, 본 commit). D8 4파일 collocation 패턴이 첫 신규 tool에 적용 — 5.1.3 reference 그대로 따름:
+- 4파일: `sidecar/src/tools/ae_list_comps/{schema.ts, handler.ts, impl.ts, impl.test.ts}`
+- 출력: `{ comps: [{id, name, width, height, durationSec, frameRate, numLayers}] }` (배열 wrapping under `comps` key per D-N lane convention)
+- ExtendScript: `app.project.numItems` + `app.project.item(i)` (1-based) + `typeName === "Composition"` filter (Phase 3.3 vitest mock 패턴 일관)
+- registry: 사이드카 `tools/index.ts` + panel `aeft.ts` tools sub-namespace + mcp/server.ts registerTool — 모두 1-line 추가
 
-mcp/server.ts는 inputSchema 명시 (`aeGetActiveCompInputSchema.shape`) + dumb forward 그대로 (D-K 정신: mcp = stdio relay, 사이드카 main = domain).
+Phase 3.3 reference 확장:
+- `JsxProjectLike` 별도 interface 추출 (이전: `JsxAppLike.project` inline) — 30 tool 누적 시 AE API 진실 원천 자연 진화
+- `JsxAppLike.project: JsxProjectLike` + optional `numItems?` / `item?(index)` (기존 ae_get_active_comp 영향 0)
+- `_mockApp.ts`에 `makeMockProject` helper + `MockAppOpts.items` 추가
 
-**Phase 5.1.4 (4 새 MVP tool 직렬, 각 lane reference example) 진입 대기.** D8 collocation 패턴이 5.1.3에서 reference example 1개 (ae_get_active_comp)로 확립 — 5.1.4+에서 같은 4파일 패턴 (schema/handler/impl/impl.test) + tools/index.ts 1줄 추가 + mcp/server.ts registerTool 1 블록으로 30 tool 누적.
+Gate §12 catch 사례: 작성 중 markdown em-dash (—) 박혀 jsx bundle non-ASCII 9 bytes 회귀 — Gate §12 immediate catch + ASCII hyphen (--) 정정. process 작동 증거 (mistakes #11 face 4 재발 자동 차단).
+
+**Phase 5.1.5 (3 새 MVP tool 직렬, 레이어/키프레임/이펙트 lane reference example) 진입 대기.** 5.1.4 패턴이 안정화 — 매 tool마다 4파일 + 3 registry 1줄.
 
 ### 검증된 실측치
 

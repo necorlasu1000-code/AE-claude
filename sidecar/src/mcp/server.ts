@@ -19,6 +19,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { ResultMsg, ErrorMsg } from "../protocol.js";
 import { McpWsClient } from "./wsClient.js";
 import { aeGetActiveCompInputSchema } from "../tools/ae_get_active_comp/schema.js";
+import { aeListCompsInputSchema } from "../tools/ae_list_comps/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -56,6 +57,22 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async () => {
       const out = await wsClient.exec("ae_get_active_comp", {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.1.4 — ae_list_comps (read-only, MVP 1/5, comp lane).
+  server.registerTool(
+    "ae_list_comps",
+    {
+      description:
+        "List all compositions in the active After Effects project. " +
+        "Returns array of comp metadata (id, name, dimensions, durationSec, frameRate, numLayers). " +
+        "Empty project returns { comps: [] } with no error.",
+      inputSchema: aeListCompsInputSchema.shape,
+    },
+    async () => {
+      const out = await wsClient.exec("ae_list_comps", {});
       return toCallToolResult(out);
     },
   );

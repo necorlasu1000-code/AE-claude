@@ -5,7 +5,7 @@
 // code never imports this (only tests do; bolt-cep build excludes via
 // the shared *.test.ts pattern).
 
-import type { JsxAppLike, JsxCompItem, JsxItemLike } from "./_define";
+import type { JsxAppLike, JsxCompItem, JsxItemLike, JsxProjectLike } from "./_define";
 
 export interface MockCompOpts {
   name?: string;
@@ -41,17 +41,43 @@ export function makeMockNonCompItem(typeName: "Folder" | "Footage", opts?: { nam
   };
 }
 
+export interface MockProjectOpts {
+  activeItem?: JsxItemLike | null;
+  /** Phase 5.1.4 — ItemCollection mock. items[0] becomes item(1) (1-based
+   *  per ExtendScript convention); numItems = items.length. ae_list_comps
+   *  test fixtures pass [] for empty project, [comp] for single comp,
+   *  [comp, footage] for filter validation. */
+  items?: JsxItemLike[];
+}
+
+export function makeMockProject(opts?: MockProjectOpts): JsxProjectLike {
+  var o = opts || {};
+  var items = o.items || [];
+  return {
+    activeItem: o.activeItem !== undefined ? o.activeItem : null,
+    numItems: items.length,
+    item: function (index: number) {
+      // 1-based; production AE throws on out-of-range. Tests don't
+      // exercise out-of-range so we return the array slot unchecked.
+      return items[index - 1] as JsxItemLike;
+    },
+  };
+}
+
 export interface MockAppOpts {
   /** activeItem default = null (no comp selected). Pass `makeMockComp()`
    *  for happy path or `makeMockNonCompItem("Folder")` for negative path. */
   activeItem?: JsxItemLike | null;
+  /** Phase 5.1.4 — see MockProjectOpts.items. */
+  items?: JsxItemLike[];
 }
 
 export function makeMockApp(opts?: MockAppOpts): JsxAppLike {
   var o = opts || {};
   return {
-    project: {
-      activeItem: o.activeItem !== undefined ? o.activeItem : null,
-    },
+    project: makeMockProject({
+      activeItem: o.activeItem,
+      items: o.items,
+    }),
   };
 }
