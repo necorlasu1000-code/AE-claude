@@ -82,6 +82,14 @@ AE ↔ CEP Panel (React + xterm.js)
 | D-J | PanelBridge multi-role | 단일 ws server에 role "panel" + "mcp" 두 종류 허용. primary/secondary 정책은 role 안에서. **backward compat 강제** (role 미명시 default "panel", Phase 2/3 17 시나리오 그린 유지). **role 식별 = URL query `?role=mcp`** (4.1 lock-in). role-disallowed 메시지는 server.error `AERoleNotAllowed`. |
 | D-K | claude 출력 채널 분리 | chat = PTY raw → ws → xterm. MCP = stdio JSON-RPC (D-I 별도 entry). 사이드카 main에서 두 채널 만나지 않음. PTY parsing 0. |
 
+### Phase 5 결정 게이트 (D-L ~ D-N, 5.0 lock-in)
+
+| # | Topic | Decision |
+|---|---|---|
+| D-L | `ae_run_extendscript` 도입 시점 | Phase 5.6 별도 sub-step (last) — 29 tool 패턴 누적 후 escape hatch 위에 얹기. AST validator 골든셋 (D7) + approval modal (D11) + `needsApproval: true` flag (유일). 첫 도입 시 두 패턴 동시 디버깅 risk 회피. |
+| D-M | D8 collocation 이동 시점 | 5.1 첫 작업으로 `ae_get_active_comp`을 `src/jsx/aeft/tools/` (panel spike) → `sidecar/src/tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts}` 정식 위치 이동 + vite-cep-plugin 합본 config. 첫 reference example 역할. Gate §11 (`__proto__` 0) / §12 (non-ASCII 0) / Phase 4 dogfood (e/f) 회귀 확인. |
+| D-N | lane 분할 전략 | 5.1 MVP 5 직렬 → 5.2~5.5 25 병렬 lane (그룹 5개: 컴프 / 레이어 / 키프레임 / 이펙트 / 익스프레션). tool 개별 명세는 5.2 진입 시 별도 합의. 매 5 tool dogfood loop + Gate §13 idle. |
+
 ---
 
 ## D. Phase 진행 상태
@@ -145,8 +153,19 @@ AE ↔ CEP Panel (React + xterm.js)
 - (h) panel close 후 잔존 0 ✅ (#4 ConPTY tree kill 회귀 0)
 - 보조: claude 자체 내장 PowerShell tool 정상 — Phase 4 wiring이 ae-mcp만 영향.
 
-### Phase 5-7 (다음 이상)
-- **Phase 5** ⏳ — 30 MCP tool (D8 collocation 패턴 확립 후 lane 분할 병렬) — **다음 진입 대상**
+### Phase 5 진행 중 — 30 MCP tool + D8 collocation 패턴 확립
+
+| # | Sub-step | 상태 |
+|---|---|---|
+| 5.0 | 결정 게이트 D-L/D-M/D-N lock-in (2026-05-07, 본 commit) | ✅ |
+| 5.1 | MVP 5 tool 직렬 — `ae_get_active_comp` D-M 이동 + vite-cep-plugin 합본 config + 4 새 tool (각 lane reference example) | ⏳ **다음 진입 대상** |
+| 5.2 | 컴프 lane (병렬) | |
+| 5.3 | 레이어 lane (병렬) | |
+| 5.4 | 키프레임 lane (병렬) | |
+| 5.5 | 이펙트 lane (병렬, 익스프레션 분배) | |
+| 5.6 | `ae_run_extendscript` 도입 (D3 + D-L) — AST 골든셋 + approval modal + `needsApproval: true` | |
+
+### Phase 6-7 (다음 이상)
 - Phase 6 — UX (logger.ts, Recent AI ops 카드, status bar 5상태)
 - Phase 7 — ZXP 빌드 + GitHub Actions matrix (D9)
 
@@ -283,11 +302,11 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 4 complete, Phase 5 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.0 ✅, 5.1 진입 대기)
 
 ### 현재 상태
 
-**Phase 4 ✅ 완료** (2026-05-07, commit `da691a1` 4.4 fix-4 → 4.5 회고 commit). dogfood 4 시나리오 (e/f/g/h) 모두 통과. **Phase 5 (30 MCP tool + D8 collocation 패턴 확립) 진입 대기.**
+**Phase 5.0 ✅ 결정 게이트 D-L/D-M/D-N lock-in 완료** (2026-05-07, 본 commit). Phase 4 dogfood 4 시나리오 (e/f/g/h) 모두 통과 baseline 유지. **Phase 5.1 (MVP 5 tool 직렬, `ae_get_active_comp` D-M 이동 + vite-cep-plugin 합본 config + 4 새 tool) 진입 대기.**
 
 ### 검증된 실측치
 
@@ -305,18 +324,22 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 3. **"Phase 4의 PTY 교체로 #4 ConPTY tree kill 재검증 필요"** → claude PTY로 교체 후에도 OS-level tree kill 동작. Phase 2의 인프라 그대로 사용.
 4. **"#11 4-faces가 Phase 4에서 재발할 수 있다"** → 4 faces 자체는 ExtendScript layer 함정이라 재발 없음. 단 같은 메타 패턴 (production wiring first encounter)이 다른 layer에서 발현 — #14 family (3 aspects, 외부 의존성 시뮬) + #15 (production assembly point DI gap) 신설.
 
-### Phase 5 진입 readiness
+### Phase 5 진입 readiness (5.0 ✅, 5.1 진입 대기)
 
-**Phase 5 = 30 MCP tool 추가 + D8 collocation 패턴 확립.** 다음 sub-step 분할 권장:
+**Phase 5.0 결정 게이트 ✅ lock-in 완료**:
+- **D-L**: `ae_run_extendscript` = Phase 5.6 별도 sub-step (last) — 29 tool 패턴 누적 후 escape hatch 위에 얹기
+- **D-M**: 5.1 첫 작업으로 `ae_get_active_comp` panel spike → `sidecar/src/tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts}` 정식 위치 이동 + vite-cep-plugin 합본 config
+- **D-N**: 5.1 MVP 5 직렬 → 5.2~5.5 25 병렬 lane (그룹 5개: 컴프 / 레이어 / 키프레임 / 이펙트 / 익스프레션)
 
-- 5.0 결정 게이트 — D3 `ae_run_extendscript` 첫 도입 시점 / D8 collocation 정식 분리 (ae_get_active_comp 포함 여부) / lane 분할 전략
-- 5.1 MVP 5 tool 직렬 — `tools/<ae_name>/{schema,handler,impl.jsx,test}` 4파일 패턴 확립 + 1 tool씩 dispatcher 통과 round-trip 검증
-- 5.2~ 25 tool 병렬 (D8 덕분에 lane 충돌 0)
+**Phase 5.1 진입 시 첫 작업 (D-M 이동)**:
+- `src/jsx/aeft/tools/ae_get_active_comp/`  →  `sidecar/src/tools/ae_get_active_comp/{schema.ts, handler.ts, impl.jsx, test.ts}`
+- vite-cep-plugin config 수정 — `sidecar/src/tools/*/impl.jsx`를 panel jsx bundle로 합본
+- Gate §11 (`__proto__` 0) / §12 (non-ASCII 0) / Phase 4 dogfood (e/f) 회귀 확인
 
-**Phase 5 진입 시 챙길 것 (mistakes.md 인덱스)**:
+**Phase 5.1+ 진입 시 챙길 것 (mistakes.md 인덱스)**:
 - #11 4-faces — 새 jsx tool 추가 시 ASCII only / namespace import 금지 / host 등록 default fallback 같은 게이트 §10/§11/§12 자동 적용
 - #15 — 새 wiring 추가 시 production-equivalent integration test 신규 시나리오 + helper 추출 패턴 유지
-- D3 + AST validator (D7) — 첫 destructive tool 도입 시 골든셋에 case 추가 + needsApproval 적용
+- D3 + AST validator (D7) — Phase 5.6 진입 시 골든셋에 case 추가 + needsApproval 적용 (D-L)
 - D4 destructive tool wrapping — `defineAETool({destructive: true})` 자동 undoGroup
 - Validation Gate §13 idle scenario — 매 5 tool마다 dogfood loop + 1분+ idle 확인
 
@@ -409,20 +432,27 @@ npm run build && npm test 2>&1 | tail -3
 ### Phase 5 sub-step 진입 권장 순서
 
 ```bash
-# 5.0 결정 게이트
-#    - D3 ae_run_extendscript 도입 시점 (첫 tool? 마지막? 별도?)
-#    - D8 collocation ae_get_active_comp을 sidecar/src/tools/로 정식 분리할지 (Phase 3.3 spike 결과 panel jsx side에만 존재)
-#    - lane 분할 전략 (5 MVP 직렬 → 25 병렬 / 모두 직렬 / 모두 병렬)
-#    - 별도 commit "Phase 5.0: decision gate"
+# 5.0 ✅ 결정 게이트 (이 commit, D-L/D-M/D-N lock-in)
+#    - D-L: ae_run_extendscript = Phase 5.6 별도 sub-step (last)
+#    - D-M: 5.1 첫 작업으로 ae_get_active_comp을 sidecar/src/tools/로 이동 + vite-cep-plugin 합본 config
+#    - D-N: 5.1 MVP 5 직렬 → 5.2~5.5 25 병렬 lane (컴프/레이어/키프레임/이펙트/익스프레션)
 
-# 5.1 MVP 5 tool 직렬 — collocation 패턴 확립
+# 5.1 ⏳ MVP 5 tool 직렬 — collocation 패턴 확립
+#    - 첫 작업 (D-M): ae_get_active_comp panel→sidecar 이동 + vite-cep-plugin 합본
+#      Gate §11 (__proto__ 0) / §12 (non-ASCII 0) / Phase 4 dogfood (e/f) 회귀 확인
+#    - 4 새 tool: 각 lane reference example 1개씩 (컴프/레이어/키프레임/이펙트, 익스프레션은 5.2~5.5 분배)
 #    - tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts} 4파일 패턴 첫 적용
 #    - 각 tool마다 dispatcher 통과 round-trip 검증 + golden case 1+ + integration test
 #    - mistakes #11 4-faces / #15 (production assembly point) 자동 가드 적용
 
-# 5.2~ 25 tool 병렬 (D8 덕분에 lane 충돌 0)
-#    - lane 분할 전략에 따라 그룹화 (예: 컴프 / 레이어 / 키프레임 / 이펙트 / 익스프레션)
+# 5.2~5.5 25 tool 병렬 lane (D8 덕분에 lane 충돌 0)
+#    - 5.2 컴프 / 5.3 레이어 / 5.4 키프레임 / 5.5 이펙트 lane (익스프레션은 분배)
+#    - tool 개별 명세는 5.2 진입 시 별도 합의
 #    - 매 5 tool마다 dogfood loop + idle scenario Gate §13 확인
+
+# 5.6 ae_run_extendscript 도입 (D3 + D-L)
+#    - 29 tool 패턴 누적 후 escape hatch 위에 얹기
+#    - AST validator 골든셋 (D7) + approval modal (D11) + needsApproval: true flag (유일)
 ```
 
 ---

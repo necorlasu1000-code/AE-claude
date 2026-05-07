@@ -319,11 +319,25 @@ ae-claude-panel/
 - node-pty로 `claude --model claude-opus-4-7` 스폰
 - 패널에서 "현재 프로젝트 정보 알려줘" → Claude가 tool 호출 → 응답
 
-### Phase 5: 핵심 tool 구현
+### Phase 5: 핵심 tool 구현 (30 MCP tool + D8 collocation)
 
-- 컴프, 레이어, 키프레임, 이펙트, 익스프레션 — 6장 카탈로그 우선순위대로
-- 각 tool에 Bolt CEP의 `evalTS<T>()` 시그니처 적용 (E2E 타입 안전)
-- 단위 테스트: tool 호출 → 실제 AE 상태 변화 확인
+Sub-step 분할 (결정 게이트 5.0 → MVP 5 직렬 → 25 병렬 lane → escape hatch 마지막):
+
+- **5.0** ✅ 결정 게이트 D-L/D-M/D-N lock-in (2026-05-07, 본 commit)
+- **5.1** ⏳ MVP 5 tool 직렬 — collocation 패턴 확립
+  - 첫 작업 (D-M): `ae_get_active_comp` panel spike → `sidecar/src/tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts}` 정식 위치 이동
+  - vite-cep-plugin config 수정 — `sidecar/src/tools/*/impl.jsx`를 panel jsx bundle로 합본
+  - Gate §11 (`__proto__` 0) / §12 (non-ASCII 0) / Phase 4 dogfood (e/f) 회귀 확인
+  - 4 새 tool 직렬 추가 (각 lane reference example 1개씩)
+- **5.2~5.5** 25 tool 병렬 lane (D-N 그룹 5개, D8 덕분에 lane 충돌 0)
+  - 5.2 컴프 / 5.3 레이어 / 5.4 키프레임 / 5.5 이펙트 (익스프레션은 분배)
+  - tool 개별 명세는 5.2 진입 시 별도 합의
+  - 매 5 tool마다 dogfood loop + idle scenario Gate §13 확인
+- **5.6** `ae_run_extendscript` 도입 (D3 + D-L)
+  - 29 tool 패턴 누적 후 escape hatch 위에 얹기
+  - AST validator 골든셋 (D7) + approval modal (in-panel, ESC=Reject, D11) + `needsApproval: true` flag (유일)
+
+각 tool은 collocation 4파일 (schema/handler/impl/test) + dispatcher 통과 round-trip 검증 + golden case 1+ + integration test. 단위 테스트는 mock-AE → tool 호출 → 실제 AE 상태 변화 확인.
 
 ### Phase 6: UX 다듬기
 
@@ -481,34 +495,34 @@ Phase 3 = "ExtendScript 브릿지 정립" — 사이드카가 WS로 `{type:"exec
 
 ### 통계
 
-| 항목                                | 수치                                |
-| ----------------------------------- | ----------------------------------- |
-| Commit 수 (Phase 3.1 → 3.9 part 3)  | 17                                  |
-| 사이드카 테스트                     | 95 (Phase 3 시작 시 74, +21)        |
-| 패널 테스트                         | 44 (Phase 3 시작 시 22, +22)        |
-| 총 자동 회귀 테스트                 | 139 (Phase 3 시작 시 96, +43)       |
-| 발견 + 영구 박힌 함정 (mistakes.md) | 3 (#10, #11, #12) — 누적 12         |
-| Architectural decisions 추가        | 0 (D1–D11 사전 확정 유지)           |
-| Validation Gates 추가               | 6 (§8 phase exit + §9–§13)          |
+| 항목                                | 수치                          |
+| ----------------------------------- | ----------------------------- |
+| Commit 수 (Phase 3.1 → 3.9 part 3)  | 17                            |
+| 사이드카 테스트                     | 95 (Phase 3 시작 시 74, +21)  |
+| 패널 테스트                         | 44 (Phase 3 시작 시 22, +22)  |
+| 총 자동 회귀 테스트                 | 139 (Phase 3 시작 시 96, +43) |
+| 발견 + 영구 박힌 함정 (mistakes.md) | 3 (#10, #11, #12) — 누적 12   |
+| Architectural decisions 추가        | 0 (D1–D11 사전 확정 유지)     |
+| Validation Gates 추가               | 6 (§8 phase exit + §9–§13)    |
 
 ### 발견 + 해결된 함정 3개 (mistakes.md 영구 등재)
 
-| #   | 함정                                                                                                            | Phase                    | Fix 메커니즘                                                                                                       |
-| --- | --------------------------------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| 10  | `npm test` 통과만으로 phase 닫음 → production tsc strict + vite build에서 에러 늦게 발견                        | Phase 2 → 3 진입 시점    | Gate §8 신설: phase exit 전 npm test + npm run build 둘 다 그린                                                    |
-| 11  | production ES3 ExtendScript + Windows host 차이가 build-tool/source 가정과 부딪침 (4 faces)                     | Phase 3.7 ~ follow-up 4  | Gate §9–§12 신설 (panel script generator / jsx host registration / no namespace import / jsx ASCII-only)           |
-| 12  | `sys.heartbeat` 단방향 broadcast + 양방향 watchdog 모순 → panel idle ~35s 후 사이드카 자체 shutdown              | Phase 3.7 follow-up 5    | useTerminal.ts router에 echo case 추가 + Gate §13 (idle scenario gate)                                             |
+| #   | 함정                                                                                                | Phase                   | Fix 메커니즘                                                                                             |
+| --- | --------------------------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| 10  | `npm test` 통과만으로 phase 닫음 → production tsc strict + vite build에서 에러 늦게 발견            | Phase 2 → 3 진입 시점   | Gate §8 신설: phase exit 전 npm test + npm run build 둘 다 그린                                          |
+| 11  | production ES3 ExtendScript + Windows host 차이가 build-tool/source 가정과 부딪침 (4 faces)         | Phase 3.7 ~ follow-up 4 | Gate §9–§12 신설 (panel script generator / jsx host registration / no namespace import / jsx ASCII-only) |
+| 12  | `sys.heartbeat` 단방향 broadcast + 양방향 watchdog 모순 → panel idle ~35s 후 사이드카 자체 shutdown | Phase 3.7 follow-up 5   | useTerminal.ts router에 echo case 추가 + Gate §13 (idle scenario gate)                                   |
 
 ### #11의 네 면 통합 정리
 
 함정 #11은 Phase 3.7 production wiring 첫 등장 시점에 **연속 4번 발화** — 각 face가 별개 root cause처럼 보이지만 같은 메타 패턴.
 
-| 면 (commit)                                    | 잘못된 가정                                              | production ground truth                                | Fix                                                                       |
-| ---------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
-| (a) panel script generator (b282d01)           | mock 짧은 ns (`"ns"`)                                    | dotted ns (`"com.aeclaude.panel"`)                     | bracket notation `$[ns]` + acorn parse 검증 (Gate §9)                     |
-| (b) jsx host 등록 (ecd9d2c — future-proof)     | bolt-cep switch가 항상 `"aftereffects"` literal 반환     | versioned `BridgeTalk.appName` 가능성                  | switch에 `default: host[ns] = aeft;` 추가 (Gate §10)                      |
-| (c) rollup namespace import (a9f2167)          | ESM `import * as`의 `__proto__: null` 표준 패턴          | ExtendScript SpiderMonkey prototype null setter throw  | named imports + 객체 literal (Gate §11)                                   |
-| (d) file encoding (6f9ee9e)                    | UTF-8 (no BOM) source 기본                               | system codepage 추정 (Windows Korean = cp949)          | jsx layer ASCII only (Gate §12)                                           |
+| 면 (commit)                                | 잘못된 가정                                          | production ground truth                               | Fix                                                   |
+| ------------------------------------------ | ---------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------- |
+| (a) panel script generator (b282d01)       | mock 짧은 ns (`"ns"`)                                | dotted ns (`"com.aeclaude.panel"`)                    | bracket notation `$[ns]` + acorn parse 검증 (Gate §9) |
+| (b) jsx host 등록 (ecd9d2c — future-proof) | bolt-cep switch가 항상 `"aftereffects"` literal 반환 | versioned `BridgeTalk.appName` 가능성                 | switch에 `default: host[ns] = aeft;` 추가 (Gate §10)  |
+| (c) rollup namespace import (a9f2167)      | ESM `import * as`의 `__proto__: null` 표준 패턴      | ExtendScript SpiderMonkey prototype null setter throw | named imports + 객체 literal (Gate §11)               |
+| (d) file encoding (6f9ee9e)                | UTF-8 (no BOM) source 기본                           | system codepage 추정 (Windows Korean = cp949)         | jsx layer ASCII only (Gate §12)                       |
 
 **공통 root**: build tool / unit test mock / boilerplate / source code 모두 production ground truth와 형식 차이를 자동 가드 못 함. 모든 면이 production wiring 첫 등장 시점에서만 드러남. probe (3a54075) 결과로 (b)는 fix-2가 실제 root cause 아니었음 확인됨 — `BridgeTalk.appName === "aftereffects"` literal 반환이라 default 도달 안 해도 OK였지만 future-proof safety net으로 유지.
 
@@ -560,19 +574,20 @@ Phase 4 sub-step (4.0 → 4.4) + 4개 layered fix + 메타 함정 #15 신설로 
 
 **Sub-step 진행**:
 
-| # | Commit | 산출물 |
-|---|---|---|
-| 4.0 | `541c759` | 결정 게이트 D-H~D-K + backward compat 강제 |
-| 4.1 | `7abcfd1` | MCP server skeleton + dispatcher tool exposure |
-| 4.2 | `4400f8c` | claude mcp add auto-registration on sidecar boot |
-| 4.3 | `e4238b9` | PTY shell cmd.exe → claude (production) + spawn-helper integration override |
-| 4.3 hotfix | `f7e1575` | PtyLike onExit (Trap A) + sidecar build gate (Trap B, 함정 #13) |
-| 4.4 fix | `3bdd6ae` | node-pty PATH lookup via which (mistakes #14 Aspect A) |
-| 4.4 fix-2 | `9889af0` | MCP entry path dev/prod resolution (Aspect B) |
-| 4.4 fix-3 | `d9028cc` | MCP entry guard dev/prod suffix (Aspect C) |
-| 4.4 fix-4 | `da691a1` | wire ExecHandler → dispatcher.exec (mistakes #15 신설) |
+| #          | Commit    | 산출물                                                                      |
+| ---------- | --------- | --------------------------------------------------------------------------- |
+| 4.0        | `541c759` | 결정 게이트 D-H~D-K + backward compat 강제                                  |
+| 4.1        | `7abcfd1` | MCP server skeleton + dispatcher tool exposure                              |
+| 4.2        | `4400f8c` | claude mcp add auto-registration on sidecar boot                            |
+| 4.3        | `e4238b9` | PTY shell cmd.exe → claude (production) + spawn-helper integration override |
+| 4.3 hotfix | `f7e1575` | PtyLike onExit (Trap A) + sidecar build gate (Trap B, 함정 #13)             |
+| 4.4 fix    | `3bdd6ae` | node-pty PATH lookup via which (mistakes #14 Aspect A)                      |
+| 4.4 fix-2  | `9889af0` | MCP entry path dev/prod resolution (Aspect B)                               |
+| 4.4 fix-3  | `d9028cc` | MCP entry guard dev/prod suffix (Aspect C)                                  |
+| 4.4 fix-4  | `da691a1` | wire ExecHandler → dispatcher.exec (mistakes #15 신설)                      |
 
 **Dogfood 결과 (4 시나리오 모두 ✅)**:
+
 - (e) "안녕" chat sanity ✅
 - (f) "현재 컴프 알려줘" → ae_get_active_comp MCP full round-trip ✅ (Phase 4 본질 검증)
 - (g) 1시간+ idle 후 chat + tool 정상 동작 ✅ (#12 heartbeat 회귀 0)
@@ -581,14 +596,15 @@ Phase 4 sub-step (4.0 → 4.4) + 4개 layered fix + 메타 함정 #15 신설로 
 
 **메타 학습 — layered dogfood loop**: Phase 4.4 한 sub-step에서 4개의 다른 production wiring 함정이 layered로 발현. 각 fix 후 다음 dogfood loop에서 다음 layer가 reachable.
 
-| Fix | 함정 family | 발견 메커니즘 |
-|---|---|---|
+| Fix                    | 함정 family                                                      | 발견 메커니즘                                                             |
+| ---------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | 4.4 fix (#14 Aspect A) | dev/prod 분기 — node-pty PATH lookup 부재 vs child_process.spawn | 사이드카가 boot 자체 fail. file probe (절대 ASCII path)로 root cause 단정 |
-| 4.4 fix-2 (Aspect B) | dev/prod 분기 — MCP entry path가 dev에서 src/.js (존재 X) | panel `/mcp` × failed. `claude mcp get ae-mcp` 진단으로 path 확인 |
-| 4.4 fix-3 (Aspect C) | dev/prod 분기 — MCP entry guard suffix `.js`만 검사 | `.claude.json` 직독으로 args .ts 확인 + entry guard 코드 비교 |
-| 4.4 fix-4 (#15 신설) | production assembly point가 mock 외부 — stubExecHandler 박힘 | panel xterm 안 claude가 git/grep으로 코드 직접 분석 → root cause 짚음 |
+| 4.4 fix-2 (Aspect B)   | dev/prod 분기 — MCP entry path가 dev에서 src/.js (존재 X)        | panel `/mcp` × failed. `claude mcp get ae-mcp` 진단으로 path 확인         |
+| 4.4 fix-3 (Aspect C)   | dev/prod 분기 — MCP entry guard suffix `.js`만 검사              | `.claude.json` 직독으로 args .ts 확인 + entry guard 코드 비교             |
+| 4.4 fix-4 (#15 신설)   | production assembly point가 mock 외부 — stubExecHandler 박힘     | panel xterm 안 claude가 git/grep으로 코드 직접 분석 → root cause 짚음     |
 
 **메타 학습 — production wiring first encounter 함정의 두 family**:
+
 - **#11 / #13 / #14 family**: 외부 의존성 시뮬레이션 정확도 (ES3 SpiderMonkey / node-pty PATH / dev vs prod build artifact / entry guard suffix). 단위 mock + integration override가 production ground truth와 어긋남. fix = 외부에 더 가까운 검증 layer 추가 (which 사전 lookup, file probe, dev/prod helper, suffix list 확장).
 - **#15 family (신설)**: production assembly point가 mock 외부 위치. wiring code가 main()에 inline + 모든 test가 mock execHandler 직접 주입 → 그 wiring 자체는 dormant 상태로 통과. fix = helper 추출 + helper 단위 테스트 + production-equivalent integration test.
 
@@ -599,12 +615,14 @@ Phase 4 sub-step (4.0 → 4.4) + 4개 layered fix + 메타 함정 #15 신설로 
 **메타 학습 — production assembly point는 helper로 추출**: Phase 5+ 새 wiring 추가 시 main()에 inline wiring 박지 말 것. 한 줄짜리 wiring도 별도 함수 + 단위 테스트 + production-equivalent integration test (production graph 1:1 wired). assembly graph 그 자체의 회귀 방지 가드.
 
 **Phase 4 자산 (Phase 5 활용)**:
+
 - `sidecar/src/mcp/server.ts` — MCP stdio entry. 30 tool 추가 시 `server.registerTool(...)` 한 줄 + dispatcher 통과로 자동 wiring. dispatcher의 generic forward 덕에 schema/handler 사이드카 분리 안 해도 동작.
 - `sidecar/src/dispatcher/execHandler.ts` (Phase 4.4 fix-4) — production assembly point helper. Phase 5+에서 여러 dispatcher 추가 시 같은 helper 패턴 복제 (단 현재 1개만 필요).
 - `sidecar/src/__integration__/integration-production-wiring.test.ts` — production assembly graph 회귀 방지 가드. 신규 wiring 추가 시 같은 패턴 신규 시나리오 추가.
 - `registerMcpWithClaude` (Phase 4.2) + `resolveMcpSpawn` (4.4 fix-2) + `resolveShellPath` (4.4 fix) — Phase 7 ZXP 패키징 시 자동 prod mode 전환 (코드 변경 0).
 
 **Phase 5 진입 시 챙길 것**:
+
 - D8 collocation 정식 확립 — `sidecar/src/tools/<ae_name>/{schema,handler,impl.jsx,test}` 4파일 패턴. ae_get_active_comp은 Phase 3.3 spike 결과 panel jsx side에만 있으므로 Phase 5 첫 tool 작업 시 D8 정식 분리 (또는 그대로 두고 신규 tool부터 D8 적용 — 결정 필요).
 - Phase 4의 9 commit + 4 layered fix 패턴이 Phase 5에서 재발할 가능성. 30 tool 추가 시 매 5개마다 dogfood loop + idle scenario Gate §13 확인.
 - D3 `ae_run_extendscript` per-call approval modal — Phase 5 첫 destructive tool 도입 시 함께.
@@ -645,12 +663,12 @@ Phase 4 sub-step (4.0 → 4.4) + 4개 layered fix + 메타 함정 #15 신설로 
 
 ### Phase 4 Decisions (D-H ~ D-K, 결정 게이트 4.0)
 
-| #    | Topic                          | Decision                                                                                                                                       | Plan delta                                                                                                                                                                                |
-| ---- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D-H  | claude CLI 인증                | claude CLI에 위임 (auto-detect: `ANTHROPIC_API_KEY` env inherit / OAuth fallback)                                                              | 사이드카 spawn 시 env 그대로 inherit. 인증 코드 0. dev = API key 빠른 dogfood, 일반 사용자 = 첫 실행 OAuth (claude CLI 자체 처리).                                                         |
-| D-I  | MCP server process 모델        | claude CLI가 spawn하는 별도 stdio entry script (`sidecar/src/mcp/server.ts`)                                                                   | 사이드카 main은 PTY+WS만. MCP server는 standalone child. entry script가 panel WS에 reverse-connect → dispatcher.exec → result envelope → MCP response. 신규 모듈 `sidecar/src/mcp/`.    |
-| D-J  | PanelBridge multi-role         | 단일 ws server에 role "panel" + "mcp" 두 종류 client 허용. primary/secondary 정책은 role 안에서만 적용. backward compat 강제 (role 미명시 default "panel"). **role 식별 = URL query `?role=mcp`** (4.1 lock-in). | PanelBridge ClientState에 role 추가. handleConnection 시 req.url 파싱. WRITE_TYPES 라우팅이 role-aware. Phase 2/3 17 시나리오 그린 유지. role-disallowed 메시지는 server.error `AERoleNotAllowed`. |
-| D-K  | claude 출력 채널 분리          | chat 채널 = PTY raw 통과 (사이드카 main → ws → xterm). MCP 채널 = stdio JSON-RPC (D-I 별도 entry 독립). 두 채널은 사이드카 main에서 만나지 않음 | 사이드카 main은 PTY parsing 0. claude CLI 출력 형식 변경에 dependency 0. xterm UX는 ANSI/링크 addon만 영향.                                                                                |
+| #   | Topic                   | Decision                                                                                                                                                                                                         | Plan delta                                                                                                                                                                                         |
+| --- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-H | claude CLI 인증         | claude CLI에 위임 (auto-detect: `ANTHROPIC_API_KEY` env inherit / OAuth fallback)                                                                                                                                | 사이드카 spawn 시 env 그대로 inherit. 인증 코드 0. dev = API key 빠른 dogfood, 일반 사용자 = 첫 실행 OAuth (claude CLI 자체 처리).                                                                 |
+| D-I | MCP server process 모델 | claude CLI가 spawn하는 별도 stdio entry script (`sidecar/src/mcp/server.ts`)                                                                                                                                     | 사이드카 main은 PTY+WS만. MCP server는 standalone child. entry script가 panel WS에 reverse-connect → dispatcher.exec → result envelope → MCP response. 신규 모듈 `sidecar/src/mcp/`.               |
+| D-J | PanelBridge multi-role  | 단일 ws server에 role "panel" + "mcp" 두 종류 client 허용. primary/secondary 정책은 role 안에서만 적용. backward compat 강제 (role 미명시 default "panel"). **role 식별 = URL query `?role=mcp`** (4.1 lock-in). | PanelBridge ClientState에 role 추가. handleConnection 시 req.url 파싱. WRITE_TYPES 라우팅이 role-aware. Phase 2/3 17 시나리오 그린 유지. role-disallowed 메시지는 server.error `AERoleNotAllowed`. |
+| D-K | claude 출력 채널 분리   | chat 채널 = PTY raw 통과 (사이드카 main → ws → xterm). MCP 채널 = stdio JSON-RPC (D-I 별도 entry 독립). 두 채널은 사이드카 main에서 만나지 않음                                                                  | 사이드카 main은 PTY parsing 0. claude CLI 출력 형식 변경에 dependency 0. xterm UX는 ANSI/링크 addon만 영향.                                                                                        |
 
 **Phase 4 결정 게이트 (4.0) backward compat 강제 사항** (D-J 핵심):
 
@@ -662,6 +680,20 @@ Phase 4 sub-step (4.0 → 4.4) + 4개 layered fix + 메타 함정 #15 신설로 
 **Phase 4 sub-step 진입 전 사전 점검 (4.2 진입 시 코딩 전 답 받기)**:
 
 - `claude mcp add` 사전 점검 4개 — Windows .cmd shim / prompt 동작 / idempotent / 등록 위치 (per-user vs project-local). #11 메타 패턴 (production wiring 첫 등장 함정) 대비.
+
+### Phase 5 Decisions (D-L ~ D-N, 결정 게이트 5.0)
+
+| #   | Topic                           | Decision                                                                                                                                                                                                          | Plan delta                                                                                                                                                                                                                                                  |
+| --- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-L | `ae_run_extendscript` 도입 시점 | Phase 5.6 별도 sub-step (last) — 29 tool 패턴 누적 후 escape hatch 위에 얹기                                                                                                                                      | §8 Phase 5.6에 sub-step 추가. AST validator 골든셋 (D7) + approval modal (in-panel, ESC=Reject, D11) + `needsApproval: true` flag (유일). 일반 tool collocation 패턴 안정화 후 별도 단계 — 첫 도입 시 두 패턴 동시 디버깅 risk 회피.                        |
+| D-M | D8 collocation 이동 시점        | 5.1 첫 작업으로 `ae_get_active_comp`을 `src/jsx/aeft/tools/` (panel spike) → `sidecar/src/tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts}` 정식 위치 이동 + vite-cep-plugin 합본 config                | §5 디렉토리 구조의 정식 위치 확립. Phase 3.3 spike 위치 폐기. 첫 reference example 역할 — 30 tool이 따라할 패턴이 production 위치에 있어야 lane 분할 시 mistake 0. vite-cep-plugin이 `sidecar/src/tools/*/impl.jsx` 합본. Gate §11 / §12 / Phase 4 dogfood (e/f) 회귀 확인. |
+| D-N | lane 분할 전략                  | 5.1 MVP 5 직렬 → 5.2~5.5 25 병렬 lane (그룹 5개: 컴프 / 레이어 / 키프레임 / 이펙트 / 익스프레션)                                                                                                                  | 패턴 확립 → D8 lane 충돌 0 효익 회수. tool 개별 명세는 5.2 진입 시 별도 합의. 매 5 tool마다 dogfood loop + idle scenario Gate §13 확인.                                                                                                                    |
+
+**Phase 5 결정 게이트 (5.0) lock-in 사항**:
+
+- **D-L**: `ae_run_extendscript`는 Phase 5의 마지막 sub-step. 일반 tool 패턴이 29개 누적되어야 AST validator 골든셋 + approval modal 위에 얹는 일이 자연스러움. 첫 도입 시 두 패턴 동시 디버깅 risk 회피.
+- **D-M**: Phase 3.3 spike에서 `ae_get_active_comp`이 panel jsx side에 임시 위치. 5.1 시작 시 정식 D8 위치로 이동 — 이후 tool 추가가 production 위치 1개를 reference example로 따라감. vite-cep-plugin 합본 config 변경 (panel rollup이 `sidecar/src/tools/*/impl.jsx` 추가 glob). Gate §11 (`__proto__` 0) / §12 (non-ASCII 0) / Phase 4 dogfood (e/f) 회귀 자동 확인.
+- **D-N**: 5.1 MVP 5 직렬 동안 collocation 패턴 안정화 (각 lane reference example 1개씩 — 컴프 / 레이어 / 키프레임 / 이펙트, 익스프레션은 5.2~5.5 분배). 5.2~5.5 25 tool 병렬 lane 진입 시 패턴 충돌 0 (D8 보장). tool 개별 명세 합의는 5.2 진입 시점.
 
 ### Eng Architecture Findings (E1–E7) — 위 D6-D9로 모두 해결됨
 
