@@ -425,6 +425,78 @@ describe("PanelBridge", () => {
     expect(onShutdownRequest).toHaveBeenCalledWith("panel-disconnect");
   });
 
+  // ── 15 (mistakes.md #16) ─────────────────────────────────────────
+  // D-J multi-role regression guard: panel disconnects while an mcp
+  // client (claude CLI's stdio child) is still attached. The mcp ws
+  // shares the same `clients` map as panel, so the pre-fix
+  // `clients.size === 0` gate would have kept the grace timer dormant
+  // forever — sidecar + PTY + claude + MCP all leak per panel-close
+  // cycle. Post-fix gates on findFirstByRole("panel"), so mcp's
+  // presence can't block shutdown.
+  it("scenario 15: panel disconnect with mcp client still attached → grace timer fires (mcp doesn't block)", async () => {
+    const onShutdownRequest = vi.fn();
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+      onShutdownRequest,
+      clientDisconnectGracePeriodMs: 60,
+    });
+    ({ port } = await bridge.start());
+
+    // panel client (default role — no query string).
+    const panel = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(panel, (m) => m.type === "sys.version");
+
+    // mcp client (?role=mcp). Mirrors the production wiring where the
+    // MCP stdio child reverse-connects to the sidecar (Phase 4 D-I + D-J).
+    const mcp = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    await nextMessage(mcp, (m) => m.type === "sys.version");
+
+    // Panel disconnects (CEP panel close); mcp stays attached because
+    // it's a child of claude CLI which is itself the sidecar's PTY child
+    // — still alive at this point.
+    panel.close();
+
+    // Grace window: pre-fix this would NOT fire (clients.size === 1).
+    // Post-fix it fires because no panel client remains.
+    await delay(150);
+    expect(onShutdownRequest).toHaveBeenCalledTimes(1);
+    expect(onShutdownRequest).toHaveBeenCalledWith("panel-disconnect");
+
+    mcp.close();
+  });
+
+  // ── 16 (mistakes.md #16) ─────────────────────────────────────────
+  // Inverse direction: mcp disconnect while panel is still attached
+  // must NOT trigger shutdown. Confirms the panel-only gate works in
+  // both directions and we didn't accidentally invert the condition.
+  it("scenario 16: mcp disconnect with panel still attached → grace timer does NOT fire", async () => {
+    const onShutdownRequest = vi.fn();
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+      onShutdownRequest,
+      clientDisconnectGracePeriodMs: 60,
+    });
+    ({ port } = await bridge.start());
+
+    const panel = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(panel, (m) => m.type === "sys.version");
+
+    const mcp = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    await nextMessage(mcp, (m) => m.type === "sys.version");
+
+    mcp.close();
+
+    // Wait past grace — panel is still authoritative, no shutdown.
+    await delay(150);
+    expect(onShutdownRequest).not.toHaveBeenCalled();
+
+    panel.close();
+  });
+
   // ── 8 ────────────────────────────────────────────────────────────
   it("multi-client: secondary's pty.in refused with AEMultiClientRefused", async () => {
     const wsA = await openWs(url);

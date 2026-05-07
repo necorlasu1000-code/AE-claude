@@ -355,17 +355,24 @@ export class PanelBridge {
         }
       }
 
-      // Last client just left and we're not already shutting down: start grace
-      // timer. If a new connection arrives within the grace window the timer
-      // is canceled in handleConnection. Otherwise onShutdownRequest fires —
-      // index.ts wires this to gracefulShutdown, releasing the lockfile.
-      // Fixes Phase 2.8.4 zombie sidecars when CEP panel closes (no chance
-      // for the React unmount cleanup to send sys.shutdown synchronously).
+      // Last *panel* client just left and we're not already shutting down:
+      // start grace timer. Phase 5.1.2 (mistakes #16) — D-J multi-role
+      // introduced mcp clients into the same `clients` map, but the mcp
+      // client's lifecycle is owned by claude CLI's stdio child (not the
+      // panel runtime). When the CEP panel closes, panel ws disconnects
+      // but mcp ws stays attached because the sidecar (and therefore
+      // claude CLI / MCP server / PTY) is still alive. The pre-fix
+      // `clients.size === 0` condition would have kept the grace timer
+      // dormant, leaving 4 zombie processes per cycle. We gate on
+      // panel-only presence so mcp clients can never block shutdown.
+      // mcp's own lifecycle naturally tears down via PTY tree-kill
+      // during gracefulShutdown.
       const grace = this.opts.clientDisconnectGracePeriodMs ?? 5_000;
-      if (!this.stopping && this.clients.size === 0 && grace > 0) {
+      const panelStillPresent = this.findFirstByRole("panel") !== undefined;
+      if (!this.stopping && !panelStillPresent && grace > 0) {
         this.clientDisconnectTimer = setTimeout(() => {
           this.clientDisconnectTimer = undefined;
-          if (this.stopping || this.clients.size > 0) return;
+          if (this.stopping || this.findFirstByRole("panel") !== undefined) return;
           try { this.opts.onShutdownRequest?.("panel-disconnect"); }
           catch { /* never throw from timer */ }
         }, grace);

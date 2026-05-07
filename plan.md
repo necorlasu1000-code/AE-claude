@@ -321,14 +321,15 @@ ae-claude-panel/
 
 ### Phase 5: 핵심 tool 구현 (30 MCP tool + D8 collocation)
 
-Sub-step 분할 (결정 게이트 5.0 → MVP 5 직렬 → 25 병렬 lane → escape hatch 마지막):
+Sub-step 분할 (결정 게이트 5.0 → MVP 5 직렬 → 25 병렬 lane → escape hatch 마지막). 5.1은 fine-grained로 5.1.0/5.1.1/5.1.2/5.1.3 분할 — collocation alias 도입 / 첫 tool 이동 / 좀비 fix / architecture refactor 순.
 
-- **5.0** ✅ 결정 게이트 D-L/D-M/D-N lock-in (2026-05-07, 본 commit)
+- **5.0** ✅ 결정 게이트 D-L/D-M/D-N lock-in (2026-05-07, `0d06ea7`)
 - **5.1** ⏳ MVP 5 tool 직렬 — collocation 패턴 확립
-  - 첫 작업 (D-M): `ae_get_active_comp` panel spike → `sidecar/src/tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts}` 정식 위치 이동
-  - vite-cep-plugin config 수정 — `sidecar/src/tools/*/impl.jsx`를 panel jsx bundle로 합본
-  - Gate §11 (`__proto__` 0) / §12 (non-ASCII 0) / Phase 4 dogfood (e/f) 회귀 확인
-  - 4 새 tool 직렬 추가 (각 lane reference example 1개씩)
+  - **5.1.0** ✅ vite-cep-plugin alias config (옵션 B) — `@aeTools` → `sidecar/src/tools/` rollup alias dormant 등록 (`7977d27`)
+  - **5.1.1** ✅ `ae_get_active_comp` D-M 단순 이동 (옵션 A + C) — `sidecar/src/tools/ae_get_active_comp/{schema.ts, handler.ts(stub), impl.ts, impl.test.ts}` + alias first encounter + CLAUDE.md D8 표 sync (`711fd6d`)
+  - **5.1.2** ✅ 좀비 fix (mistakes #16) — D-J multi-role grace timer 회귀, panel-only count gate (본 commit)
+  - **5.1.3** ⏳ Architecture refactor — handler.ts (defineAETool wrap + AENoActiveCompError sentinel 변환) + `_errors.ts`에 AENoActiveCompError 클래스 신설 + mcp/server.ts refactor (inline → handler import) + `ctx.panelExec` wiring 신설. 이전 plan의 5.1.2였던 작업.
+  - **5.1.4~5.1.6** 4 새 MVP tool 직렬 추가 (각 lane reference example 1개씩 — 컴프/레이어/키프레임/이펙트)
 - **5.2~5.5** 25 tool 병렬 lane (D-N 그룹 5개, D8 덕분에 lane 충돌 0)
   - 5.2 컴프 / 5.3 레이어 / 5.4 키프레임 / 5.5 이펙트 (익스프레션은 분배)
   - tool 개별 명세는 5.2 진입 시 별도 합의
@@ -337,7 +338,7 @@ Sub-step 분할 (결정 게이트 5.0 → MVP 5 직렬 → 25 병렬 lane → es
   - 29 tool 패턴 누적 후 escape hatch 위에 얹기
   - AST validator 골든셋 (D7) + approval modal (in-panel, ESC=Reject, D11) + `needsApproval: true` flag (유일)
 
-각 tool은 collocation 4파일 (schema/handler/impl/test) + dispatcher 통과 round-trip 검증 + golden case 1+ + integration test. 단위 테스트는 mock-AE → tool 호출 → 실제 AE 상태 변화 확인.
+각 tool은 collocation 4파일 (schema/handler/impl/impl.test) + dispatcher 통과 round-trip 검증 + golden case 1+ + integration test. 단위 테스트는 mock-AE → tool 호출 → 실제 AE 상태 변화 확인.
 
 ### Phase 6: UX 다듬기
 

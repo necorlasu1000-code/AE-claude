@@ -155,15 +155,19 @@ AE ↔ CEP Panel (React + xterm.js)
 
 ### Phase 5 진행 중 — 30 MCP tool + D8 collocation 패턴 확립
 
-| # | Sub-step | 상태 |
-|---|---|---|
-| 5.0 | 결정 게이트 D-L/D-M/D-N lock-in (2026-05-07, 본 commit) | ✅ |
-| 5.1 | MVP 5 tool 직렬 — `ae_get_active_comp` D-M 이동 + vite-cep-plugin 합본 config + 4 새 tool (각 lane reference example) | ⏳ **다음 진입 대상** |
-| 5.2 | 컴프 lane (병렬) | |
-| 5.3 | 레이어 lane (병렬) | |
-| 5.4 | 키프레임 lane (병렬) | |
-| 5.5 | 이펙트 lane (병렬, 익스프레션 분배) | |
-| 5.6 | `ae_run_extendscript` 도입 (D3 + D-L) — AST 골든셋 + approval modal + `needsApproval: true` | |
+| # | Sub-step | Commit | 상태 |
+|---|---|---|---|
+| 5.0 | 결정 게이트 D-L/D-M/D-N lock-in (2026-05-07) | `0d06ea7` | ✅ |
+| 5.1.0 | vite-cep-plugin alias config (옵션 B) — `@aeTools` rollup alias dormant 등록 | `7977d27` | ✅ |
+| 5.1.1 | `ae_get_active_comp` D-M 단순 이동 (옵션 A + C) — alias first encounter + CLAUDE.md D8 표 sync | `711fd6d` | ✅ |
+| 5.1.2 | 좀비 fix (mistakes #16) — D-J multi-role grace timer panel-only count gate | (본 commit) | ✅ |
+| 5.1.3 | Architecture refactor — handler.ts (defineAETool wrap) + AENoActiveCompError 신설 + mcp/server.ts refactor + `ctx.panelExec` wiring | | ⏳ **다음 진입 대상** |
+| 5.1.4~5.1.6 | 4 새 MVP tool 직렬 (각 lane reference example) | | |
+| 5.2 | 컴프 lane (병렬) | | |
+| 5.3 | 레이어 lane (병렬) | | |
+| 5.4 | 키프레임 lane (병렬) | | |
+| 5.5 | 이펙트 lane (병렬, 익스프레션 분배) | | |
+| 5.6 | `ae_run_extendscript` 도입 (D3 + D-L) — AST 골든셋 + approval modal + `needsApproval: true` | | |
 
 ### Phase 6-7 (다음 이상)
 - Phase 6 — UX (logger.ts, Recent AI ops 카드, status bar 5상태)
@@ -171,7 +175,7 @@ AE ↔ CEP Panel (React + xterm.js)
 
 ---
 
-## E. 15개 발견 함정 (mistakes.md 인덱스)
+## E. 16개 발견 함정 (mistakes.md 인덱스)
 
 | # | 함정 한 줄 | Phase | 해결 메커니즘 |
 |---|---|---|---|
@@ -190,6 +194,7 @@ AE ↔ CEP Panel (React + xterm.js)
 | 13 | PtyLike interface가 onExit/kill 누락 + 사이드카 tsc 별도 미실행 → tsx runtime에서만 발현 | 4.3 hotfix | PtyLike에 onExit + kill 추가 + Gate §8 monorepo 양쪽 build 명시 |
 | 14 | production wiring 첫 등장 — dev/prod 분기 누락 family (3 aspects) | 4.4 fix/fix-2/fix-3 | Aspect A: which 사전 lookup / Aspect B: resolveMcpSpawn dev/prod / Aspect C: entry guard suffix list |
 | **15** | **production assembly point가 단위/통합 mock 외부 — 모든 test green이지만 production fail** | **4.4 fix-4** | **makeDispatcherExecHandler helper 추출 + production-equivalent integration test** |
+| **16** | **D-J multi-role grace timer 회귀 — `clients.size === 0` 조건이 mcp 포함 → panel close 시 좀비 4개 누적. Phase 4 dogfood (h) 통과는 시간 변수 우연** | **5.1.2** | **panel-only count gate (`findFirstByRole("panel")`) + scenario 15/16 회귀 가드. 새 메타 family — "검증 절차 시간 변수 누락"** |
 
 ### #11 4-faces (Phase 3.7 wiring 발견 누적)
 
@@ -302,11 +307,11 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 5.0 ✅, 5.1 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.2 ✅, 5.1.3 진입 대기)
 
 ### 현재 상태
 
-**Phase 5.0 ✅ 결정 게이트 D-L/D-M/D-N lock-in 완료** (2026-05-07, 본 commit). Phase 4 dogfood 4 시나리오 (e/f/g/h) 모두 통과 baseline 유지. **Phase 5.1 (MVP 5 tool 직렬, `ae_get_active_comp` D-M 이동 + vite-cep-plugin 합본 config + 4 새 tool) 진입 대기.**
+**Phase 5.1.2 ✅ 좀비 fix 완료** (2026-05-07, 본 commit). D-J multi-role grace timer 회귀 root cause 확정 (`panelBridge.ts:365` `clients.size === 0` 조건이 mcp client 포함) + panel-only count gate fix + scenario 15/16 회귀 가드 + mistakes #16 등재 (새 메타 family — 검증 절차 시간 변수 누락). Phase 4 dogfood (h) "잔존 0" 통과는 35-50s 시간 변수 의존 우연 — 5.1.2 fix 후에야 즉시 측정 baseline 진짜 보장. **Phase 5.1.3 (architecture refactor — handler.ts + AENoActiveCompError + mcp/server.ts refactor + ctx wiring) 진입 대기.**
 
 ### 검증된 실측치
 

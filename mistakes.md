@@ -1077,4 +1077,67 @@ Phase 4.2 시점의 mcpEntryAbs jsdoc은 **함정을 의식했으나 fix 안 한
 
 **한계** (#14 Aspect C가 보여줌): self-aware decision pattern은 **의식한 함정만** 박을 수 있다. 같은 dev/prod boundary가 두 layer (호출자 args + 피호출자 guard)에서 따로 cut된 함정은 4.2 시점에 함께 의식 못 함 → 4.4 layered loop가 catch.
 
+## 2026-05-07 D-J multi-role grace timer 회귀 (#16)
+
+**문제**: Phase 5.1.2 dogfood — CEP panel close (X 버튼 또는 Window 메뉴 토글) 후 task manager에 사이드카 관련 process 4개 (사이드카 main `node.exe` + claude CLI + MCP server `node.exe` + `winpty-agent.exe`)가 모두 남음. cycle마다 4개씩 누적되는 좀비. **Phase 4 dogfood (h) "잔존 0" 통과 baseline 회귀로 보였으나 진단 결과 회귀가 아니라 Phase 4.0부터 잠재**.
+
+**진단**:
+- panel close 시 useTerminal cleanup → ws.close + launcher.stop이 발동되지만 React unmount async 특성상 `sys.shutdown` 메시지가 사이드카에 반드시 도달하지는 않음 (#9 함정의 원래 fix 동기). 그래서 사이드카 측 `panelBridge.ts:365` disconnect grace timer가 fallback shutdown trigger.
+- pre-fix 조건: `if (!this.stopping && this.clients.size === 0 && grace > 0)`. 이 조건이 panel ws disconnect 후에도 `clients.size > 0`이라 발동 안 함.
+- 이유: Phase 4.0 (`541c759`) D-J multi-role 도입 시 mcp role을 panel과 같은 `clients` Map에 등록. mcp client는 claude CLI의 stdio child라 lineage가 panel과 다름 (panel 죽어도 mcp는 살아있는 자체 process tree). 결과 — panel ws만 disconnect되고 mcp ws는 attached 상태 → `clients.size === 1` → grace 영원히 안 발동 → 사이드카 stay → MCP/PTY/claude 전부 stay.
+
+**Root cause**: D-J가 mcp role을 도입할 때 `clients` Map을 공유하는 결정은 합리적 (multi-role 라우팅 통합 관리). 하지만 **disconnect grace 정책 자체는 "panel runtime이 사라졌는가"를 묻는 의도였음** — 정책-구현 어긋남. mcp의 lifecycle은 사이드카가 graceful shutdown할 때 PTY tree-kill로 자연 정리되므로 정책상 무시 대상. clients.size 조건이 mcp까지 합산하는 건 buggy.
+
+**왜 Phase 4 dogfood (h)가 통과했는가** (메타 핵심):
+
+`panelBridge.ts:688-699` heartbeat watchdog: 30s (`heartbeatTimeoutMs` default) 무수신 시 `ws.close(1001, "heartbeat timeout")`. mcp client는 dogfood (h) 시점에 사이드카 측 heartbeat broadcast(`sys.heartbeat`)에 echo 응답 wiring이 없었음 → 30s 후 강제 close → `clients.size === 0` 도달 → grace 5s → 사이드카 graceful shutdown → PTY tree-kill → 잔존 0.
+
+즉 **dogfood (h) 통과는 35-50s 시간 변수에 의존한 우연**. 사용자가 task manager 확인까지 충분히 기다렸기 때문. 즉시 확인했다면 잔존 4 발견했을 것.
+
+**Fix (Phase 5.1.2)**:
+
+`sidecar/src/ws/panelBridge.ts` ws.on("close") 안의 grace gate를 panel-only 조건으로 변경:
+
+```ts
+const grace = this.opts.clientDisconnectGracePeriodMs ?? 5_000;
+const panelStillPresent = this.findFirstByRole("panel") !== undefined;
+if (!this.stopping && !panelStillPresent && grace > 0) {
+  this.clientDisconnectTimer = setTimeout(() => {
+    this.clientDisconnectTimer = undefined;
+    if (this.stopping || this.findFirstByRole("panel") !== undefined) return;
+    try { this.opts.onShutdownRequest?.("panel-disconnect"); }
+    catch { /* never throw from timer */ }
+  }, grace);
+}
+```
+
+`findFirstByRole`는 D-J 도입 시 이미 존재하던 헬퍼. panel role 클라이언트가 1개도 없을 때만 grace timer 발동. mcp client는 grace gate에 영향 0 — 사이드카 shutdown 시 PTY tree-kill이 claude CLI를 정리하면 그 stdio child인 MCP server도 함께 정리.
+
+**예방 (미래 패턴)**:
+
+1. **새 role 추가 시 lifecycle 정책 role-aware 명시**: clients Map은 multi-role 공유 가능하나 disconnect/grace/promotion 정책 gate는 어느 role에 적용되는지 코드와 jsdoc 둘 다 명시. D-J 시점에 mcp role primary promotion (`primaryMcp` 별도 필드, `findFirstByRole`)은 역할별로 분리됐으나 grace gate만 통합 조건으로 남아있던 것이 본 함정.
+2. **D8 collocation 30 tool 진입 시도 같은 패턴 의식**: 새 메시지 type / 새 client role / 새 lifecycle hook 추가할 때 기존 통합 조건이 실수로 새 차원을 합산하는지 사전 점검.
+3. **dogfood scenario 정의에 시간 boundary 명시**: "panel close 후 잔존 0"이 아니라 "panel close 후 **즉시** (5-10초 이내) 잔존 0" 같이 측정 timing 명시. timing-ambiguous criterion은 시간 변수 우연 통과 risk.
+
+**검증**:
+
+- `sidecar/src/ws/panelBridge.test.ts` scenario 15 (mistakes #16 정방향): panel ws close + mcp ws alive → grace timer 발동 → `onShutdownRequest("panel-disconnect")` 호출 ✅. pre-fix는 발동 X.
+- scenario 16 (역방향 회귀 가드): mcp ws close + panel ws alive → grace timer 발동 X. panel이 authoritative하므로 mcp 끊겨도 shutdown 발동 X ✅. 조건 부주의로 양방향 발동되는 실수 방지.
+- 사용자 dogfood: panel 닫고 task manager 즉시 확인 + 2 cycle 이상 (열고/닫기 반복) + 매 cycle 후 잔존 0 확인. 시간 변수 의존 X 검증.
+
+**메타 함정 family 비교** (#11 / #13 / #14 / #15 / #16):
+
+- **#11 4-faces / #13 / #14 family**: 외부 의존성 시뮬레이션 정확도 (ES3 SpiderMonkey / node-pty PATH / dev vs prod build artifact / entry guard suffix). mock과 production ground truth의 차이.
+- **#15**: production assembly point가 mock 외부 (DI gap). wiring code 자체가 test scope 밖.
+- **#16 (신설 family)**: **검증 절차 자체가 측정 timing에 의존 → 우연 통과**. dogfood가 catch하는 게 아니라 dogfood 측정 protocol의 시간 변수가 함정을 가림. fix 자체는 단순하지만 발현 메커니즘이 다른 메타 layer.
+
+세 family 모두 dogfood가 진단 도구지만 fix 방향과 catch 메커니즘이 다름:
+- #11/#13/#14 fix → 외부 의존성에 더 가까운 검증 layer 추가.
+- #15 fix → production assembly point helper 추출 + integration test.
+- #16 fix → 검증 protocol에 timing boundary 명시 + 즉시 측정 강제. unit test로 시간 변수 isolate (vitest fake timer 또는 짧은 grace window).
+
+**Phase 4 dogfood 통과 baseline의 신뢰도 재평가**:
+
+dogfood (h) "잔존 0" 통과는 사실상 검증 안 된 것. Phase 4 회고 기준 "panel close 후 잔존 0 ✅"는 #16 fix 적용 + 즉시 측정 protocol 후에야 진짜 보장된다. Phase 5.1.2 commit이 baseline을 retroactively 강화 — Phase 4 회고는 그대로 두되 PROJECT_CONTEXT.md §H에 "5.1.2 fix 후 잔존 0 강화 baseline" 메모 추가 가치.
+
 **메타 학습**: 미래 reader는 두 패턴 모두 수입 가능 — (a) "함정 의식했으나 다음 phase로 미루기 + jsdoc에 명시" + (b) "한 layer fix 후 같은 메타 family의 다른 layer 함정 재현해야 발현하는 layered dogfood 가정". 둘 합치면: jsdoc self-aware는 가치 있되, 한 번의 dogfood가 모든 함정 catch한다고 가정하지 말 것. 매 dogfood loop가 새 layer 발견 기회.
