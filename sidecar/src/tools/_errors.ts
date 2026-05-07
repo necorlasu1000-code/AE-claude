@@ -88,3 +88,20 @@ export class AEFileLockedError extends AEError {
     );
   }
 }
+
+// Phase 5.1.3 — domain error raised when an AE tool requires an active
+// composition but none is selected (typeName !== "Composition" or
+// activeItem null). Mirrors the panel jsx side h.fail("AENoActiveCompError",
+// ...) sentinel string. handler.ts converts the dispatcher's generic AEError
+// (code === "AENoActiveCompError") into this typed subclass so call sites
+// can catch by class instead of code string when needed.
+export class AENoActiveCompError extends AEError {
+  constructor(ctx?: Record<string, unknown>) {
+    super(
+      "AENoActiveCompError",
+      "No active composition. Select or create a comp in the AE project panel and try again.",
+      "app.project.activeItem null or non-Composition (typeName='Folder'|'Footage'). Suggest comp selection/creation, then retry.",
+      ctx,
+    );
+  }
+}

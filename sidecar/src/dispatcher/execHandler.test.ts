@@ -1,5 +1,14 @@
 // makeDispatcherExecHandler unit tests — mock dispatcher, verify the
 // ok=true → data return / ok=false → AEError throw conversion.
+//
+// Two paths verified:
+//   1. Unregistered tool name → fallback dumb-forward (Phase 4 backward
+//      compat). Tests use `ae_unregistered_dummy` to ensure tools registry
+//      lookup misses + the legacy code path fires.
+//   2. Registered tool (`ae_get_active_comp`) → defineAETool invoke. The
+//      registered path is exercised by handler.test.ts + integration-
+//      production-wiring.test.ts; here we only confirm the registry hit
+//      doesn't break the legacy ok/error envelope contract.
 
 import { describe, it, expect, vi } from "vitest";
 import { makeDispatcherExecHandler } from "./execHandler.js";
@@ -33,12 +42,12 @@ describe("makeDispatcherExecHandler", () => {
     }));
     const handler = makeDispatcherExecHandler(dispatcher);
 
-    const out = await handler("ae_get_active_comp", { foo: "bar" }, fakeCtx);
+    const out = await handler("ae_unregistered_dummy", { foo: "bar" }, fakeCtx);
 
     expect(out).toEqual({ name: "Hero", w: 1920 });
     expect(execMock).toHaveBeenCalledTimes(1);
     expect(execMock).toHaveBeenCalledWith({
-      tool: "ae_get_active_comp",
+      tool: "ae_unregistered_dummy",
       input: { foo: "bar" },
     });
   });
@@ -53,7 +62,7 @@ describe("makeDispatcherExecHandler", () => {
     }));
     const handler = makeDispatcherExecHandler(dispatcher);
 
-    await expect(handler("ae_get_active_comp", {}, fakeCtx)).rejects.toMatchObject({
+    await expect(handler("ae_unregistered_dummy", {}, fakeCtx)).rejects.toMatchObject({
       name: "AENoActiveCompError",
       code: "AENoActiveCompError",
       userMessage: "활성 컴프 없음",
@@ -64,7 +73,7 @@ describe("makeDispatcherExecHandler", () => {
     // `e instanceof AEError` to preserve the code/userMessage/developerHint
     // triple — a plain Error would be wrapped as AEScriptError fallback).
     try {
-      await handler("ae_get_active_comp", {}, fakeCtx);
+      await handler("ae_unregistered_dummy", {}, fakeCtx);
     } catch (e) {
       expect(e).toBeInstanceOf(AEError);
     }
@@ -82,7 +91,7 @@ describe("makeDispatcherExecHandler", () => {
     }));
     const handler = makeDispatcherExecHandler(dispatcher);
 
-    await expect(handler("ae_get_active_comp", {}, fakeCtx)).rejects.toMatchObject({
+    await expect(handler("ae_unregistered_dummy", {}, fakeCtx)).rejects.toMatchObject({
       code: "AETimeoutError",
     });
   });

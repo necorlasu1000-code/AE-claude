@@ -115,7 +115,7 @@ describe("Phase 4.4 fix-4 — production wiring (mistakes #15)", () => {
     send(mcpWs, {
       type: "exec",
       requestId: "mcp-rid-1",
-      tool: "ae_get_active_comp",
+      tool: "ae_unregistered_dummy",
       input: { foo: "bar" },
     });
 
@@ -125,7 +125,7 @@ describe("Phase 4.4 fix-4 — production wiring (mistakes #15)", () => {
     const execOnPanel = await nextMessage(panelWs, (m) => m.type === "exec");
     expect(execOnPanel.type).toBe("exec");
     if (execOnPanel.type !== "exec") return;
-    expect(execOnPanel.tool).toBe("ae_get_active_comp");
+    expect(execOnPanel.tool).toBe("ae_unregistered_dummy");
     expect(execOnPanel.input).toEqual({ foo: "bar" });
     expect(execOnPanel.requestId).not.toBe("mcp-rid-1");
 
@@ -163,7 +163,7 @@ describe("Phase 4.4 fix-4 — production wiring (mistakes #15)", () => {
     send(mcpWs, {
       type: "exec",
       requestId: "mcp-rid-err",
-      tool: "ae_get_active_comp",
+      tool: "ae_unregistered_dummy",
       input: {},
     });
 
@@ -191,6 +191,115 @@ describe("Phase 4.4 fix-4 — production wiring (mistakes #15)", () => {
       userMessage: "활성 컴프 없음",
       developerHint: "사용자에게 컴프 선택 제안",
     });
+
+    panelWs.close();
+    mcpWs.close();
+  });
+
+  // ── Phase 5.1.3 — registered tool path (defineAETool wrap) ─────────
+  // The fallback (unregistered) path above proves the assembly graph.
+  // This test proves the new layer: tools registry hit → defineAETool
+  // wrap → ctx.panelExec → dispatcher → panel → result, with schema
+  // validation flowing both directions.
+
+  it("registered tool round-trip: mcp exec ae_get_active_comp → handler.invoke → panel → schema-validated result → mcp", async () => {
+    const wired = await wireProduction();
+    bridge = wired.bridge;
+    const { port } = wired;
+
+    const panelWs = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(panelWs, (m) => m.type === "sys.version");
+    const mcpWs = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    await nextMessage(mcpWs, (m) => m.type === "sys.version");
+
+    send(mcpWs, {
+      type: "exec",
+      requestId: "mcp-rid-registered-1",
+      tool: "ae_get_active_comp",
+      input: {},
+    });
+
+    // The dispatcher.exec inside ctx.panelExec forwards to panel with
+    // a fresh requestId (NOT mcp-rid-registered-1).
+    const execOnPanel = await nextMessage(panelWs, (m) => m.type === "exec");
+    if (execOnPanel.type !== "exec") return;
+    expect(execOnPanel.tool).toBe("ae_get_active_comp");
+
+    // Panel replies with schema-compliant data. defineAETool's output
+    // validation accepts this; data flows back through the chain.
+    const validData = {
+      id: 42,
+      name: "Hero Shot",
+      width: 3840,
+      height: 2160,
+      durationSec: 5.5,
+      frameRate: 24,
+      numLayers: 7,
+    };
+    send(panelWs, {
+      type: "result",
+      requestId: execOnPanel.requestId,
+      data: validData,
+    });
+
+    const resultOnMcp = await nextMessage(mcpWs, (m) =>
+      m.type === "result" && m.requestId === "mcp-rid-registered-1",
+    );
+    expect(resultOnMcp).toMatchObject({
+      type: "result",
+      requestId: "mcp-rid-registered-1",
+      data: validData,
+    });
+
+    panelWs.close();
+    mcpWs.close();
+  });
+
+  it("registered tool error → AENoActiveCompError sentinel converted by handler.ts (typed subclass code preserved through bridge.toErrorMsg)", async () => {
+    const wired = await wireProduction();
+    bridge = wired.bridge;
+    const { port } = wired;
+
+    const panelWs = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(panelWs, (m) => m.type === "sys.version");
+    const mcpWs = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    await nextMessage(mcpWs, (m) => m.type === "sys.version");
+
+    send(mcpWs, {
+      type: "exec",
+      requestId: "mcp-rid-registered-err",
+      tool: "ae_get_active_comp",
+      input: {},
+    });
+
+    const execOnPanel = await nextMessage(panelWs, (m) => m.type === "exec");
+    if (execOnPanel.type !== "exec") return;
+
+    // Panel raises AENoActiveCompError (sentinel string from h.fail in
+    // panel jsx side). handler.ts catches the dispatcher's generic
+    // AEError + re-throws as typed AENoActiveCompError. bridge.toErrorMsg
+    // sees instanceof AEError and preserves the (canonical) code.
+    send(panelWs, {
+      type: "error",
+      requestId: execOnPanel.requestId,
+      code: "AENoActiveCompError",
+      userMessage: "panel-side message (will be replaced by typed subclass canonical)",
+      developerHint: "panel-side hint",
+    });
+
+    const errOnMcp = await nextMessage(mcpWs, (m) =>
+      m.type === "error" && m.requestId === "mcp-rid-registered-err",
+    );
+    expect(errOnMcp).toMatchObject({
+      type: "error",
+      requestId: "mcp-rid-registered-err",
+      code: "AENoActiveCompError",
+    });
+    // userMessage now matches AENoActiveCompError class canonical text
+    // (handler.ts replaced the panel-side strings with the typed subclass).
+    if (errOnMcp.type === "error") {
+      expect(errOnMcp.userMessage).toMatch(/no active comp/i);
+    }
 
     panelWs.close();
     mcpWs.close();

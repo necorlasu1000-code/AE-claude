@@ -327,9 +327,9 @@ Sub-step 분할 (결정 게이트 5.0 → MVP 5 직렬 → 25 병렬 lane → es
 - **5.1** ⏳ MVP 5 tool 직렬 — collocation 패턴 확립
   - **5.1.0** ✅ vite-cep-plugin alias config (옵션 B) — `@aeTools` → `sidecar/src/tools/` rollup alias dormant 등록 (`7977d27`)
   - **5.1.1** ✅ `ae_get_active_comp` D-M 단순 이동 (옵션 A + C) — `sidecar/src/tools/ae_get_active_comp/{schema.ts, handler.ts(stub), impl.ts, impl.test.ts}` + alias first encounter + CLAUDE.md D8 표 sync (`711fd6d`)
-  - **5.1.2** ✅ 좀비 fix (mistakes #16) — D-J multi-role grace timer 회귀, panel-only count gate (본 commit)
-  - **5.1.3** ⏳ Architecture refactor — handler.ts (defineAETool wrap + AENoActiveCompError sentinel 변환) + `_errors.ts`에 AENoActiveCompError 클래스 신설 + mcp/server.ts refactor (inline → handler import) + `ctx.panelExec` wiring 신설. 이전 plan의 5.1.2였던 작업.
-  - **5.1.4~5.1.6** 4 새 MVP tool 직렬 추가 (각 lane reference example 1개씩 — 컴프/레이어/키프레임/이펙트)
+  - **5.1.2** ✅ 좀비 fix (mistakes #16) — D-J multi-role grace timer 회귀, panel-only count gate (`87226ae`)
+  - **5.1.3** ✅ Architecture refactor — handler.ts (defineAETool wrap) + `AENoActiveCompError` 클래스 (글로벌 _errors.ts) + tools registry (sidecar/src/tools/index.ts) + `makeDispatcherExecHandler` 확장 (registry lookup + ctx.panelExec wiring) + mcp/server.ts inputSchema 명시 (본 commit)
+  - **5.1.4~5.1.6** ⏳ 4 새 MVP tool 직렬 추가 (각 lane reference example 1개씩 — 컴프/레이어/키프레임/이펙트)
 - **5.2~5.5** 25 tool 병렬 lane (D-N 그룹 5개, D8 덕분에 lane 충돌 0)
   - 5.2 컴프 / 5.3 레이어 / 5.4 키프레임 / 5.5 이펙트 (익스프레션은 분배)
   - tool 개별 명세는 5.2 진입 시 별도 합의

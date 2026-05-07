@@ -160,9 +160,9 @@ AE ↔ CEP Panel (React + xterm.js)
 | 5.0 | 결정 게이트 D-L/D-M/D-N lock-in (2026-05-07) | `0d06ea7` | ✅ |
 | 5.1.0 | vite-cep-plugin alias config (옵션 B) — `@aeTools` rollup alias dormant 등록 | `7977d27` | ✅ |
 | 5.1.1 | `ae_get_active_comp` D-M 단순 이동 (옵션 A + C) — alias first encounter + CLAUDE.md D8 표 sync | `711fd6d` | ✅ |
-| 5.1.2 | 좀비 fix (mistakes #16) — D-J multi-role grace timer panel-only count gate | (본 commit) | ✅ |
-| 5.1.3 | Architecture refactor — handler.ts (defineAETool wrap) + AENoActiveCompError 신설 + mcp/server.ts refactor + `ctx.panelExec` wiring | | ⏳ **다음 진입 대상** |
-| 5.1.4~5.1.6 | 4 새 MVP tool 직렬 (각 lane reference example) | | |
+| 5.1.2 | 좀비 fix (mistakes #16) — D-J multi-role grace timer panel-only count gate | `87226ae` | ✅ |
+| 5.1.3 | Architecture refactor — handler.ts (defineAETool wrap) + AENoActiveCompError 클래스 (글로벌 _errors.ts) + tools registry + makeDispatcherExecHandler 확장 (registry lookup + ctx.panelExec wiring) + mcp/server.ts inputSchema | (본 commit) | ✅ |
+| 5.1.4~5.1.6 | 4 새 MVP tool 직렬 (각 lane reference example) | | ⏳ **다음 진입 대상** |
 | 5.2 | 컴프 lane (병렬) | | |
 | 5.3 | 레이어 lane (병렬) | | |
 | 5.4 | 키프레임 lane (병렬) | | |
@@ -307,11 +307,19 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.2 ✅, 5.1.3 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.3 ✅, 5.1.4 진입 대기)
 
 ### 현재 상태
 
-**Phase 5.1.2 ✅ 좀비 fix 완료** (2026-05-07, 본 commit). D-J multi-role grace timer 회귀 root cause 확정 (`panelBridge.ts:365` `clients.size === 0` 조건이 mcp client 포함) + panel-only count gate fix + scenario 15/16 회귀 가드 + mistakes #16 등재 (새 메타 family — 검증 절차 시간 변수 누락). Phase 4 dogfood (h) "잔존 0" 통과는 35-50s 시간 변수 의존 우연 — 5.1.2 fix 후에야 즉시 측정 baseline 진짜 보장. **Phase 5.1.3 (architecture refactor — handler.ts + AENoActiveCompError + mcp/server.ts refactor + ctx wiring) 진입 대기.**
+**Phase 5.1.3 ✅ architecture refactor 완료** (2026-05-08, 본 commit). 4 영역 wiring first encounter 무사 통과 (mistakes #15 layered risk 의식 — 단계별 build 검증):
+- (A) `handler.ts` 신설 — `defineAETool` HOF wrap + ctx.panelExec 호출 + AEError code === "AENoActiveCompError" → typed `AENoActiveCompError` 변환
+- (B) `AENoActiveCompError` 클래스 신설 — 글로벌 `_errors.ts` 9번째 클래스
+- (C) tools registry 신설 — `sidecar/src/tools/index.ts` (manual import per C1)
+- (D) `makeDispatcherExecHandler` 확장 — registered path (registry lookup → defineAETool invoke) + fallback path (Phase 4 dumb forward 보존, panel-direct/dev spike 보호)
+
+mcp/server.ts는 inputSchema 명시 (`aeGetActiveCompInputSchema.shape`) + dumb forward 그대로 (D-K 정신: mcp = stdio relay, 사이드카 main = domain).
+
+**Phase 5.1.4 (4 새 MVP tool 직렬, 각 lane reference example) 진입 대기.** D8 collocation 패턴이 5.1.3에서 reference example 1개 (ae_get_active_comp)로 확립 — 5.1.4+에서 같은 4파일 패턴 (schema/handler/impl/impl.test) + tools/index.ts 1줄 추가 + mcp/server.ts registerTool 1 블록으로 30 tool 누적.
 
 ### 검증된 실측치
 

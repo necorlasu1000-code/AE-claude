@@ -18,6 +18,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { ResultMsg, ErrorMsg } from "../protocol.js";
 import { McpWsClient } from "./wsClient.js";
+import { aeGetActiveCompInputSchema } from "../tools/ae_get_active_comp/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -33,13 +34,25 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     { capabilities: { tools: {} } },
   );
 
+  // Phase 5.1.3 — inputSchema sourced from collocated zod schema (D8).
+  // The MCP SDK's registerTool accepts a ZodRawShape; aeGetActiveCompInputSchema
+  // is z.object({}) so .shape is `{}` — functionally equivalent to omitting
+  // the field, but explicit so the 30-tool growth pattern (5.2~) lands here
+  // with a single-line edit per tool (one named import + one shape ref).
+  //
+  // Server.ts stays a dumb stdio↔ws relay: domain logic (defineAETool wrap,
+  // schema validation, AENoActiveCompError sentinel conversion) lives in
+  // sidecar main's tools/ae_get_active_comp/handler.ts, reached via the
+  // tools registry inside makeDispatcherExecHandler (D-K spirit — mcp =
+  // protocol relay, sidecar main = domain).
   server.registerTool(
     "ae_get_active_comp",
     {
       description:
         "Get the currently active composition in After Effects. " +
-        "Returns null when no comp is active or selected.",
-      // No input — empty schema (registerTool accepts undefined inputSchema).
+        "Returns the comp's id, name, dimensions, durationSec, frameRate, and numLayers. " +
+        "Throws AENoActiveCompError when no comp is selected.",
+      inputSchema: aeGetActiveCompInputSchema.shape,
     },
     async () => {
       const out = await wsClient.exec("ae_get_active_comp", {});
