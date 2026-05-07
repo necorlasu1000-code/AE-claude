@@ -641,6 +641,65 @@ Phase 7 ZXP 패키징 시 자동으로 prod mode 전환 (`import.meta.url` = dis
 - **third-party 패키지 ESM/CJS 차이**: import 문법이 strict tsc 통과해도 runtime에서 fail 가능. 신규 npm 패키지 도입 시 vitest run 직접 실행으로 import 동작 확인 (단위 test 1개라도) — strict tsc만 의존하지 말 것.
 - **함정 #11 4 faces + #13 + #14 통합 메타**: production ground truth (ES3 ExtendScript / Windows ConPTY / node-pty PATH / claude TUI 등)는 단위 mock + integration override로 100% 시뮬 불가능. **사용자 dogfood가 항상 마지막 검증**.
 
+### Sub-section: Phase 4.4 fix-3 — MCP entry guard suffix dev/prod (Aspect C)
+
+**Aspect 명확화** (#14 본문 세 번째 면):
+- **Aspect A (위 본문)**: spawn 메커니즘 차이 — `child_process.spawn` PATH lookup OK / `node-pty` PATH lookup X. fix = `resolveShellPath` (which 사전 lookup).
+- **Aspect B (이전 sub-section)**: dev/prod entry path resolution — claude register 시 entry 경로가 `src/.js` (존재 X)로 박힘. fix = `resolveMcpSpawn` (사이드카 import.meta.url 기반 dev/prod 자동 분기).
+- **Aspect C (이 sub-section)**: **entry guard suffix list dev/prod 양면 누락**. `mcp/server.ts`의 self-entry guard가 `.js` suffix만 검사 → tsx로 `.ts` 직접 실행 시 guard skip → `McpServer.connect()` 미실행 → claude stdio child가 MCP handshake 없이 즉시 종료 → claude `× failed`. fix = entry guard suffix list에 `.ts` 두 줄 추가 (forward + backward slash).
+
+세 aspect 모두 같은 메타 패턴: **production wiring 첫 등장 함정 (#11과 같은 family) + dev/prod 분기 누락**. Aspect B fix 후 panel `/mcp` 다시 진단하면 Aspect C 발현 — Aspect B는 entry **경로**를 dev mode에 맞춰 박았으나, entry **파일 내부의 self-guard**도 dev/prod 둘 다 인식하도록 별도 보강 필요했음. 같은 dev/prod boundary가 두 layer (호출자 args + 피호출자 guard)에서 따로 cut.
+
+**증상**: Phase 4.4 fix-2 (commit `9889af0`) 적용 후 panel `/mcp` 결과:
+
+```
+Local MCPs (...sidecar [project])
+> ae-mcp · × failed
+```
+
+`.claude.json` ae-mcp 엔트리 직독 결과 args는 정상 저장됨 (Korean+space full path 포함, 잘림 0):
+```json
+"args": [
+  "C:\\...\\sidecar\\node_modules\\tsx\\dist\\cli.mjs",
+  "C:\\...\\sidecar\\src\\mcp\\server.ts"
+]
+```
+
+→ args 인코딩/잘림 가설 기각. panel `/mcp` UI의 "이후 잘림" 표시는 단순 UI cropping.
+
+**Root cause**: `sidecar/src/mcp/server.ts:80-83` (Phase 4.2 시점) entry guard:
+```ts
+const isEntry = process.argv[1] && (
+  process.argv[1].endsWith("/mcp/server.js") ||
+  process.argv[1].endsWith("\\mcp\\server.js")
+);
+```
+
+prod (`.js`) → suffix 매치 → `if (isEntry)` 블록 실행 → `McpServer.connect(StdioServerTransport)` 등록 OK.
+dev (`.ts`) → suffix 미매치 → guard skip → MCP handler 등록 X → claude stdio child 즉시 종료 → claude `× failed`.
+
+**Self-aware trade-off** (4.2 jsdoc 인용 — 함정 의식 + 미루기 + dogfood layered catch):
+4.2 jsdoc은 entry **경로** 함정만 명시 (Aspect B는 그 자리에서 catch). entry **guard suffix**는 자체 인식 안 됨 — 같은 dev/prod boundary지만 다른 layer라서 4.2 시점에 함께 의식 못 함. 4.4 dogfood가 layered fashion으로 잡아냄: fix-1 (Aspect A) → 다음 dogfood loop → fix-2 (Aspect B) → 다음 dogfood loop → fix-3 (Aspect C).
+
+이는 self-aware decision pattern 자체의 한계 보여줌 — **의식한 함정만 jsdoc에 명시 가능, 같은 메타 family의 다른 layer 함정은 한 layer fix 후 재현해야 발현**. 미래 reader는 self-aware trade-off → layered fix 워크플로우를 학습 가능: "한 phase의 production wiring 첫 등장은 dogfood loop를 N회 반복해야 모든 layer 누락이 catch될 수 있음. 한 번의 dogfood로 끝난다고 가정하지 말 것."
+
+**Fix (Phase 4.4 fix-3)**: `sidecar/src/mcp/server.ts` entry guard suffix list에 `.ts` 두 줄 추가:
+```ts
+const isEntry = process.argv[1] && (
+  process.argv[1].endsWith("/mcp/server.js") ||
+  process.argv[1].endsWith("\\mcp\\server.js") ||
+  process.argv[1].endsWith("/mcp/server.ts") ||
+  process.argv[1].endsWith("\\mcp\\server.ts")
+);
+```
+
+prod 회귀 0 (기존 `.js` 두 줄 그대로 유지). dev (`.ts`) 새 path 진입 → MCP server 등록 OK → claude `✓ connected`.
+
+**메타 학습 (Aspect A/B/C 통합)**:
+- 한 production wiring sub-step (Phase 4.4)에 같은 메타 family (#11) 함정 셋이 layered로 발현. 한 commit으로 다 fix하지 못한 이유: 각 aspect가 이전 aspect fix 후 dogfood loop에서 비로소 reachable (Aspect A 미해결 시 사이드카 자체가 boot 못 함 → Aspect B/C 도달 X. Aspect B 미해결 시 claude entry 경로 자체 invalid → Aspect C 도달 X).
+- **layered dogfood 원칙**: production wiring first encounter sub-step은 N회 dogfood loop 가정 + 매 loop마다 fix-N commit. fix-1 후 "다 끝났다" 가정 금지.
+- **entry guard 패턴 일반화** (Phase 5+ 30 tool 추가 시 적용): tool impl 파일이 self-entry 가능한 구조면 guard suffix list에 dev (`.ts`) + prod (`.js`) 두 종 모두 등록. ESM dynamic import 가정도 마찬가지 (확장자별 분기 누락 위험).
+
 
 
 **증상**: panel을 6-8번 열고 닫은 후 작업관리자에 Node 좀비 ~20개. 메모리별 두 개씩 짝지어 (큰 + 작은) 누적. fix-1, fix-2 후에도 발생.

@@ -77,9 +77,19 @@ export function toCallToolResult(msg: ResultMsg | ErrorMsg): {
 // `import.meta.url === main` check fires). The `await` at top level is
 // fine: this file is ESM (sidecar package.json type=module).
 
+// Entry guard suffix list (Phase 4.4 fix-3, mistakes #14 Aspect C):
+//   prod build → process.argv[1] = "<sidecar>/dist/mcp/server.js"     → .js match
+//   dev (tsx)  → process.argv[1] = "<sidecar>/src/mcp/server.ts"      → .ts match
+// Both forward / backward slash variants because index.ts resolveMcpSpawn
+// stores Windows-style backslash paths in claude's mcp registry, but unit
+// tests / future POSIX dogfood paths use forward slashes. Missing either
+// extension silently no-ops the McpServer.connect call → claude marks the
+// stdio child as `× failed`.
 const isEntry = process.argv[1] && (
   process.argv[1].endsWith("/mcp/server.js") ||
-  process.argv[1].endsWith("\\mcp\\server.js")
+  process.argv[1].endsWith("\\mcp\\server.js") ||
+  process.argv[1].endsWith("/mcp/server.ts") ||
+  process.argv[1].endsWith("\\mcp\\server.ts")
 );
 
 if (isEntry) {
