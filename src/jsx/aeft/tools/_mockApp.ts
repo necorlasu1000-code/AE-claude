@@ -53,15 +53,34 @@ export interface MockProjectOpts {
 export function makeMockProject(opts?: MockProjectOpts): JsxProjectLike {
   var o = opts || {};
   var items = o.items || [];
-  return {
+  // Phase 5.1.4 fix (mistakes #17) -- enforce method receiver identity
+  // so detached method calls (var fn = project.item; fn(i)) fail at the
+  // unit-test layer. Production ExtendScript SpiderMonkey throws
+  // "Function global.item() cannot work with this class" on the same
+  // pattern; vanilla vitest JS does not enforce, so without this guard
+  // the bug rides through unit tests and only surfaces in real AE.
+  // Apply the same guard to any future method we add to this mock
+  // (currently just project.item; 30-tool growth may add more).
+  var project: JsxProjectLike;
+  project = {
     activeItem: o.activeItem !== undefined ? o.activeItem : null,
     numItems: items.length,
-    item: function (index: number) {
+    item: function (this: unknown, index: number) {
+      if (this !== project) {
+        throw new Error(
+          "Mock this-binding violation: project.item called with wrong " +
+          "receiver. ExtendScript SpiderMonkey throws 'Function global." +
+          "item() cannot work with this class' on detached calls. " +
+          "Use project.item(i) directly, NOT var fn = project.item; fn(i). " +
+          "See mistakes.md #17."
+        );
+      }
       // 1-based; production AE throws on out-of-range. Tests don't
       // exercise out-of-range so we return the array slot unchecked.
       return items[index - 1] as JsxItemLike;
     },
   };
+  return project;
 }
 
 export interface MockAppOpts {

@@ -1140,4 +1140,86 @@ if (!this.stopping && !panelStillPresent && grace > 0) {
 
 dogfood (h) "잔존 0" 통과는 사실상 검증 안 된 것. Phase 4 회고 기준 "panel close 후 잔존 0 ✅"는 #16 fix 적용 + 즉시 측정 protocol 후에야 진짜 보장된다. Phase 5.1.2 commit이 baseline을 retroactively 강화 — Phase 4 회고는 그대로 두되 PROJECT_CONTEXT.md §H에 "5.1.2 fix 후 잔존 0 강화 baseline" 메모 추가 가치.
 
+## 2026-05-08 ExtendScript SpiderMonkey this-binding 강제 (#17)
+
+**문제**: Phase 5.1.4 dogfood — AE 패널에서 "프로젝트 컴프 목록 알려줘" 자연어 호출 시 `Function global.item() cannot work with this class` 에러. ae_list_comps tool round-trip 자체가 fail. impl.test.ts 4 case 모두 그린이었지만 production AE에서 첫 호출에 throw — dogfood 발견.
+
+**진단**: `sidecar/src/tools/ae_list_comps/impl.ts`에서:
+
+```ts
+var itemFn = project.item as (index: number) => JsxItemLike;
+for (var i = 1; i <= numItems; i++) {
+  var item = itemFn(i);
+  ...
+}
+```
+
+Method를 local variable에 분리한 뒤 호출 — `itemFn(i)` 호출 시 `this`가 손실됨 (sloppy mode = global, strict mode = undefined). ExtendScript SpiderMonkey는 method receiver identity를 **엄격히 강제** — `app.project.item`은 ItemCollection의 instance method라 `this`가 ItemCollection이어야 하는데, detached call은 `this = global` → 엔진이 "global object cannot work with this class" throw.
+
+**왜 unit test (4 case) 모두 통과했는가** (메타 핵심): vitest의 vanilla JS는 method receiver identity를 강제 안 함. `_mockApp.ts`의 `makeMockProject`가 `item: function(index) { return items[index-1]; }` 형식이고, 호출 시 `this` 검사 0. detached `itemFn(i)` 호출도 같은 array slot 반환 — **mock 환경에서는 정상 작동, production에서만 throw**.
+
+panel xterm 안 ae-claude가 자체 진단 — `var itemFn = project.item` 분리 패턴이 ExtendScript SpiderMonkey this-binding 함정이라고 짚어옴. mock vs production 환경 시뮬 미흡 family (#11 4-faces / #14 family lineage, 다른 layer).
+
+**Root cause**: ExtendScript SpiderMonkey의 method this-binding 강제는 vanilla JS 표준 (ECMAScript spec) 동작과 다른 host-specific 강화. `obj.method(i)` 직접 호출은 `this = obj`로 binding되지만, `var fn = obj.method; fn(i)`는 `this`를 잃음. 이 차이가 mock/production 분기점.
+
+**Fix (Phase 5.1.4 fix)**:
+
+1. `sidecar/src/tools/ae_list_comps/impl.ts` — `itemFn` 변수 분리 제거, `project.item!(i)` 직접 호출. `!` non-null assertion은 JsxProjectLike.item이 optional type이지만 production AE에서 항상 populated이라 안전. babel preset-typescript transform에서 strip되어 ES3 output에는 영향 0.
+
+```ts
+// before (broken in production AE):
+var itemFn = project.item as (index: number) => JsxItemLike;
+var item = itemFn(i);
+
+// after (works in both production AE + vitest):
+var item = project.item!(i);
+```
+
+2. `src/jsx/aeft/tools/_mockApp.ts` `makeMockProject` — mock의 `item` function에 receiver check 추가:
+
+```ts
+var project: JsxProjectLike;
+project = {
+  ...,
+  item: function (this: unknown, index: number) {
+    if (this !== project) {
+      throw new Error("Mock this-binding violation: ...");
+    }
+    return items[index - 1];
+  },
+};
+```
+
+Detached call `var fn = project.item; fn(i)` 시 `this !== project` → mock throw. 30 tool 누적 시 같은 패턴 재발하면 unit test가 즉시 fail (production 도달 전 catch).
+
+3. `sidecar/src/tools/ae_list_comps/impl.test.ts` — 5번째 case 추가 (this-binding regression guard).
+
+**예방 (미래 패턴)**:
+
+1. **Mock policy: ExtendScript host-specific 동작은 mock에서 강제**. 일반 vanilla JS 동작이 production과 갈라지는 모든 지점은 mock에서 production-strict 패턴 강제. 본 사례는 method receiver identity. 후보: typeName check (이미 적용), 1-based array indexing (vitest는 0-based 자연 — `items[index-1]` 변환), AE class instance check 우회 (typeName string compare — 이미 적용).
+2. **Phase 5+ 30 tool 추가 시 method 호출 패턴 게이트**: `var fn = obj.method` detach 패턴 금지. mock receiver guard로 자동 차단 (이번 fix처럼).
+3. **Production-direct method 호출 권장**: ExtendScript impl 작성 시 항상 `obj.method(args)` 형식. 변수 분리 + delayed call은 함정 risk.
+
+**검증**:
+
+- `impl.test.ts` 5 cases (4 기존 + 1 this-binding regression case) 모두 그린
+- `_mockApp.ts` receiver guard가 future detach 시도 시 즉시 throw — 30 tool 추가 시 자동 가드
+- 사용자 dogfood: "프로젝트 컴프 목록 알려줘" → ae_list_comps round-trip 정상 (production AE에서 검증)
+
+**메타 family 비교** (#11 / #13 / #14 / #15 / #16 / #17):
+
+- **#11 4-faces / #13 / #14 family / #17**: **외부 의존성 시뮬레이션 정확도** — mock과 production 환경 차이. ES3 SpiderMonkey 문법 (#11) / PtyLike interface 누락 (#13) / dev/prod 분기 (#14) / **method this-binding 강제 (#17)** 모두 같은 메타 family. mock 환경이 production을 정확히 시뮬 못 해서 mock-test 우연 통과 후 production에서 발현.
+- **#15**: production assembly point가 mock 외부 (DI gap).
+- **#16**: 검증 절차 자체가 측정 timing에 의존.
+
+#17은 mock-vs-production 시뮬 정확도 family에 추가되는 새 layer. fix 방향 일관 — mock에 production-strict 패턴 강제. 이번 fix는 single-tool fix가 아니라 **30 tool 공통 가드** (mock 정책 변경) — Phase 5+ 추가 tool이 자동 보호.
+
+**Phase 5.1.4 sub-step 통합 학습**:
+
+5.1.4 single sub-step에서 두 함정 발현 (Gate §12 em-dash 회귀 + #17 this-binding). 둘 다 catch:
+- Gate §12 em-dash: build artifact grep으로 즉시 catch (Gate 자동 점검 작동)
+- #17 this-binding: 사용자 AE dogfood에서만 발현 (mock-test 모두 그린이었음). dogfood가 single source of truth.
+
+**메타 학습 — Gate 자동화 vs dogfood 의존**: build-time grep으로 catch 가능한 함정 (encoding, namespace import, secret leak 등)은 gate로 자동화 가능. mock vs production 환경 차이 함정 (this-binding, ES3 syntax, AE class globals 등)은 dogfood가 fundamental — gate 추가는 가능하지만 mock 측에 production-strict 패턴 강제하는 게 더 효과적 (dogfood 도달 전 unit test가 catch).
+
 **메타 학습**: 미래 reader는 두 패턴 모두 수입 가능 — (a) "함정 의식했으나 다음 phase로 미루기 + jsdoc에 명시" + (b) "한 layer fix 후 같은 메타 family의 다른 layer 함정 재현해야 발현하는 layered dogfood 가정". 둘 합치면: jsdoc self-aware는 가치 있되, 한 번의 dogfood가 모든 함정 catch한다고 가정하지 말 것. 매 dogfood loop가 새 layer 발견 기회.

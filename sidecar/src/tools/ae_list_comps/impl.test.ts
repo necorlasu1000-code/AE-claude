@@ -77,4 +77,22 @@ describe("ae_list_comps", () => {
     ]);
     expect(parsed.output.comps.map((x: { id: number }) => x.id)).toEqual([10, 11, 12]);
   });
+
+  // Phase 5.1.4 fix (mistakes #17) — this-binding regression guard.
+  // Confirms makeMockProject's item() throws when invoked with the wrong
+  // receiver (detached call). If a future impl rewrite re-introduces
+  // `var fn = project.item; fn(i)`, this test catches it before AE
+  // dogfood — no more "Function global.item() cannot work with this
+  // class" surprise from production.
+  it("this-binding mock guard — detached project.item call throws (mistakes #17 regression case)", () => {
+    const c = makeMockComp({ id: 1, name: "Main" });
+    const app = makeMockApp({ items: [c] });
+
+    // Sanity: bound call works.
+    expect(app.project.item!(1)).toBe(c);
+
+    // Detached: var fn = project.item; fn(1) — receiver = undefined.
+    const detached = app.project.item;
+    expect(() => detached!(1)).toThrowError(/this-binding violation/i);
+  });
 });
