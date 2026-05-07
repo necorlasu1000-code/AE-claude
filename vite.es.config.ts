@@ -2,12 +2,23 @@ import fs from "fs";
 import { rollup, watch, RollupOptions, OutputOptions } from "rollup";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import babel from "@rollup/plugin-babel";
+import alias from "@rollup/plugin-alias";
 import { jsxInclude, jsxBin, jsxPonyfill } from "vite-cep-plugin";
 import { CEP_Config } from "vite-cep-plugin";
 import json from "@rollup/plugin-json";
 import path from "path";
 
 const GLOBAL_THIS = "thisObj";
+
+// Phase 5.1.0 (D-M): rollup alias entries for jsx bundle. Lets panel jsx layer
+// import sidecar-collocated tool impls (`sidecar/src/tools/<ae>/impl.ts`) via
+// `@aeTools/<ae>/impl` without 4-deep relative paths. Caller (vite.config.ts)
+// resolves absolute paths from `__dirname` and passes here so this file stays
+// cwd-independent.
+export interface ExtendScriptAliasEntry {
+  find: string;
+  replacement: string;
+}
 
 export const extendscriptConfig = (
   extendscriptEntry: string,
@@ -16,6 +27,7 @@ export const extendscriptConfig = (
   extensions: string[],
   isProduction: boolean,
   isPackage: boolean,
+  aliases: ExtendScriptAliasEntry[] = [],
 ) => {
   console.log(outPath);
   const config: RollupOptions = {
@@ -28,6 +40,9 @@ export const extendscriptConfig = (
         : cepConfig.build?.sourceMap,
     },
     plugins: [
+      // alias rewrite must run before nodeResolve so aliased paths get
+      // rewritten to absolute filesystem locations before file lookup.
+      alias({ entries: aliases }),
       json(),
       nodeResolve({
         extensions,

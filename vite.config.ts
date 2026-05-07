@@ -98,6 +98,12 @@ export default defineConfig({
 
 // rollup es3 build
 const outPathExtendscript = path.join("dist", cepDist, "jsx", "index.js");
+
+// Phase 5.1.0 (D-M): @aeTools alias for D8 collocation -- sidecar/src/tools/<ae>/impl.ts
+// becomes reachable from panel jsx bundle as `@aeTools/<ae>/impl`. Absolute path
+// computed from __dirname so build is cwd-independent.
+const aeToolsRoot = path.resolve(__dirname, "sidecar", "src", "tools");
+
 extendscriptConfig(
   `src/jsx/index.ts`,
   outPathExtendscript,
@@ -105,4 +111,5 @@ extendscriptConfig(
   extensions,
   isProduction,
   isPackage,
+  [{ find: "@aeTools", replacement: aeToolsRoot }],
 );
