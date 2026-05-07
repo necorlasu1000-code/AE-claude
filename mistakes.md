@@ -1033,3 +1033,48 @@ bridge = new PanelBridge({
 두 family는 같은 dogfood 검증 패턴에 의존하지만 fix 방향이 다름:
 - #11/#13/#14 가족 fix → 외부 의존성에 더 가까운 검증 layer 추가 (which 사전 lookup, file probe, dev/prod 분기 helper, suffix list 확장).
 - #15 fix → production assembly point를 helper로 추출 + 그 helper의 단위 테스트 + assembly graph 그 자체의 integration test.
+
+## Phase 4.4 dogfood case study (#13 / #14 Aspect A/B/C / #15 통합)
+
+**의도**: 함정 #13~#15는 Phase 4.3 hotfix + 4.4 layered fix 4개로 분산되어 발견됐다. 함정별 본문은 각각 root cause + fix가 정확하지만, 같은 sub-step의 dogfood loop가 catch한 메타 패턴 4가지는 분산. Phase 5+ 30 tool 진입 시 같은 패턴 재발 가능성이 매우 높아 — 미래 reader가 이 case study를 한 곳에서 통합 파악할 수 있도록 박음. 함정 검색 entry point (mistakes.md)와 phase 회고 entry point (plan.md Phase 4 회고)에서 reachable.
+
+### 1. Layered fix 4개 워크플로우 패턴
+
+Phase 4.4 한 sub-step에서 4개의 다른 production wiring 함정이 **layered**로 발현. 각 fix가 다음 layer를 reachable하게 만들어, 단일 dogfood loop로는 모두 catch 불가능한 구조.
+
+| 순서 | 함정 | layer | 발현 메커니즘 |
+|---|---|---|---|
+| 1 | #14 Aspect A (which) | OS-level (PTY spawn 메커니즘) | 사이드카 boot 자체 fail. 다음 layer 도달 X |
+| 2 | #14 Aspect B (entry path) | build artifact (tsx vs dist) | 사이드카 boot OK + claude register 성공 → panel `/mcp` × failed (entry path invalid) |
+| 3 | #14 Aspect C (entry guard) | runtime guard (.js vs .ts suffix) | claude entry 도달 OK → guard skip → MCP server 등록 X → 여전히 × failed |
+| 4 | #15 (dispatcher wiring) | production assembly (main() 내부 wiring) | MCP server 등록 OK → 첫 actual tool call에서 stubExecHandler throw → × failed |
+
+**메타 학습**: production wiring first encounter sub-step은 single fix가 아니라 **layered fix 가정**. 한 fix 후 "다 끝났다" 추측 금지. Phase 5+ 새 sub-step 진입 시 매 dogfood loop마다 새 layer가 reachable해질 수 있음을 의식.
+
+### 2. Spike 버튼 (Phase 3 자산)의 진단 가치
+
+Phase 3.7 dev spike 버튼은 panel UI에서 dispatcher.exec를 직접 호출하는 우회 path — MCP를 거치지 않음. Phase 4.4 dogfood에서 결정적 진단 도구로 작동:
+
+- spike 버튼 클릭 → ae_get_active_comp 5ms 정상 동작 = **Phase 3 dispatcher + ExtendScript 멀쩡 / MCP path만 fail** 즉시 진단.
+- "어디까지 정상 / 어디부터 fail" 좁히기에 결정적. spike 없었으면 dispatcher 자체 의심까지 검증 범위 확장 필요했을 것.
+- **메타 학습**: Phase 5+ 새 tool 추가 시도 production path와 별도로 우회 path (spike 류) 유지 가치. 새 tool 동작 검증 도구 + production wiring fail 시 진단 isolating 도구 양면.
+
+### 3. Panel xterm 안 claude의 self-diagnosis 능력
+
+사용자 dogfood 환경의 panel xterm 안 claude (Opus 4.7) **자체가 진단 도구**. CLI는 메인 dev work를, dogfood claude는 root cause 짚기를 분담:
+
+- #15 발견 메커니즘: 사용자 "현재 컴프 알려줘" → 자연어 응답 fail → claude가 자체 git/grep/file read로 사이드카 코드 분석 → `sidecar/src/index.ts:117-124`의 stubExecHandler throw 정확한 line 번호 + 의도된 흐름 vs 누락 파악 + plan.md D-I 명시 vs 코드 누락 분리까지 짚어옴.
+- #14 Aspect B 발견도 유사: claude가 `claude mcp get ae-mcp` 실행 + entry path src/.js 확인 + Phase 4.2 jsdoc 인용까지.
+- **메타 학습**: dogfood 환경 자체가 진단 인프라. 메인 dev는 CLI가 실행하지만, dogfood claude의 self-diagnosis는 production root cause 짚기에 가장 효과적 (mock 0 + git/code 직접 접근 + 자연어 질문에서 시작). Phase 5+ 진입 시 dogfood 시나리오 정의 시 "panel 안 claude가 코드 분석으로 wiring 누락 catch 가능한가" 질문을 검증 시나리오에 포함 가치.
+
+### 4. Self-aware jsdoc 패턴 (4.2 사례)
+
+Phase 4.2 시점의 mcpEntryAbs jsdoc은 **함정을 의식했으나 fix 안 한 trade-off**를 명시했다:
+
+> "Entry path resolution: this file is `<sidecar>/dist/index.js` after build (or `<sidecar>/src/index.ts` under tsx dev). The MCP entry is a sibling `mcp/server.js` — for dev/tsx the file won't exist yet, **and that's fine: register still succeeds (claude doesn't validate the path until it tries to spawn the entry). The 4.4 user dogfood step is what verifies the path actually resolves to a runnable file.**"
+
+**의식 → 명시 self-aware decision으로 미루기 → dogfood가 verify**. 정확히 4.4 dogfood가 이 함정을 catch (Aspect B 발현). 모든 함정을 phase 1에 fix할 수 없고, dogfood까지 미루는 게 합리적인 경우가 있음 — 그때 jsdoc에 "이 trade-off를 미래 N 시점에 검증" 명시가 미래 reader 진단 가속에 결정적.
+
+**한계** (#14 Aspect C가 보여줌): self-aware decision pattern은 **의식한 함정만** 박을 수 있다. 같은 dev/prod boundary가 두 layer (호출자 args + 피호출자 guard)에서 따로 cut된 함정은 4.2 시점에 함께 의식 못 함 → 4.4 layered loop가 catch.
+
+**메타 학습**: 미래 reader는 두 패턴 모두 수입 가능 — (a) "함정 의식했으나 다음 phase로 미루기 + jsdoc에 명시" + (b) "한 layer fix 후 같은 메타 family의 다른 layer 함정 재현해야 발현하는 layered dogfood 가정". 둘 합치면: jsdoc self-aware는 가치 있되, 한 번의 dogfood가 모든 함정 catch한다고 가정하지 말 것. 매 dogfood loop가 새 layer 발견 기회.
