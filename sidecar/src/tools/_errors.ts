@@ -105,3 +105,20 @@ export class AENoActiveCompError extends AEError {
     );
   }
 }
+
+// Phase 5.1.5 — generic resource-not-found error. Generalized constructor
+// (resource type + identifier) so 30-tool growth reuses one class for all
+// dangling-reference cases: comp by id (this commit), future layer by index,
+// effect by matchName, marker by index, etc. Distinct from AEValidationError
+// (which means the input shape is invalid — here the input shape is fine,
+// the referenced resource just doesn't exist).
+export class AENotFoundError extends AEError {
+  constructor(resource: string, identifier: string | number, ctx?: Record<string, unknown>) {
+    super(
+      "AENotFoundError",
+      `${resource} not found: ${identifier}`,
+      `Verify the ${resource} exists. The provided identifier '${identifier}' did not match any ${resource} in scope.`,
+      ctx,
+    );
+  }
+}

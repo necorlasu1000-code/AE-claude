@@ -163,8 +163,9 @@ AE ↔ CEP Panel (React + xterm.js)
 | 5.1.2 | 좀비 fix (mistakes #16) — D-J multi-role grace timer panel-only count gate | `87226ae` | ✅ |
 | 5.1.3 | Architecture refactor — handler.ts (defineAETool wrap) + AENoActiveCompError 클래스 (글로벌 _errors.ts) + tools registry + makeDispatcherExecHandler 확장 (registry lookup + ctx.panelExec wiring) + mcp/server.ts inputSchema | `ecae373` | ✅ |
 | 5.1.4 | `ae_list_comps` (read-only, MVP 1/5 컴프 lane) — D8 4파일 collocation 첫 신규 tool. JsxProjectLike 추출 + _mockApp.ts items[] 확장 | `a157ae9` | ✅ |
-| 5.1.4 fix | mistakes #17 — ExtendScript this-binding (project.item 직접 호출) + _mockApp.ts receiver guard (30 tool 공통) | (본 commit) | ✅ |
-| 5.1.5~5.1.6 | 3 새 MVP tool 직렬 (레이어/키프레임/이펙트 lane reference) | | ⏳ **다음 진입 대상** |
+| 5.1.4 fix | mistakes #17 — ExtendScript this-binding (project.item 직접 호출) + _mockApp.ts receiver guard (30 tool 공통) | `26dd304` | ✅ |
+| 5.1.5 | `ae_get_layers` (read-only, MVP 2/5 레이어 lane) — AENotFoundError 신설 + JsxLayerLike + makeMockLayer + comp.layer receiver guard + Object.prototype.toString reflection | (본 commit) | ✅ |
+| 5.1.6 | 2 새 MVP tool 직렬 (키프레임/이펙트 lane reference) | | ⏳ **다음 진입 대상** |
 | 5.2 | 컴프 lane (병렬) | | |
 | 5.3 | 레이어 lane (병렬) | | |
 | 5.4 | 키프레임 lane (병렬) | | |
@@ -310,23 +311,29 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.4 + fix ✅, 5.1.5 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.5 ✅, 5.1.6 진입 대기)
 
 ### 현재 상태
 
-**Phase 5.1.4 + fix ✅ 완료** (2026-05-08). D8 4파일 collocation 첫 신규 tool 적용 + ExtendScript this-binding 함정 #17 dogfood 발견 후 fix.
+**Phase 5.1.5 ✅ `ae_get_layers` 추가 완료** (2026-05-08, 본 commit). MVP 2/5 레이어 lane.
 
-Sub-step 진행:
-- **5.1.4** (`a157ae9`) — ae_list_comps 4파일 + JsxProjectLike 추출 + _mockApp.ts items[] 확장
-- **5.1.4 fix** (본 commit) — mistakes #17. impl.ts에서 `var itemFn = project.item; fn(i)` detach 패턴이 ExtendScript SpiderMonkey method receiver 손실로 production AE throw. vitest mock은 receiver 미강제라 4 case 그린이었지만 dogfood에서만 발현. fix: `project.item!(i)` 직접 호출 + _mockApp.ts receiver guard (30 tool 공통 자동 가드 — `this !== project` throw) + regression case.
+5.1.5 신규 추가:
+- 4파일 collocation: `sidecar/src/tools/ae_get_layers/{schema, handler, impl, impl.test}`
+- `AENotFoundError` 클래스 (글로벌 `_errors.ts`, generic `resource + identifier` signature) — 30 tool not-found family 재사용 (future ae_get_layer_by_id, ae_get_effect 등)
+- `JsxLayerLike` interface 추출 (panel jsx _define.ts) + `JsxCompItem.layer?(i)` optional method
+- `JsxProjectLike.itemByID?(id)` optional method 추가
+- `_mockApp.ts`: `makeMockLayer({type, ...})` + `JsxCompItem.layer` receiver guard (mistakes #17 패턴 일관) + `project.itemByID` mock (production fail mode 시뮬 — id 매치 안 되면 throw)
+- Object.prototype.toString reflection — production AE의 `layer.toString()` → "[object CameraLayer]" 형식 + mock fixture에 `toString` override (Symbol.toStringTag 없는 ES3 환경 호환)
 
-함정 인덱스: 16 → 17. mistakes #17은 mock-vs-production 시뮬 정확도 family (#11 / #13 / #14 lineage) 새 layer.
+5.1.5 검증된 패턴:
+- compId 미지정 → `app.project.activeItem` 사용. 활성 comp 없으면 AENoActiveCompError
+- compId 지정 → `app.project.itemByID(id)` try/catch wrap. 매치 안 되면 AENotFoundError. 매치는 됐지만 Composition 아니면 (Folder/Footage) AENotFoundError
+- 이터레이션: `comp.numLayers` + `comp.layer(i)` 1-based 직접 호출 (mistakes #17 가드)
+- 출력 type 분류: `layer.toString()` regex `/\[object (\w+)\]/` 추출. Layer 서브클래스 5종 + "Layer" fallback
 
-5.1.4 sub-step 통합 학습:
-- **Gate 자동화**가 잡는 함정: encoding (#11 face 4, em-dash) — build artifact grep으로 즉시 catch
-- **dogfood가 fundamental인** 함정: mock vs production 환경 차이 (this-binding #17, ES3 syntax #11, AE class globals 등) — mock 측에 production-strict 패턴 강제하는 게 효과적
+함정 인덱스 변경 없음 (17 그대로 — 5.1.5는 #17 패턴 적용 사례, 새 함정 발견 0).
 
-**Phase 5.1.5 (3 새 MVP tool 직렬, 레이어/키프레임/이펙트 lane reference example) 진입 대기.** 5.1.4 + fix 패턴 안정화 — 매 tool마다 4파일 + 3 registry 1줄 + (필요 시) _mockApp.ts production-strict 패턴 추가.
+**Phase 5.1.6 (2 새 MVP tool 직렬, 키프레임/이펙트 lane reference) 진입 대기.** 5.1.4/5.1.5 패턴 안정 — 매 tool마다 4파일 + 3 registry 1줄 + (필요 시) `_mockApp.ts` 추가 fixture (key frame: AVLayer.property iteration / effect: AVLayer.Effects PropertyGroup iteration 등) + (필요 시) 새 도메인 에러 클래스 _errors.ts 누적.
 
 ### 검증된 실측치
 

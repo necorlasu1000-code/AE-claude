@@ -11,3 +11,4 @@
 
 export { ae_get_active_comp } from "@aeTools/ae_get_active_comp/impl";
 export { ae_list_comps } from "@aeTools/ae_list_comps/impl";
+export { ae_get_layers } from "@aeTools/ae_get_layers/impl";

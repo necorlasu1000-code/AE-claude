@@ -46,6 +46,38 @@ export interface JsxCompItem extends JsxItemLike {
   width: number;
   height: number;
   numLayers: number;
+  /** Phase 5.1.5 -- ae_get_layers iterates LayerCollection. ExtendScript's
+   *  comp.layer(i) (1-based). Optional in the type so older fixtures stay
+   *  compatible; production AE always populates it. Mock fixtures must
+   *  enforce method receiver identity (mistakes #17 -- ExtendScript
+   *  SpiderMonkey throws on detached calls). */
+  layer?(index: number): JsxLayerLike;
+}
+
+// Phase 5.1.5 -- minimum Layer shape used by ae_get_layers and future
+// layer-domain tools. Real AE Layer subclasses (AVLayer/CameraLayer/
+// LightLayer/ShapeLayer/TextLayer) all extend Layer; we duck-type the
+// shared fields here. matchName comes from PropertyBase (Layer extends
+// PropertyGroup extends PropertyBase) -- locale-stable internal id like
+// "ADBE Vector Layer".
+//
+// Type discrimination uses Object.prototype.toString.call(layer) (or the
+// equivalent layer.toString()) which returns "[object CameraLayer]" etc.
+// in production AE. Mock fixtures must override toString to match -- see
+// _mockApp.ts makeMockLayer.
+export interface JsxLayerLike {
+  index: number;
+  name: string;
+  matchName: string;
+  enabled: boolean;
+  locked: boolean;
+  inPoint: number;
+  outPoint: number;
+  /** Real AE Layer.toString() returns "[object CameraLayer]" / "[object
+   *  AVLayer]" / etc. Mock fixtures override this method to return the
+   *  same shape so impl.ts can use a single reflection pattern across
+   *  both environments. */
+  toString(): string;
 }
 
 // Phase 5.1.4 -- extracted to a named interface so 30-tool growth (5.1.4~)
@@ -63,6 +95,10 @@ export interface JsxProjectLike {
    *  on the function-call form for mock simplicity (callable indexable is
    *  awkward in vitest). Optional for the same reason as numItems. */
   item?(index: number): JsxItemLike;
+  /** Phase 5.1.5 -- ExtendScript's app.project.itemByID(id). Returns the
+   *  matching item; production AE throws when id is not found, so callers
+   *  must wrap in try/catch. Optional for fixture compatibility. */
+  itemByID?(id: number): JsxItemLike;
 }
 
 export interface JsxAppLike {

@@ -20,6 +20,7 @@ import type { ResultMsg, ErrorMsg } from "../protocol.js";
 import { McpWsClient } from "./wsClient.js";
 import { aeGetActiveCompInputSchema } from "../tools/ae_get_active_comp/schema.js";
 import { aeListCompsInputSchema } from "../tools/ae_list_comps/schema.js";
+import { aeGetLayersInputSchema } from "../tools/ae_get_layers/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -73,6 +74,24 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async () => {
       const out = await wsClient.exec("ae_list_comps", {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.1.5 — ae_get_layers (read-only, MVP 2/5, layer lane).
+  server.registerTool(
+    "ae_get_layers",
+    {
+      description:
+        "List layers in a composition. compId optional -- defaults to active composition. " +
+        "Returns array of layer metadata (index, name, matchName, type, enabled, locked, inPoint, outPoint). " +
+        "matchName is locale-stable internal id (e.g. 'ADBE Vector Layer'); " +
+        "type discriminates Layer subclass (AVLayer/CameraLayer/LightLayer/ShapeLayer/TextLayer). " +
+        "Throws AENoActiveCompError when compId omitted and no active comp; AENotFoundError when compId is unknown.",
+      inputSchema: aeGetLayersInputSchema.shape,
+    },
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_get_layers", rawInput ?? {});
       return toCallToolResult(out);
     },
   );

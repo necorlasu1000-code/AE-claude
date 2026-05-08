@@ -17,8 +17,8 @@ import { dispatchTS } from "../utils/utils";
 // which throws in ExtendScript SpiderMonkey when it tries to set the
 // prototype to null (mistakes.md #11 third face). Phase 5 30-tool
 // authors add one named import + one object-literal entry per tool.
-import { ae_get_active_comp, ae_list_comps } from "./tools";
-export const tools = { ae_get_active_comp, ae_list_comps };
+import { ae_get_active_comp, ae_list_comps, ae_get_layers } from "./tools";
+export const tools = { ae_get_active_comp, ae_list_comps, ae_get_layers };
 
 export const helloWorld = () => {
   alert("Hello from After Effects!");
