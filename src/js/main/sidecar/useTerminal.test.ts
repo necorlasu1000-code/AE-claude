@@ -22,6 +22,13 @@ interface MockTerminalState {
   _writes: string[];
   _fireData(d: string): void;
   _fireResize(cols: number, rows: number): void;
+  // Phase 5.1.9 keybinding surface
+  _selection: string;
+  _keyHandler: ((e: KeyboardEvent) => boolean) | undefined;
+  attachCustomKeyEventHandler: ReturnType<typeof vi.fn>;
+  getSelection: ReturnType<typeof vi.fn>;
+  clearSelection: ReturnType<typeof vi.fn>;
+  paste: ReturnType<typeof vi.fn>;
 }
 
 let lastTerminal: MockTerminalState | undefined;
@@ -36,10 +43,25 @@ class MockTerminal {
   _dataCbs: ((d: string) => void)[] = [];
   _resizeCbs: ((d: { cols: number; rows: number }) => void)[] = [];
   _writes: string[] = [];
+  // Phase 5.1.9 — Ctrl+C / Ctrl+V keybinding test surface.
+  _selection = "";
+  _keyHandler: ((e: KeyboardEvent) => boolean) | undefined = undefined;
+  attachCustomKeyEventHandler = vi.fn((cb: (e: KeyboardEvent) => boolean) => {
+    this._keyHandler = cb;
+  });
+  getSelection = vi.fn(() => this._selection);
+  clearSelection = vi.fn(() => { this._selection = ""; });
+  // paste() in real xterm fires onData with the pasted text -- mirror that
+  // so the test can verify ws.send pty.in is invoked end-to-end.
+  paste: ReturnType<typeof vi.fn>;
 
   constructor() {
     const writes = this._writes;
     this.write = vi.fn((d: string) => { writes.push(d); });
+    const dataCbs = this._dataCbs;
+    this.paste = vi.fn((text: string) => {
+      for (const c of dataCbs) c(text);
+    });
     lastTerminal = this as unknown as MockTerminalState;
   }
   onData(cb: (d: string) => void) {
@@ -155,11 +177,24 @@ function useWrapped(options: any, deps: UseTerminalDeps) {
   return { containerRef, ...result };
 }
 
+// Phase 5.1.9 — clipboard mock. jsdom doesn't ship navigator.clipboard;
+// stubbed per test so writeText/readText calls are observable. Tests not
+// related to clipboard ignore these mocks (no assertion = no effect).
+let clipboardMock: { writeText: ReturnType<typeof vi.fn>; readText: ReturnType<typeof vi.fn> };
+
 beforeEach(() => {
   lastTerminal = undefined;
   lastWs = undefined;
   MockResizeObserver.last = undefined;
   vi.clearAllMocks();
+  clipboardMock = {
+    writeText: vi.fn().mockResolvedValue(undefined),
+    readText: vi.fn().mockResolvedValue(""),
+  };
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    configurable: true,
+    value: clipboardMock,
+  });
 });
 
 // ─── Suite ─────────────────────────────────────────────────────────
@@ -397,5 +432,92 @@ describe("useTerminal", () => {
     expect(typeof echoed.ts).toBe("number");
     // Heartbeat is HANDLED — must not leak to the unhandled forwarder.
     expect(onUnhandledMessage).not.toHaveBeenCalled();
+  });
+
+  // ── 14 (Phase 5.1.9) — Ctrl+C with selection → OS clipboard copy ─────
+  it("Ctrl+C with selection → writeText(selection) + clearSelection + suppress xterm default", async () => {
+    const { deps } = makeDeps();
+    renderHook(() => useWrapped({ aePid: 11111 }, deps));
+    await waitFor(() => expect(lastTerminal).toBeDefined());
+
+    // Hook attached the handler during mount.
+    expect(lastTerminal!.attachCustomKeyEventHandler).toHaveBeenCalledTimes(1);
+    const handler = lastTerminal!._keyHandler!;
+    expect(handler).toBeDefined();
+
+    lastTerminal!._selection = "selected text";
+    const e = { type: "keydown", ctrlKey: true, metaKey: false, altKey: false, key: "c" } as unknown as KeyboardEvent;
+    const result = handler(e);
+
+    expect(result).toBe(false);                                     // suppress SIGINT
+    expect(clipboardMock.writeText).toHaveBeenCalledWith("selected text");
+    expect(lastTerminal!.clearSelection).toHaveBeenCalledTimes(1);
+  });
+
+  // ── 15 (Phase 5.1.9) — Ctrl+C without selection → SIGINT pass-through ──
+  it("Ctrl+C without selection → handler returns true (xterm default SIGINT preserved)", async () => {
+    const { deps } = makeDeps();
+    renderHook(() => useWrapped({ aePid: 11111 }, deps));
+    await waitFor(() => expect(lastTerminal).toBeDefined());
+    const handler = lastTerminal!._keyHandler!;
+
+    lastTerminal!._selection = "";
+    const e = { type: "keydown", ctrlKey: true, metaKey: false, altKey: false, key: "c" } as unknown as KeyboardEvent;
+    const result = handler(e);
+
+    expect(result).toBe(true);                                       // SIGINT path
+    expect(clipboardMock.writeText).not.toHaveBeenCalled();
+    expect(lastTerminal!.clearSelection).not.toHaveBeenCalled();
+  });
+
+  // ── 16 (Phase 5.1.9) — Ctrl+V → readText + paste → ws.send pty.in ────
+  it("Ctrl+V → readText() → terminal.paste(text) → ws.send pty.in", async () => {
+    const { deps } = makeDeps();
+    renderHook(() => useWrapped({ aePid: 11111 }, deps));
+    await waitFor(() => expect(lastWs).toBeDefined());
+    act(() => { lastWs!._open(); });
+    await waitFor(() => expect(lastTerminal).toBeDefined());
+    const handler = lastTerminal!._keyHandler!;
+
+    clipboardMock.readText.mockResolvedValue("clipped");
+    const sendCallsBefore = lastWs!.send.mock.calls.length;
+
+    const e = { type: "keydown", ctrlKey: true, metaKey: false, altKey: false, key: "v" } as unknown as KeyboardEvent;
+    const result = handler(e);
+
+    expect(result).toBe(false);                                       // suppress xterm default
+    expect(clipboardMock.readText).toHaveBeenCalledTimes(1);
+    // readText is async — flush microtasks for the .then(paste) chain.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    expect(lastTerminal!.paste).toHaveBeenCalledWith("clipped");
+    // paste fires onData → ws.send pty.in (one additional send beyond the
+    // initial pty.resize sent on ws open).
+    const newSends = lastWs!.send.mock.calls.slice(sendCallsBefore).map((c) => JSON.parse(c[0] as string));
+    expect(newSends).toContainEqual({ type: "pty.in", data: "clipped" });
+  });
+
+  // ── 17 (Phase 5.1.9) — non-Ctrl key → handler returns true (untouched) ──
+  it("non-Ctrl key (or Ctrl+other) → handler returns true; clipboard untouched", async () => {
+    const { deps } = makeDeps();
+    renderHook(() => useWrapped({ aePid: 11111 }, deps));
+    await waitFor(() => expect(lastTerminal).toBeDefined());
+    const handler = lastTerminal!._keyHandler!;
+
+    // Plain 'a' keypress
+    const a = { type: "keydown", ctrlKey: false, metaKey: false, altKey: false, key: "a" } as unknown as KeyboardEvent;
+    expect(handler(a)).toBe(true);
+
+    // Ctrl+A (select-all xterm default)
+    const ctrlA = { type: "keydown", ctrlKey: true, metaKey: false, altKey: false, key: "a" } as unknown as KeyboardEvent;
+    expect(handler(ctrlA)).toBe(true);
+
+    // keyup for Ctrl+C with selection — must not fire copy on keyup.
+    lastTerminal!._selection = "x";
+    const keyup = { type: "keyup", ctrlKey: true, metaKey: false, altKey: false, key: "c" } as unknown as KeyboardEvent;
+    expect(handler(keyup)).toBe(true);
+
+    expect(clipboardMock.writeText).not.toHaveBeenCalled();
+    expect(clipboardMock.readText).not.toHaveBeenCalled();
   });
 });

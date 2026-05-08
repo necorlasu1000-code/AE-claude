@@ -91,6 +91,15 @@ interface XtermLike {
   dispose(): void;
   readonly cols: number;
   readonly rows: number;
+  // Phase 5.1.9 — Ctrl+C / Ctrl+V OS clipboard sync.
+  // attachCustomKeyEventHandler runs before xterm's default keypress
+  // processing; returning false suppresses xterm default. paste() routes
+  // text into the same onData → ws.send pty.in path as typed input, so
+  // the sidecar PTY sees pasted content identically to keyboard input.
+  attachCustomKeyEventHandler(cb: (e: KeyboardEvent) => boolean): void;
+  getSelection(): string;
+  clearSelection(): void;
+  paste(text: string): void;
 }
 
 interface FitAddonLike {
@@ -168,6 +177,42 @@ export function useTerminal(
     } catch { /* canvas renderer fallback */ }
 
     terminal.open(container);
+
+    // Phase 5.1.9 — Ctrl+C / Ctrl+V keybindings synced with OS clipboard.
+    //   Ctrl+C with selection → writeText(selection) + clearSelection,
+    //                           suppress xterm default (no SIGINT byte 0x03).
+    //   Ctrl+C without selection → fall through to xterm default (SIGINT
+    //                           preserved — claude CLI interrupt works).
+    //   Ctrl+V → readText() → terminal.paste(text); paste fires onData →
+    //            ws.send pty.in, identical path to typed input.
+    // CEP runs CEF (Chromium-based); navigator.clipboard.writeText/readText
+    // work in user-gesture context (keypress qualifies). No additional CSP
+    // entries required for CEP 11+ (After Effects 22.0+ host).
+    terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type !== "keydown") return true;
+      const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
+      if (!ctrl) return true;
+      const key = e.key.toLowerCase();
+      if (key === "c") {
+        const sel = terminal.getSelection();
+        if (sel.length > 0) {
+          // fire-and-forget; failure leaves user with the visual selection
+          // missed clipboard write — better than blocking the UI thread
+          // or throwing inside an event listener.
+          void navigator.clipboard.writeText(sel).catch(() => { /* */ });
+          terminal.clearSelection();
+          return false;
+        }
+        return true; // no selection → SIGINT pass-through
+      }
+      if (key === "v") {
+        void navigator.clipboard.readText()
+          .then((text) => { if (text) terminal.paste(text); })
+          .catch(() => { /* clipboard read denied or empty — silent */ });
+        return false;
+      }
+      return true;
+    });
 
     // Initial fit. Container may be 0×0 on first paint — fitAddon throws,
     // caught here. ResizeObserver handles subsequent (real) sizes.
