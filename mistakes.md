@@ -1292,4 +1292,73 @@ types-for-adobe TS type만 보면 알 수 없는 runtime semantic — 사용자 
 
 **메타 학습 — schema description 검증 패턴**: 30 tool 진화 시 매 tool dogfood loop에 "claude first-attempt 정확도" 명시. retry 1+ 발생 시 schema description sub-step (5.x.y fix) 분할 가능. 반복 패턴이면 schema 검증 자동화 후보 (e.g., dogfood-driven description regeneration).
 
+## 2026-05-08 description duplication / single source of truth 위반 (#19)
+
+**문제**: Phase 5.1.7 fix (`1ad3feb`)에서 `propertyMatchName → propertyName` 인자명 변경 + description 정정 박았는데, 사용자 dogfood 재검증 시 claude가 여전히 "propertyMatchName" 인자명으로 호출 시도. ae-claude (panel xterm 안 claude) 자체 진단:
+
+> "fix-1이 zod schema description (`schema.ts`)과 handler.ts description은 정정했지만, **production source는 `sidecar/src/mcp/server.ts:127-134` inline description**. claude는 server.ts MCP registerTool description만 본다. zod schema description은 production 노출 0 = dead code."
+
+**진단**: ae_get_expression의 description이 **세 곳**에 박혀있었음:
+1. `sidecar/src/tools/ae_get_expression/schema.ts` zod `.describe()` (또는 jsdoc — 5.1.7에선 jsdoc만)
+2. `sidecar/src/tools/ae_get_expression/handler.ts` `defineAETool({description: ...})` JSDoc + description string
+3. `sidecar/src/mcp/server.ts:127-134` `server.registerTool("ae_get_expression", { description: ... })`
+
+claude MCP 호출 시 보는 것은 (3) only. (1), (2)는 dev 시점 annotation. fix-1이 (1)+(2)만 정정 → claude 입장에선 **description 변경 0**.
+
+**Root cause**: tool description의 single source of truth 위반. 같은 정보가 여러 source에 박혀있고 production 노출 source가 명시 안 됨. 5.1.3 architecture refactor에서 mcp/server.ts inline registerTool 패턴 박았을 때 handler.ts와 description 동기화 정책 정의 안 함 — 30 tool 누적 시 매 tool마다 두 곳 동기화 의존.
+
+**왜 fix-1이 통과했는가** (메타 핵심):
+- fix-1 검증: unit test 174/174 그린 + alias 합본 grep `propertyMatchName: 0` (handler/impl/schema에서만 제거 확인). 단 **dist/mcp/server.js scope 미검증** — 거기에 propertyMatchName 잔존.
+- 사용자 dogfood: panel reload 후 claude가 새 description으로 re-fetch — 단 server.ts 안 옛 description 그대로라 claude는 old spec 보고 호출.
+
+#15 family lineage (production assembly point가 mock 외부) — 이번 사례는 description의 production source가 fix-1 scope 외부. unit test와 alias grep이 잡지 못함.
+
+**Fix (Phase 5.1.7 fix-2)**:
+
+1. `sidecar/src/mcp/server.ts:122-141` ae_get_expression registerTool block의 description 정정. 사용자 spec sentence:
+
+   ```
+   "Property name as shown in After Effects panel timeline (display name in
+   current locale). Examples: 'Position', 'Scale', 'Rotation', 'Anchor Point',
+   'Opacity'. Do NOT use internal matchNames like 'ADBE Position' --
+   ExtendScript's layer.property() lookup uses display name only."
+   ```
+
+   negative example ("Do NOT use 'ADBE Position'")이 명시적으로 박힌 description. claude에 강한 지시.
+
+2. `sidecar/src/tools/ae_get_expression/handler.ts:7` JSDoc cleanup — `propertyMatchName` 잔존 → `propertyName` 정정.
+
+3. dist grep 검증 (좁혀서):
+   - `dist/mcp/server.js`에서 `propertyMatchName` 0 매치 ✅
+   - `"ADBE Position"` 1 매치 (새 description의 negative example, 의도) — 옛 positive 예시 잔존 X
+
+**예방 (미래 패턴)**:
+
+1. **description production source는 `mcp/server.ts` registerTool block — single source of truth**. handler.ts / schema.ts의 description은 dev annotation only로 인지. 30 tool 진화 시 description 변경은 server.ts에서.
+2. **tool description 변경 시 dist grep 검증 scope 명시**: production 노출 source (server.ts)의 dist 산출물 (dist/mcp/server.js) 직접 grep. handler/schema/impl scope만 grep하면 production 미반영 가능.
+3. **root cause fix 후보 (5.2 진입 전 별도 검토)**: description duplication 자체 제거. 옵션:
+   - (a) zod schema의 `.describe()`를 server.ts가 import해서 통합 (zod 표준 패턴)
+   - (b) handler.ts의 ToolDef.description을 server.ts가 tools registry로부터 lookup
+   - (c) 두 곳 description을 const string으로 추출, server.ts/handler.ts 양쪽 import
+
+   30 tool 일관성 + 5.x.y fix 같은 함정 자동 차단.
+
+**검증**:
+
+- `dist/mcp/server.js` ae_get_expression block: `propertyMatchName` 0 매치 / 옛 `ADBE Position` positive example 0 매치 / 새 negative example 1 매치 (의도)
+- 사용자 dogfood: panel reload + 단일 호출 1회 first-attempt 정확 (claude가 "Position" display name으로 직접 호출)
+
+**메타 family 비교** (#11 / #13 / #14 / #15 / #16 / #17 / #18 / #19):
+
+- **#15** (production assembly point가 mock 외부): wiring code 자체가 test scope 밖. fix-4가 helper 추출 + integration test로 해결.
+- **#19** (description production source가 fix scope 밖): description duplication + production 노출 source 명시 안 됨. **#15 family lineage** — 같은 메타 ("fix scope가 production 노출 surface와 일치 안 함"). 다른 layer (wiring vs description).
+
+**Phase 5.1.7 fix → fix-2 통합 학습**:
+
+5.1.7 sub-step에서 두 함정 발견:
+- #18 (5.1.7 fix): types-for-adobe TS type만 보고 schema spec 박음 → production runtime 차이
+- #19 (5.1.7 fix-2): fix-1 scope가 description duplication 인지 못 함 → production source 미반영
+
+**메타 학습 — fix scope 검증 명시**: 함정 fix 시 production 노출 surface (artifact/registered output/runtime config 등) 직접 검증. dev annotation source만 정정 + unit test 그린 = production 미반영 가능. 30 tool 진화 시 fix sub-step마다 dist/binding/registered output grep로 production scope 좁혀서 검증 명시.
+
 **메타 학습**: 미래 reader는 두 패턴 모두 수입 가능 — (a) "함정 의식했으나 다음 phase로 미루기 + jsdoc에 명시" + (b) "한 layer fix 후 같은 메타 family의 다른 layer 함정 재현해야 발현하는 layered dogfood 가정". 둘 합치면: jsdoc self-aware는 가치 있되, 한 번의 dogfood가 모든 함정 catch한다고 가정하지 말 것. 매 dogfood loop가 새 layer 발견 기회.

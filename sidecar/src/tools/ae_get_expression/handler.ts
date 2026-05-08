@@ -4,7 +4,7 @@
 // dispatcher-generic AEError code strings:
 //   AENoActiveCompError  -- compId omitted + activeItem null/non-Composition
 //   AENotFoundError      -- compId unknown OR layerIndex out of bounds OR
-//                            propertyMatchName not present on the layer.
+//                            propertyName not present on the layer.
 //                            impl.ts encodes which one fired in the
 //                            sentinel userMessage; handler reattaches the
 //                            typed subclass with the input echo.

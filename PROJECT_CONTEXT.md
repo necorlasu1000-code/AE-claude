@@ -167,7 +167,8 @@ AE ↔ CEP Panel (React + xterm.js)
 | 5.1.5 | `ae_get_layers` (read-only, MVP 2/5 레이어 lane) — AENotFoundError 신설 + JsxLayerLike + makeMockLayer + comp.layer receiver guard + Object.prototype.toString reflection | `690fcf1` | ✅ |
 | 5.1.6 | `ae_list_effects` (read-only, MVP 3/5 이펙트 lane) — JsxPropertyLike/JsxPropertyGroupLike + makeMockEffect/makeMockEffectsParade + Effect Parade try/catch (Camera/Light/Null layer fail mode 우회) + layerIndex 사전 검증 | `2e498a5` | ✅ |
 | 5.1.7 | `ae_get_expression` (read-only, MVP 4/5 익스프레션 lane) — JsxPropertyLike 확장 (expression?/expressionEnabled?) + makeMockProperty + MockLayerOpts.properties map + propertyMatchName not-found → AENotFoundError | `6ed8f08` | ✅ |
-| 5.1.7 fix | mistakes #18 — schema description vs production runtime 차이. propertyMatchName → propertyName + description 정정 + mock display-name keyed + 회귀 case | (본 commit) | ✅ |
+| 5.1.7 fix | mistakes #18 — schema description vs production runtime 차이. propertyMatchName → propertyName + description 정정 + mock display-name keyed + 회귀 case | `1ad3feb` | ✅ |
+| 5.1.7 fix-2 | mistakes #19 — description duplication / single source of truth 위반. server.ts:127-134 정정 (production source) + handler.ts JSDoc cleanup + dist grep scope 검증. root cause fix (description 통합)는 5.2 진입 전 검토 | (본 commit) | ✅ |
 | 5.1.8 | `ae_get_keyframes` (MVP 5/5 키프레임 lane) | | ⏳ **다음 진입 대상** |
 | 5.2 | 컴프 lane (병렬) | | |
 | 5.3 | 레이어 lane (병렬) | | |
@@ -181,7 +182,7 @@ AE ↔ CEP Panel (React + xterm.js)
 
 ---
 
-## E. 18개 발견 함정 (mistakes.md 인덱스)
+## E. 19개 발견 함정 (mistakes.md 인덱스)
 
 | # | 함정 한 줄 | Phase | 해결 메커니즘 |
 |---|---|---|---|
@@ -203,6 +204,7 @@ AE ↔ CEP Panel (React + xterm.js)
 | **16** | **D-J multi-role grace timer 회귀 — `clients.size === 0` 조건이 mcp 포함 → panel close 시 좀비 4개 누적. Phase 4 dogfood (h) 통과는 시간 변수 우연** | **5.1.2** | **panel-only count gate (`findFirstByRole("panel")`) + scenario 15/16 회귀 가드. 새 메타 family — "검증 절차 시간 변수 누락"** |
 | **17** | **ExtendScript SpiderMonkey method this-binding 강제 — `var fn = obj.method; fn(i)` detach 시 production AE throw "Function global.item() cannot work with this class". vitest mock vanilla JS는 receiver 미강제 → 4 case 그린이지만 production fail** | **5.1.4 fix** | **impl.ts: `project.item!(i)` 직접 호출. _mockApp.ts: receiver guard (`this !== project` throw) — 30 tool 공통 자동 가드. impl.test.ts regression case. 메타 family = #11/#13/#14 mock vs production 시뮬 정확도** |
 | **18** | **schema description vs production AE runtime 차이 — `propertyMatchName: "ADBE Position"` (TS type 추론 spec) → claude first-attempt fail × 5. layer.property() 실제 동작은 display-name lookup. types-for-adobe만 보고 spec 박은 결과** | **5.1.7 fix** | **`propertyName` 인자명 변경 + description 정정 (display-name 명시) + mock `properties` map jsdoc "KEYED BY DISPLAY NAME" 명시 + 회귀 case (matchName-shaped → fail, display-name → 성공). 새 메타 family — "spec / description 정확도가 production runtime 검증 필요"** |
+| **19** | **description duplication / single source of truth 위반 — fix-1이 zod schema + handler.ts description 정정했지만 production source는 `mcp/server.ts` inline description. claude는 server.ts만 본다 → fix-1이 dead code만 정정** | **5.1.7 fix-2** | **server.ts:127-134 description 정정 (사용자 spec, negative example "Do NOT use 'ADBE Position'") + handler.ts:7 JSDoc cleanup + dist grep 검증 (server.js scope `propertyMatchName` 0). #15 family lineage (production assembly point가 fix scope 밖). root cause fix 후보 (description 통합) 5.2 진입 전 별도 검토** |
 
 ### #11 4-faces (Phase 3.7 wiring 발견 누적)
 
@@ -315,24 +317,30 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.7 + fix ✅, 5.1.8 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.7 + fix + fix-2 ✅, 5.1.8 진입 대기)
 
 ### 현재 상태
 
-**Phase 5.1.7 + fix ✅ 완료** (2026-05-08). MVP 4/5 익스프레션 lane + dogfood 발견 함정 (#18) fix.
+**Phase 5.1.7 + fix + fix-2 ✅ 완료** (2026-05-08). MVP 4/5 익스프레션 lane + dogfood 발견 함정 #18 (schema description vs production runtime) + fix-1 scope 누락 함정 #19 (description duplication / production source 미반영) 둘 다 fix.
 
 Sub-step 진행:
-- **5.1.7** (`6ed8f08`) — `ae_get_expression` 4파일 + `JsxPropertyLike` 확장 (expression?/expressionEnabled?) + `makeMockProperty` + `MockLayerOpts.properties` map
-- **5.1.7 fix** (본 commit) — mistakes #18. schema description이 production AE runtime 동작과 부정확 (claude first-attempt fail × 5 → retry 회복). `propertyMatchName` → `propertyName` 인자명 변경 + description 정정 (display-name lookup 명시) + mock `properties` map jsdoc "KEYED BY DISPLAY NAME" 명시 + 회귀 case (matchName-shaped → fail, display-name → 성공)
+- **5.1.7** (`6ed8f08`) — `ae_get_expression` 4파일 + `JsxPropertyLike` 확장 + `makeMockProperty` + `MockLayerOpts.properties` map
+- **5.1.7 fix** (`1ad3feb`) — mistakes #18. schema description이 production runtime 동작과 부정확. propertyMatchName → propertyName + description 정정 (display-name lookup 명시) + mock display-name keyed + 회귀 case
+- **5.1.7 fix-2** (본 commit) — mistakes #19. fix-1이 production source (`mcp/server.ts` inline description) 미반영 — claude는 server.ts만 본다. server.ts:127-134 정정 + handler.ts JSDoc cleanup + dist grep scope 검증. #15 family lineage
 
-함정 인덱스: 17 → 18. mistakes #18은 **새 메타 family** — "spec / description 정확도가 production runtime 검증 필요" (#11 4-faces / #13 / #14 / #17 lineage이지만 layer 다름 — 외부 의존성 시뮬 vs schema description 자체 정확도).
+함정 인덱스: 18 → 19. mistakes #19는 **#15 family lineage** — production assembly point/source가 fix scope 밖. layer 다름 (wiring vs description). 5.1.7 sub-step에서 fix → fix-2 layered loop가 필요했던 이유: fix-1 scope가 dev annotation source (zod/handler)만 정정 + production 노출 source (server.ts inline) 미명시.
 
-5.1.7 sub-step 통합 학습:
-- types-for-adobe TS type만 보고 schema spec 박지 말 것 — runtime semantic (display name vs matchName lookup, locale 의존, instance method receiver 강제)은 TS type에 표현 안 됨
-- 30 tool 진화 시 dogfood "claude first-attempt 정확도"가 description 품질 KPI. retry 1+ 발생 시 schema description sub-step 분할 (5.x.y fix) 가능
-- mock fixture key 의미는 jsdoc에 명시 (production-strict 시뮬 강제 + future authors 의도 명확)
+5.1.7 통합 학습 (3 sub-step):
+- types-for-adobe TS type만 보고 schema spec 박지 말 것 — production runtime semantic (display name lookup, locale 의존, instance method receiver 강제)은 TS type에 표현 안 됨 (#18)
+- description의 production source는 `mcp/server.ts` registerTool block — single source of truth. handler.ts/schema.ts description은 dev annotation only (#19)
+- description fix 시 dist grep scope 명시 — production 노출 source의 dist 산출물 (`dist/mcp/server.js`) 직접 grep. dev source만 grep하면 production 미반영 (#19)
+- root cause fix 후보 (description 통합, 5.2 진입 전 별도 검토): zod `.describe()` import / handler.ts ToolDef.description lookup / 두 곳 const string 추출
 
-**Phase 5.1.8 (`ae_get_keyframes`, MVP 5/5 키프레임 lane) 진입 대기.** 5.1.4/5.1.5/5.1.6/5.1.7 패턴 안정 — 매 tool마다 4파일 + 3 registry 1줄 + 필요 시 `_mockApp.ts` 추가 fixture (keyframe: PropertyBase.numKeys + keyTime/keyValue/keyInInterpolationType/keyOutInterpolationType 등). 키프레임은 leaf Property에 부착된 array-like accessor — 5.1.7 PropertyLike 확장 또는 별도 sub-interface 결정 필요 (5.1.8 진입 시). **Phase 5.1.8 진입 시 schema description은 production runtime 검증 명시** (mistakes #18 적용).
+**Phase 5.1.8 (`ae_get_keyframes`, MVP 5/5 키프레임 lane) 진입 대기.** 5.1.4/5.1.5/5.1.6/5.1.7 패턴 안정 — 매 tool마다 4파일 + 3 registry 1줄 + 필요 시 `_mockApp.ts` 추가 fixture. 5.1.8 진입 시 mistakes #18 + #19 둘 다 적용:
+- description은 server.ts inline에서 single source로 박기 (production runtime 검증 후)
+- description 변경 시 dist/mcp/server.js scope 직접 grep로 production 반영 확인
+
+키프레임은 leaf Property에 부착된 array-like accessor — 5.1.7 PropertyLike 확장 또는 별도 sub-interface 결정 필요 (5.1.8 진입 시).
 
 ### 검증된 실측치
 
