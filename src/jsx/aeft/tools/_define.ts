@@ -94,12 +94,30 @@ export interface JsxLayerLike {
 // label that the user can rename. enabled controls the property's eyeball
 // state. impl.ts ae_list_effects maps PropertyBase.name -> output
 // `displayName` field (real AE has no separate displayName property).
+//
+// Phase 5.1.7 -- expression?/expressionEnabled? optional. Real AE leaf
+// `Property extends PropertyBase` adds `expression: string` and
+// `expressionEnabled: boolean`; PropertyGroup (effects, masks, transform
+// groups) does NOT have these fields. We keep one interface and gate
+// access via optionals so 30-tool growth (keyframes, expressions,
+// property values) shares a single PropertyLike contract instead of
+// branching into Property vs PropertyGroup discriminants. impl.ts
+// guards with `expression ?? ""` semantics to handle the missing-field
+// case (PropertyGroup invocation, unlikely but typed).
 export interface JsxPropertyLike {
   matchName: string;
   /** PropertyBase.name -- locale-dependent, user-renameable. Surfaces as
    *  `displayName` in tool output schemas where that distinction matters. */
   name: string;
   enabled: boolean;
+  /** Phase 5.1.7 -- ExtendScript Property.expression. Empty string when
+   *  no expression is set. PropertyGroup invocations omit this field;
+   *  callers must handle undefined defensively even though leaf Property
+   *  always populates it in production AE. */
+  expression?: string;
+  /** Phase 5.1.7 -- ExtendScript Property.expressionEnabled. Same
+   *  optional semantics as expression. */
+  expressionEnabled?: boolean;
 }
 
 // Phase 5.1.6 -- PropertyGroup extends PropertyBase. Adds numProperties

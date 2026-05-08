@@ -22,6 +22,7 @@ import { aeGetActiveCompInputSchema } from "../tools/ae_get_active_comp/schema.j
 import { aeListCompsInputSchema } from "../tools/ae_list_comps/schema.js";
 import { aeGetLayersInputSchema } from "../tools/ae_get_layers/schema.js";
 import { aeListEffectsInputSchema } from "../tools/ae_list_effects/schema.js";
+import { aeGetExpressionInputSchema } from "../tools/ae_get_expression/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -114,6 +115,27 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async (rawInput) => {
       const out = await wsClient.exec("ae_list_effects", rawInput ?? {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.1.7 — ae_get_expression (read-only, MVP 4/5, expression lane).
+  server.registerTool(
+    "ae_get_expression",
+    {
+      description:
+        "Get expression on a property of a layer. propertyMatchName is locale-stable " +
+        "internal id (e.g., 'ADBE Position', 'ADBE Anchor Point', 'ADBE Opacity'). " +
+        "Returns expression source string and enabled flag. " +
+        "compId optional -- defaults to active composition. " +
+        "Returns { expression: '', enabled: false } when no expression is set. " +
+        "Throws AENoActiveCompError when compId omitted and no active comp; " +
+        "AENotFoundError when compId is unknown, layerIndex is out of bounds, " +
+        "or propertyMatchName is not present on the layer.",
+      inputSchema: aeGetExpressionInputSchema.shape,
+    },
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_get_expression", rawInput ?? {});
       return toCallToolResult(out);
     },
   );

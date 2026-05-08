@@ -43,23 +43,45 @@ export interface MockLayerOpts {
    *  the lookup -- our mock omits the method to mirror that fail mode
    *  without inventing a custom exception type). */
   effects?: JsxPropertyLike[];
+  /** Phase 5.1.7 -- direct matchName -> Property lookup map. Used by
+   *  ae_get_expression (and future tools that resolve a single named
+   *  property like "ADBE Position", "ADBE Anchor Point"). Coexists with
+   *  effects -- effects parade is gated by matchName === "ADBE Effect
+   *  Parade", and any other matchName is checked against this map. When
+   *  the matchName is not in the map (and not Effect Parade), the mock
+   *  throws to mirror production AE's "property not found" fail mode. */
+  properties?: Record<string, JsxPropertyLike>;
 }
 
 export function makeMockLayer(opts?: MockLayerOpts): JsxLayerLike {
   var o = opts || {};
   var type: MockLayerType = o.type !== undefined ? o.type : "AVLayer";
   var effects = o.effects;
+  var properties = o.properties;
 
   // Phase 5.1.6 -- when effects opts is provided, expose property(matchName)
   // that returns a guarded PropertyGroup mock for "ADBE Effect Parade".
-  // Other matchName lookups throw the same "not found" shape production AE
-  // would, so future tools that look up other property groups can still
-  // use this fixture by adding their matchName branch.
+  // Phase 5.1.7 -- properties map adds direct matchName -> Property lookup
+  // for non-Effect-Parade names. Either fixture (or both) presence enables
+  // the property method; absence keeps it omitted (production AE Camera/
+  // Light/Null layer fail mode mirror).
   var propertyMethod: JsxLayerLike["property"];
-  if (effects !== undefined) {
+  if (effects !== undefined || properties !== undefined) {
     propertyMethod = function (matchName: string): JsxPropertyGroupLike {
       if (matchName === "ADBE Effect Parade") {
-        return makeMockEffectsParade(effects!);
+        if (effects === undefined) {
+          throw new Error("Mock layer.property: 'ADBE Effect Parade' not modeled (no effects opts)");
+        }
+        return makeMockEffectsParade(effects);
+      }
+      if (properties && Object.prototype.hasOwnProperty.call(properties, matchName)) {
+        // Cast through unknown -- JsxPropertyLike does not extend
+        // JsxPropertyGroupLike, but Layer.property() in real AE returns
+        // _PropertyClasses (Property | PropertyGroup union). Tests that
+        // probe expression fields read the JsxPropertyLike shape; the
+        // shared signature lets us widen here without splitting return
+        // types per-tool.
+        return properties[matchName] as unknown as JsxPropertyGroupLike;
       }
       throw new Error("Mock layer.property: matchName '" + matchName + "' not modeled");
     };
@@ -104,6 +126,30 @@ export function makeMockEffect(opts?: MockEffectOpts): JsxPropertyLike {
     matchName: o.matchName !== undefined ? o.matchName : "ADBE Mock Effect",
     name: o.name !== undefined ? o.name : "Mock Effect",
     enabled: o.enabled !== undefined ? o.enabled : true,
+  };
+}
+
+// Phase 5.1.7 -- general-purpose PropertyLike fixture for expression-
+// bearing leaf properties (transforms, effect controls, etc.). Distinct
+// from makeMockEffect (which models PropertyGroup-shaped effect entries
+// without expression fields) so the test author opts into expression
+// semantics explicitly.
+export interface MockPropertyOpts {
+  matchName?: string;
+  name?: string;
+  enabled?: boolean;
+  expression?: string;
+  expressionEnabled?: boolean;
+}
+
+export function makeMockProperty(opts?: MockPropertyOpts): JsxPropertyLike {
+  var o = opts || {};
+  return {
+    matchName: o.matchName !== undefined ? o.matchName : "ADBE Mock Property",
+    name: o.name !== undefined ? o.name : "Mock Property",
+    enabled: o.enabled !== undefined ? o.enabled : true,
+    expression: o.expression !== undefined ? o.expression : "",
+    expressionEnabled: o.expressionEnabled !== undefined ? o.expressionEnabled : false,
   };
 }
 
