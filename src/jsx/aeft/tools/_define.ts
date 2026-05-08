@@ -118,6 +118,22 @@ export interface JsxPropertyLike {
   /** Phase 5.1.7 -- ExtendScript Property.expressionEnabled. Same
    *  optional semantics as expression. */
   expressionEnabled?: boolean;
+  /** Phase 5.1.8 -- ExtendScript Property.numKeys. PropertyGroup omits;
+   *  leaf Property always populates (0 when no keyframes). Callers must
+   *  guard typeof === "number" before iterating. */
+  numKeys?: number;
+  /** Phase 5.1.8 -- Property.keyTime(keyIndex). 1-based keyIndex. Returns
+   *  seconds. Mistakes #17: must be called as property.keyTime(i) directly. */
+  keyTime?(keyIndex: number): number;
+  /** Phase 5.1.8 -- Property.keyValue(keyIndex). 1-based keyIndex. Return
+   *  shape varies by propertyValueType (number / number[] / object). */
+  keyValue?(keyIndex: number): unknown;
+  /** Phase 5.1.8 -- Property.keyInInterpolationType(keyIndex). Returns
+   *  KeyframeInterpolationType int (LINEAR=6612, BEZIER=6613, HOLD=6614). */
+  keyInInterpolationType?(keyIndex: number): number;
+  /** Phase 5.1.8 -- Property.keyOutInterpolationType(keyIndex). Same as
+   *  in-side; AE allows mismatched in/out types. */
+  keyOutInterpolationType?(keyIndex: number): number;
 }
 
 // Phase 5.1.6 -- PropertyGroup extends PropertyBase. Adds numProperties

@@ -144,17 +144,97 @@ export interface MockPropertyOpts {
   enabled?: boolean;
   expression?: string;
   expressionEnabled?: boolean;
+  /** Phase 5.1.8 -- per-keyframe fixture entries. When provided,
+   *  numKeys = keyframes.length and keyTime/keyValue/keyIn/Out
+   *  iterators read from this array (1-based indexing -- index i
+   *  reads keyframes[i-1]). When omitted, numKeys = 0 and the
+   *  iterator methods are still defined but throw on call (mock
+   *  prod parity: real AE throws on out-of-range keyIndex). */
+  keyframes?: MockKeyframeOpts[];
+}
+
+export interface MockKeyframeOpts {
+  /** Seconds. Default = 0. */
+  time?: number;
+  /** Raw value -- number / number[] / object. Default = 0. */
+  value?: unknown;
+  /** KeyframeInterpolationType int per types-for-adobe AE 22.0:
+   *  LINEAR=6612, BEZIER=6613, HOLD=6614. Default = 6613 (BEZIER, AE default). */
+  inInterp?: number;
+  /** Same as inInterp. AE allows mismatched in/out. Default = 6613 (BEZIER). */
+  outInterp?: number;
 }
 
 export function makeMockProperty(opts?: MockPropertyOpts): JsxPropertyLike {
   var o = opts || {};
-  return {
+  var keyframes = o.keyframes;
+
+  var prop: JsxPropertyLike;
+  prop = {
     matchName: o.matchName !== undefined ? o.matchName : "ADBE Mock Property",
     name: o.name !== undefined ? o.name : "Mock Property",
     enabled: o.enabled !== undefined ? o.enabled : true,
     expression: o.expression !== undefined ? o.expression : "",
     expressionEnabled: o.expressionEnabled !== undefined ? o.expressionEnabled : false,
   };
+
+  // Phase 5.1.8 -- keyframe iterator methods. Always populate when keyframes
+  // opts is provided (even an empty array sets numKeys = 0); when omitted,
+  // skip the keyframe surface entirely so impl.ts hitting a property without
+  // keyframe fixtures gets `typeof property.numKeys === "undefined"` -- the
+  // same shape PropertyGroup produces in production AE.
+  if (keyframes !== undefined) {
+    prop.numKeys = keyframes.length;
+    // Receiver guards mirror Phase 5.1.5/5.1.6 mistakes #17 pattern --
+    // detached method calls (var fn = property.keyTime; fn(i)) fail at
+    // unit-test layer instead of riding through to production AE throw.
+    prop.keyTime = function (this: unknown, keyIndex: number) {
+      if (this !== prop) {
+        throw new Error(
+          "Mock this-binding violation: property.keyTime called with wrong " +
+          "receiver. ExtendScript SpiderMonkey throws on detached calls. " +
+          "Use property.keyTime(i) directly. See mistakes.md #17.",
+        );
+      }
+      var k = (keyframes as MockKeyframeOpts[])[keyIndex - 1];
+      if (!k) throw new Error("Mock keyTime: keyIndex " + keyIndex + " out of range");
+      return k.time !== undefined ? k.time : 0;
+    };
+    prop.keyValue = function (this: unknown, keyIndex: number) {
+      if (this !== prop) {
+        throw new Error(
+          "Mock this-binding violation: property.keyValue called with wrong " +
+          "receiver. See mistakes.md #17.",
+        );
+      }
+      var k = (keyframes as MockKeyframeOpts[])[keyIndex - 1];
+      if (!k) throw new Error("Mock keyValue: keyIndex " + keyIndex + " out of range");
+      return k.value !== undefined ? k.value : 0;
+    };
+    prop.keyInInterpolationType = function (this: unknown, keyIndex: number) {
+      if (this !== prop) {
+        throw new Error(
+          "Mock this-binding violation: property.keyInInterpolationType " +
+          "called with wrong receiver. See mistakes.md #17.",
+        );
+      }
+      var k = (keyframes as MockKeyframeOpts[])[keyIndex - 1];
+      if (!k) throw new Error("Mock keyInInterpolationType: keyIndex " + keyIndex + " out of range");
+      return k.inInterp !== undefined ? k.inInterp : 6613;
+    };
+    prop.keyOutInterpolationType = function (this: unknown, keyIndex: number) {
+      if (this !== prop) {
+        throw new Error(
+          "Mock this-binding violation: property.keyOutInterpolationType " +
+          "called with wrong receiver. See mistakes.md #17.",
+        );
+      }
+      var k = (keyframes as MockKeyframeOpts[])[keyIndex - 1];
+      if (!k) throw new Error("Mock keyOutInterpolationType: keyIndex " + keyIndex + " out of range");
+      return k.outInterp !== undefined ? k.outInterp : 6613;
+    };
+  }
+  return prop;
 }
 
 export function makeMockEffectsParade(effects: JsxPropertyLike[]): JsxPropertyGroupLike {

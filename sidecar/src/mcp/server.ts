@@ -23,6 +23,7 @@ import { aeListCompsInputSchema } from "../tools/ae_list_comps/schema.js";
 import { aeGetLayersInputSchema } from "../tools/ae_get_layers/schema.js";
 import { aeListEffectsInputSchema } from "../tools/ae_list_effects/schema.js";
 import { aeGetExpressionInputSchema } from "../tools/ae_get_expression/schema.js";
+import { aeGetKeyframesInputSchema } from "../tools/ae_get_keyframes/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -144,6 +145,34 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async (rawInput) => {
       const out = await wsClient.exec("ae_get_expression", rawInput ?? {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.1.8 -- ae_get_keyframes (read-only, MVP 5/5, keyframe lane).
+  // Production source description (mistakes #19 single source pattern --
+  // claude reads this string, NOT the zod schema's .describe fields).
+  server.registerTool(
+    "ae_get_keyframes",
+    {
+      description:
+        "Get keyframes on a property of a layer. propertyName is the display name " +
+        "in the current locale (e.g., 'Position', 'Scale', 'Rotation', 'Anchor Point', " +
+        "'Opacity'). Returns keyframe array with time, value, and interpolation type " +
+        "for in/out. Do NOT use internal matchNames like 'ADBE Position' -- " +
+        "layer.property() lookup uses display name only. " +
+        "compId optional -- defaults to active composition. " +
+        "Each keyframe entry: { index (1-based), time (seconds), value (raw -- shape " +
+        "varies by propertyValueType: number / number[] / object), interpolation: " +
+        "{ in, out } where in/out are LINEAR | BEZIER | HOLD }. " +
+        "Returns { keyframes: [] } when no keyframes are set on the property. " +
+        "Throws AENoActiveCompError when compId omitted and no active comp; " +
+        "AENotFoundError when compId is unknown, layerIndex is out of bounds, " +
+        "or propertyName is not present on the layer.",
+      inputSchema: aeGetKeyframesInputSchema.shape,
+    },
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_get_keyframes", rawInput ?? {});
       return toCallToolResult(out);
     },
   );

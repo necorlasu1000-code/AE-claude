@@ -23,6 +23,7 @@ import {
   ae_get_layers,
   ae_list_effects,
   ae_get_expression,
+  ae_get_keyframes,
 } from "./tools";
 export const tools = {
   ae_get_active_comp,
@@ -30,6 +31,7 @@ export const tools = {
   ae_get_layers,
   ae_list_effects,
   ae_get_expression,
+  ae_get_keyframes,
 };
 
 export const helloWorld = () => {

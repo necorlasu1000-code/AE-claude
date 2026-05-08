@@ -18,6 +18,7 @@ import { ae_list_comps } from "./ae_list_comps/handler.js";
 import { ae_get_layers } from "./ae_get_layers/handler.js";
 import { ae_list_effects } from "./ae_list_effects/handler.js";
 import { ae_get_expression } from "./ae_get_expression/handler.js";
+import { ae_get_keyframes } from "./ae_get_keyframes/handler.js";
 
 export const tools: Record<string, DefinedTool> = {
   ae_get_active_comp,
@@ -25,4 +26,5 @@ export const tools: Record<string, DefinedTool> = {
   ae_get_layers,
   ae_list_effects,
   ae_get_expression,
+  ae_get_keyframes,
 };
