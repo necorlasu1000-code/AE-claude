@@ -1,5 +1,11 @@
 // Phase 5.1.7 -- ae_get_expression ExtendScript impl (read-only).
 //
+// Phase 5.1.7 fix (mistakes #18) -- propertyName is the display name
+// in the current locale (e.g., "Position", "Scale"). ExtendScript's
+// layer.property(name) does display-name lookup when called directly
+// on a Layer; matchName lookup requires walking PropertyGroup
+// hierarchies, which is out of scope for this single-arg tool.
+//
 // Resolution rules:
 //   compId omitted    -> app.project.activeItem; null/non-Composition
 //                        throws AENoActiveCompError sentinel.
@@ -8,9 +14,9 @@
 //   layerIndex check  -> 1 <= layerIndex <= comp.numLayers, else
 //                        AENotFoundError. Pre-validated so comp.layer(i)
 //                        production throw on out-of-range never fires.
-//   property lookup   -> layer.property(propertyMatchName) try/catch;
+//   property lookup   -> layer.property(propertyName) try/catch;
 //                        production AE throws or returns null on unknown
-//                        matchName. Both branches map to AENotFoundError.
+//                        display name. Both branches map to AENotFoundError.
 //
 // Output mapping:
 //   expression          := property.expression ("" when no expression set)
@@ -34,7 +40,7 @@ import {
 
 export interface AeGetExpressionInput {
   layerIndex: number;
-  propertyMatchName: string;
+  propertyName: string;
   compId?: number;
 }
 
@@ -96,16 +102,16 @@ export const ae_get_expression = defineJsxTool<AeGetExpressionInput, AeGetExpres
     // Direct call (NOT var fn = comp.layer; fn(i)) -- mistakes #17.
     var layer: JsxLayerLike = comp.layer!(input.layerIndex);
 
-    // ---- Look up property by matchName -----------------------------------
+    // ---- Look up property by display name --------------------------------
     var property: JsxPropertyLike | null = null;
     try {
       // Direct call (NOT var fn = layer.property; fn(...)) -- mistakes #17.
-      property = layer.property!(input.propertyMatchName);
+      property = layer.property!(input.propertyName);
     } catch (lookupErr) {
       throw h.fail(
         "AENotFoundError",
-        "Property '" + input.propertyMatchName + "' not found on layer " + input.layerIndex,
-        "layer.property('" + input.propertyMatchName + "') threw (" +
+        "Property '" + input.propertyName + "' not found on layer " + input.layerIndex,
+        "layer.property('" + input.propertyName + "') threw (" +
           ((lookupErr && (lookupErr as { message?: string }).message) || String(lookupErr)) +
           ")."
       );
@@ -113,8 +119,8 @@ export const ae_get_expression = defineJsxTool<AeGetExpressionInput, AeGetExpres
     if (!property) {
       throw h.fail(
         "AENotFoundError",
-        "Property '" + input.propertyMatchName + "' not found on layer " + input.layerIndex,
-        "layer.property('" + input.propertyMatchName + "') returned null."
+        "Property '" + input.propertyName + "' not found on layer " + input.layerIndex,
+        "layer.property('" + input.propertyName + "') returned null."
       );
     }
 

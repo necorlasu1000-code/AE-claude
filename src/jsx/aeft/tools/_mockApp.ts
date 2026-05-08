@@ -43,13 +43,17 @@ export interface MockLayerOpts {
    *  the lookup -- our mock omits the method to mirror that fail mode
    *  without inventing a custom exception type). */
   effects?: JsxPropertyLike[];
-  /** Phase 5.1.7 -- direct matchName -> Property lookup map. Used by
-   *  ae_get_expression (and future tools that resolve a single named
-   *  property like "ADBE Position", "ADBE Anchor Point"). Coexists with
-   *  effects -- effects parade is gated by matchName === "ADBE Effect
-   *  Parade", and any other matchName is checked against this map. When
-   *  the matchName is not in the map (and not Effect Parade), the mock
-   *  throws to mirror production AE's "property not found" fail mode. */
+  /** Phase 5.1.7 -- direct lookup map for layer.property(name) calls.
+   *  Phase 5.1.7 fix (mistakes #18) -- KEYED BY DISPLAY NAME (e.g.,
+   *  "Position", "Anchor Point"), NOT matchName. ExtendScript's
+   *  layer.property() does display-name lookup when called on a Layer.
+   *  Each entry's body keeps its own PropertyBase.matchName field
+   *  (locale-stable internal id like "ADBE Position") for tools that
+   *  need to surface that distinction. Coexists with `effects` --
+   *  Effect Parade routes via matchName === "ADBE Effect Parade",
+   *  any other lookup name is checked against this map (display name).
+   *  When the name is not in the map, the mock throws to mirror
+   *  production AE's "property not found" fail mode. */
   properties?: Record<string, JsxPropertyLike>;
 }
 

@@ -21,14 +21,16 @@ import {
 export const ae_get_expression = defineAETool<AeGetExpressionInput, AeGetExpressionOutput>({
   name: "ae_get_expression",
   description:
-    "Get expression on a property of a layer. propertyMatchName is locale-stable " +
-    "internal id (e.g., 'ADBE Position', 'ADBE Anchor Point', 'ADBE Opacity'). " +
+    "Get expression on a property of a layer. propertyName is the display name " +
+    "in the current locale (e.g., 'Position', 'Scale', 'Rotation', 'Anchor Point', " +
+    "'Opacity') -- NOT the internal matchName. ExtendScript's layer.property() " +
+    "uses display-name lookup when called directly on a Layer. " +
     "Returns expression source string and enabled flag. " +
     "compId optional -- defaults to active composition. " +
     "Returns { expression: '', enabled: false } when no expression is set on the property. " +
     "Throws AENoActiveCompError when compId omitted and no active comp; " +
     "AENotFoundError when compId is unknown, layerIndex is out of bounds, " +
-    "or propertyMatchName is not present on the layer.",
+    "or propertyName is not present on the layer.",
   input: aeGetExpressionInputSchema,
   output: aeGetExpressionOutputSchema,
   handler: async (input: AeGetExpressionInput, ctx: ToolCtx): Promise<AeGetExpressionOutput> => {
@@ -40,7 +42,7 @@ export const ae_get_expression = defineAETool<AeGetExpressionInput, AeGetExpress
           throw new AENoActiveCompError({ originalCtx: e.ctx });
         }
         if (e.code === "AENotFoundError") {
-          const id = `comp=${input.compId ?? "active"} layer=${input.layerIndex} property='${input.propertyMatchName}'`;
+          const id = `comp=${input.compId ?? "active"} layer=${input.layerIndex} property='${input.propertyName}'`;
           throw new AENotFoundError("composition / layer / property", id, { originalCtx: e.ctx });
         }
       }

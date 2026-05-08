@@ -8,15 +8,28 @@
 // `expression` is the raw source string (empty when no expression set);
 // `enabled` mirrors Property.expressionEnabled (false when expression is
 // stored but currently disabled via the eyeball UI).
+//
+// Phase 5.1.7 fix (mistakes #18) -- propertyName field is the display
+// name in the current locale (e.g., "Position", "Scale"), NOT the
+// internal matchName ("ADBE Position"). ExtendScript's layer.property()
+// resolves by display name when called directly on a layer; matchName
+// lookup requires walking down PropertyGroup hierarchies. The original
+// schema described matchName because types-for-adobe TS types implied
+// it, but production AE runtime behavior (verified via user dogfood)
+// uses display name. claude's first-attempt accuracy depends on the
+// description matching runtime behavior; see mistakes.md #18 for the
+// schema-description vs runtime mismatch family.
 
 import { z } from "zod";
 
 export const aeGetExpressionInputSchema = z.object({
   /** 1-based layer index per AE convention. Required. */
   layerIndex: z.number().int().positive(),
-  /** PropertyBase.matchName -- locale-stable internal id (e.g.,
-   *  "ADBE Position", "ADBE Anchor Point", "ADBE Opacity"). Required. */
-  propertyMatchName: z.string().min(1),
+  /** Property display name in the current locale (e.g., "Position",
+   *  "Scale", "Rotation", "Anchor Point", "Opacity"). NOT the matchName
+   *  -- ExtendScript's layer.property() does display-name lookup, not
+   *  matchName lookup, when called directly on a Layer. Required. */
+  propertyName: z.string().min(1),
   /** Composition id (Item.id). Omit to use app.project.activeItem. When
    *  omitted and no active comp exists, AENoActiveCompError is raised. */
   compId: z.number().optional(),

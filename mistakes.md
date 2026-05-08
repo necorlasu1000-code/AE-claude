@@ -1222,4 +1222,74 @@ Detached call `var fn = project.item; fn(i)` 시 `this !== project` → mock thr
 
 **메타 학습 — Gate 자동화 vs dogfood 의존**: build-time grep으로 catch 가능한 함정 (encoding, namespace import, secret leak 등)은 gate로 자동화 가능. mock vs production 환경 차이 함정 (this-binding, ES3 syntax, AE class globals 등)은 dogfood가 fundamental — gate 추가는 가능하지만 mock 측에 production-strict 패턴 강제하는 게 더 효과적 (dogfood 도달 전 unit test가 catch).
 
+## 2026-05-08 schema description vs production AE 동작 차이 (#18)
+
+**문제**: Phase 5.1.7 dogfood — AE 패널에서 `ae_get_expression` 호출 시 claude가 `propertyMatchName: "ADBE Position"` (internal id)으로 5번 시도 → 모두 AENotFoundError. 6번째 시도에 `"Position"` (display name)으로 변경 → 성공. claude의 자율 retry로 회복했지만 first attempt 부정확 + latency.
+
+**진단**: 5.1.7 schema description에 박은 내용:
+
+```
+"propertyMatchName is locale-stable internal id (e.g., 'ADBE Position', ...)"
+```
+
+이는 types-for-adobe AE 22.0의 `PropertyBase.matchName: string` (line 2201) 정의를 보고 추론한 spec. 단 ExtendScript runtime 동작은 **다름**:
+
+- `layer.property("ADBE Position")` (matchName 호출) → fail (`null` 반환 또는 throw)
+- `layer.property("Position")` (display name 호출) → 성공
+
+이유: AE의 `Layer.property(name)`은 **immediate child의 display name lookup**. matchName은 `PropertyBase.matchName` field로 read-only access만 가능, 직접 lookup key 아님. matchName으로 navigate하려면 PropertyGroup tree walk-down + 각 단계 명시 필요. 단일 string lookup에선 display name이 표준 path.
+
+types-for-adobe TS type만 보면 알 수 없는 runtime semantic — 사용자 dogfood가 catch.
+
+**왜 unit test는 모두 통과했는가** (메타 핵심): 5.1.7 mock의 `MockLayerOpts.properties`가 단순 `Record<string, JsxPropertyLike>` map이라 key 의미가 schema와 분리됨. test fixture에서 key를 `"ADBE Position"`으로 박고 input도 `"ADBE Position"`으로 박음 → mock이 단순 string match로 lookup → 통과. **mock이 production AE의 layer.property(name) display-name lookup 의미를 시뮬 안 함** → mistakes #11 family 직접 재현.
+
+**Root cause**: schema description이 production runtime 동작과 부정확 + mock fixture가 production 의미 시뮬 안 함 (key 의미 모호). 사용자가 schema description 보고 박은 input field name (`propertyMatchName`)이 실제 runtime semantic과 mismatch.
+
+**Fix (Phase 5.1.7 fix)**:
+
+1. `schema.ts` 인자명 `propertyMatchName` → `propertyName`. description 정정:
+
+   ```
+   "Property display name in the current locale (e.g., 'Position',
+   'Scale', 'Rotation', 'Anchor Point', 'Opacity'). NOT the matchName --
+   ExtendScript's layer.property() does display-name lookup, not
+   matchName lookup, when called directly on a Layer."
+   ```
+
+2. `handler.ts` / `impl.ts` — input field 이름 propagate.
+
+3. `_mockApp.ts` `MockLayerOpts.properties` jsdoc 정정 — 명시적으로 "KEYED BY DISPLAY NAME". `JsxPropertyLike.matchName` field는 entry body에 별도 유지 (locale-stable internal id 보존).
+
+4. `impl.test.ts` — mock fixture key를 display name으로 변경 (`{ "Position": prop }`) + 회귀 case 추가 ("ADBE Position" matchName-shaped input → AENotFoundError, "Position" display-name input → 성공). future impl 변경이 matchName fallback 잘못 추가하면 즉시 fail.
+
+**예방 (미래 패턴)**:
+
+1. **schema description은 production AE runtime 동작 검증 후 박기**. types-for-adobe TS type 정의만 보고 추론하지 말 것 — AE ExtendScript에는 TS type에 직접 표현 안 되는 runtime semantic 존재 (display name vs matchName lookup, locale 의존, 1-based vs 0-based, instance method receiver 강제 등). dogfood로 first-attempt 정확도 검증이 description 품질 측정 지표.
+2. **30 tool 진화 시 mock fixture가 production semantic 직접 시뮬 강제**. key 의미를 jsdoc에 명시 ("KEYED BY DISPLAY NAME" 같이). production-strict mock이 mistakes #11/#17/#18 family 자동 차단.
+3. **첫 dogfood에서 retry 1+ 발생 시 schema description 회의 필요**. claude는 자율 retry로 회복 가능하지만 retry 자체가 description 부정확 신호. 5.1.x 30 tool 누적 시 dogfood retry rate를 description 품질 KPI로.
+
+**검증**:
+
+- `impl.test.ts` 8 cases (기존 7 + 회귀 case 1: "ADBE Position" matchName-shaped input → AENotFoundError, "Position" display-name → 성공)
+- `_mockApp.ts.properties` jsdoc 정정으로 30 tool 추가 시 future authors가 display-name keyed 의도 명확
+- 사용자 dogfood: "<레이어> Position 익스프레션" → ae_get_expression first-attempt 정확 호출 (retry 0 — production AE에서 검증)
+
+**메타 family 비교** (#11 / #13 / #14 / #15 / #16 / #17 / #18):
+
+- **#11 4-faces / #13 / #14 family / #17**: mock과 production runtime 환경 차이 (ES3 SpiderMonkey 문법 / PtyLike 누락 / dev/prod 분기 / method this-binding 강제). **외부 의존성 시뮬레이션 정확도** family.
+- **#18 (신설 family)**: **schema description vs production runtime semantic** 차이. types-for-adobe TS type이 production AE runtime 동작과 어긋날 때, schema description이 type만 보고 박히면 claude tool selection이 first attempt fail. mock fixture가 production semantic 시뮬 안 하면 unit test가 dust 통과.
+
+#18은 #11/#17 lineage이지만 layer가 다름 — **spec / description 정확도 자체가 production runtime 검증 필요**. fix 방향:
+- schema description을 dogfood로 검증 (claude first-attempt 정확도)
+- mock fixture가 production semantic 직접 시뮬 (key 의미 jsdoc 명시)
+
+**Phase 5.1.7 sub-step 통합 학습**:
+
+5.1.7 → 5.1.7 fix sub-step 분할이 #18 family의 자연스러운 catch 메커니즘:
+- 5.1.7 commit: types-for-adobe + AE doc reference로 spec 박음 (production 미검증)
+- 사용자 dogfood: claude first-attempt fail × 5 → retry로 회복 → 사용자 발견
+- 5.1.7 fix: schema description 정정 + mock 정정 + 회귀 case
+
+**메타 학습 — schema description 검증 패턴**: 30 tool 진화 시 매 tool dogfood loop에 "claude first-attempt 정확도" 명시. retry 1+ 발생 시 schema description sub-step (5.x.y fix) 분할 가능. 반복 패턴이면 schema 검증 자동화 후보 (e.g., dogfood-driven description regeneration).
+
 **메타 학습**: 미래 reader는 두 패턴 모두 수입 가능 — (a) "함정 의식했으나 다음 phase로 미루기 + jsdoc에 명시" + (b) "한 layer fix 후 같은 메타 family의 다른 layer 함정 재현해야 발현하는 layered dogfood 가정". 둘 합치면: jsdoc self-aware는 가치 있되, 한 번의 dogfood가 모든 함정 catch한다고 가정하지 말 것. 매 dogfood loop가 새 layer 발견 기회.
