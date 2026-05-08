@@ -164,8 +164,10 @@ AE ↔ CEP Panel (React + xterm.js)
 | 5.1.3 | Architecture refactor — handler.ts (defineAETool wrap) + AENoActiveCompError 클래스 (글로벌 _errors.ts) + tools registry + makeDispatcherExecHandler 확장 (registry lookup + ctx.panelExec wiring) + mcp/server.ts inputSchema | `ecae373` | ✅ |
 | 5.1.4 | `ae_list_comps` (read-only, MVP 1/5 컴프 lane) — D8 4파일 collocation 첫 신규 tool. JsxProjectLike 추출 + _mockApp.ts items[] 확장 | `a157ae9` | ✅ |
 | 5.1.4 fix | mistakes #17 — ExtendScript this-binding (project.item 직접 호출) + _mockApp.ts receiver guard (30 tool 공통) | `26dd304` | ✅ |
-| 5.1.5 | `ae_get_layers` (read-only, MVP 2/5 레이어 lane) — AENotFoundError 신설 + JsxLayerLike + makeMockLayer + comp.layer receiver guard + Object.prototype.toString reflection | (본 commit) | ✅ |
-| 5.1.6 | 2 새 MVP tool 직렬 (키프레임/이펙트 lane reference) | | ⏳ **다음 진입 대상** |
+| 5.1.5 | `ae_get_layers` (read-only, MVP 2/5 레이어 lane) — AENotFoundError 신설 + JsxLayerLike + makeMockLayer + comp.layer receiver guard + Object.prototype.toString reflection | `690fcf1` | ✅ |
+| 5.1.6 | `ae_list_effects` (read-only, MVP 3/5 이펙트 lane) — JsxPropertyLike/JsxPropertyGroupLike + makeMockEffect/makeMockEffectsParade + Effect Parade try/catch (Camera/Light/Null layer fail mode 우회) + layerIndex 사전 검증 | (본 commit) | ✅ |
+| 5.1.7 | `ae_get_keyframes` (MVP 4/5 키프레임 lane) | | ⏳ **다음 진입 대상** |
+| 5.1.8 | `ae_get_expression` (MVP 5/5 익스프레션 lane) | | |
 | 5.2 | 컴프 lane (병렬) | | |
 | 5.3 | 레이어 lane (병렬) | | |
 | 5.4 | 키프레임 lane (병렬) | | |
@@ -311,29 +313,27 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.5 ✅, 5.1.6 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.6 ✅, 5.1.7 진입 대기)
 
 ### 현재 상태
 
-**Phase 5.1.5 ✅ `ae_get_layers` 추가 완료** (2026-05-08, 본 commit). MVP 2/5 레이어 lane.
+**Phase 5.1.6 ✅ `ae_list_effects` 추가 완료** (2026-05-08, 본 commit). MVP 3/5 이펙트 lane.
 
-5.1.5 신규 추가:
-- 4파일 collocation: `sidecar/src/tools/ae_get_layers/{schema, handler, impl, impl.test}`
-- `AENotFoundError` 클래스 (글로벌 `_errors.ts`, generic `resource + identifier` signature) — 30 tool not-found family 재사용 (future ae_get_layer_by_id, ae_get_effect 등)
-- `JsxLayerLike` interface 추출 (panel jsx _define.ts) + `JsxCompItem.layer?(i)` optional method
-- `JsxProjectLike.itemByID?(id)` optional method 추가
-- `_mockApp.ts`: `makeMockLayer({type, ...})` + `JsxCompItem.layer` receiver guard (mistakes #17 패턴 일관) + `project.itemByID` mock (production fail mode 시뮬 — id 매치 안 되면 throw)
-- Object.prototype.toString reflection — production AE의 `layer.toString()` → "[object CameraLayer]" 형식 + mock fixture에 `toString` override (Symbol.toStringTag 없는 ES3 환경 호환)
+5.1.6 신규 추가:
+- 4파일 collocation: `sidecar/src/tools/ae_list_effects/{schema, handler, impl, impl.test}`
+- `JsxPropertyLike` interface 추출 (panel jsx _define.ts) — PropertyBase 최소 shape (matchName + name + enabled). 30 tool 누적 시 PropertyBase 패턴 일반화 (masks, transforms, expressions, etc.)
+- `JsxPropertyGroupLike extends JsxPropertyLike` — numProperties + property(i) optional method (PropertyGroup extends PropertyBase 미러)
+- `JsxLayerLike.property?(matchName)` optional method — `layer.property("ADBE Effect Parade")` 등 lookup
+- `_mockApp.ts`: `makeMockEffect` / `makeMockEffectsParade` helper + `MockLayerOpts.effects` 옵션 + receiver guard (mistakes #17 패턴 일관 — 30 tool 공통 정책)
 
-5.1.5 검증된 패턴:
-- compId 미지정 → `app.project.activeItem` 사용. 활성 comp 없으면 AENoActiveCompError
-- compId 지정 → `app.project.itemByID(id)` try/catch wrap. 매치 안 되면 AENotFoundError. 매치는 됐지만 Composition 아니면 (Folder/Footage) AENotFoundError
-- 이터레이션: `comp.numLayers` + `comp.layer(i)` 1-based 직접 호출 (mistakes #17 가드)
-- 출력 type 분류: `layer.toString()` regex `/\[object (\w+)\]/` 추출. Layer 서브클래스 5종 + "Layer" fallback
+5.1.6 검증된 패턴:
+- Effect Parade lookup try/catch — Camera/Light/Null layer는 effects 미지원, fail 시 `{ effects: [] }` 의미 정확
+- layerIndex 사전 검증 (`1 <= layerIndex <= numLayers`) → AENotFoundError 재사용 (5.1.5 패턴)
+- PropertyBase.name → output `displayName` 매핑 (real AE에는 별도 displayName property 없음, name이 user-renameable display label 역할)
 
-함정 인덱스 변경 없음 (17 그대로 — 5.1.5는 #17 패턴 적용 사례, 새 함정 발견 0).
+함정 인덱스 변경 없음 (17 그대로 — 5.1.6은 #17 패턴 적용 사례, 새 함정 발견 0).
 
-**Phase 5.1.6 (2 새 MVP tool 직렬, 키프레임/이펙트 lane reference) 진입 대기.** 5.1.4/5.1.5 패턴 안정 — 매 tool마다 4파일 + 3 registry 1줄 + (필요 시) `_mockApp.ts` 추가 fixture (key frame: AVLayer.property iteration / effect: AVLayer.Effects PropertyGroup iteration 등) + (필요 시) 새 도메인 에러 클래스 _errors.ts 누적.
+**Phase 5.1.7 (`ae_get_keyframes`, MVP 4/5 키프레임 lane) 진입 대기.** 5.1.4/5.1.5/5.1.6 패턴 안정 — 매 tool마다 4파일 + 3 registry 1줄 + 필요 시 `_mockApp.ts` 추가 fixture (keyframe: PropertyBase.numKeys + keyTime/keyValue/keyInInterpolationType 등). 키프레임은 PropertyBase 자체 (이펙트의 PropertyGroup 안 leaf Property)라 5.1.6 PropertyLike 패턴 확장.
 
 ### 검증된 실측치
 

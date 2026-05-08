@@ -5,7 +5,15 @@
 // code never imports this (only tests do; bolt-cep build excludes via
 // the shared *.test.ts pattern).
 
-import type { JsxAppLike, JsxCompItem, JsxItemLike, JsxLayerLike, JsxProjectLike } from "./_define";
+import type {
+  JsxAppLike,
+  JsxCompItem,
+  JsxItemLike,
+  JsxLayerLike,
+  JsxProjectLike,
+  JsxPropertyGroupLike,
+  JsxPropertyLike,
+} from "./_define";
 
 // Phase 5.1.5 -- Layer subclass discriminator. Real AE returns
 // "[object CameraLayer]" etc. from layer.toString(); mock fixtures
@@ -28,12 +36,36 @@ export interface MockLayerOpts {
   locked?: boolean;
   inPoint?: number;
   outPoint?: number;
+  /** Phase 5.1.6 -- effects PropertyGroup mock. When provided, the layer's
+   *  property("ADBE Effect Parade") returns a JsxPropertyGroupLike whose
+   *  property(i) iterates these. When undefined the property method
+   *  itself is omitted (Camera/Light/Null layers in production AE throw on
+   *  the lookup -- our mock omits the method to mirror that fail mode
+   *  without inventing a custom exception type). */
+  effects?: JsxPropertyLike[];
 }
 
 export function makeMockLayer(opts?: MockLayerOpts): JsxLayerLike {
   var o = opts || {};
   var type: MockLayerType = o.type !== undefined ? o.type : "AVLayer";
-  return {
+  var effects = o.effects;
+
+  // Phase 5.1.6 -- when effects opts is provided, expose property(matchName)
+  // that returns a guarded PropertyGroup mock for "ADBE Effect Parade".
+  // Other matchName lookups throw the same "not found" shape production AE
+  // would, so future tools that look up other property groups can still
+  // use this fixture by adding their matchName branch.
+  var propertyMethod: JsxLayerLike["property"];
+  if (effects !== undefined) {
+    propertyMethod = function (matchName: string): JsxPropertyGroupLike {
+      if (matchName === "ADBE Effect Parade") {
+        return makeMockEffectsParade(effects!);
+      }
+      throw new Error("Mock layer.property: matchName '" + matchName + "' not modeled");
+    };
+  }
+
+  var layer: JsxLayerLike = {
     index: o.index !== undefined ? o.index : 1,
     name: o.name !== undefined ? o.name : "MockLayer",
     matchName: o.matchName !== undefined ? o.matchName : "ADBE Mock Layer",
@@ -52,6 +84,48 @@ export function makeMockLayer(opts?: MockLayerOpts): JsxLayerLike {
       return "[object " + type + "]";
     },
   };
+  if (propertyMethod) layer.property = propertyMethod;
+  return layer;
+}
+
+// Phase 5.1.6 -- helpers for effects parade fixtures. makeMockEffect
+// builds a single PropertyBase entry; makeMockEffectsParade wraps an
+// array into a JsxPropertyGroupLike with numProperties + property(i)
+// receiver-guarded (mistakes #17 pattern).
+export interface MockEffectOpts {
+  matchName?: string;
+  name?: string;
+  enabled?: boolean;
+}
+
+export function makeMockEffect(opts?: MockEffectOpts): JsxPropertyLike {
+  var o = opts || {};
+  return {
+    matchName: o.matchName !== undefined ? o.matchName : "ADBE Mock Effect",
+    name: o.name !== undefined ? o.name : "Mock Effect",
+    enabled: o.enabled !== undefined ? o.enabled : true,
+  };
+}
+
+export function makeMockEffectsParade(effects: JsxPropertyLike[]): JsxPropertyGroupLike {
+  var group: JsxPropertyGroupLike;
+  group = {
+    matchName: "ADBE Effect Parade",
+    name: "Effects",
+    enabled: true,
+    numProperties: effects.length,
+    property: function (this: unknown, index: number) {
+      if (this !== group) {
+        throw new Error(
+          "Mock this-binding violation: effectsParade.property called with " +
+          "wrong receiver. ExtendScript SpiderMonkey throws on detached " +
+          "calls. Use group.property(i) directly. See mistakes.md #17."
+        );
+      }
+      return effects[index - 1] as JsxPropertyLike;
+    },
+  };
+  return group;
 }
 
 export interface MockCompOpts {

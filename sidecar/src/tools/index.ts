@@ -16,9 +16,11 @@ import type { DefinedTool } from "./_define.js";
 import { ae_get_active_comp } from "./ae_get_active_comp/handler.js";
 import { ae_list_comps } from "./ae_list_comps/handler.js";
 import { ae_get_layers } from "./ae_get_layers/handler.js";
+import { ae_list_effects } from "./ae_list_effects/handler.js";
 
 export const tools: Record<string, DefinedTool> = {
   ae_get_active_comp,
   ae_list_comps,
   ae_get_layers,
+  ae_list_effects,
 };

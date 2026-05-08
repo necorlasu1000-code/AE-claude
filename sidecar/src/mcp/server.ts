@@ -21,6 +21,7 @@ import { McpWsClient } from "./wsClient.js";
 import { aeGetActiveCompInputSchema } from "../tools/ae_get_active_comp/schema.js";
 import { aeListCompsInputSchema } from "../tools/ae_list_comps/schema.js";
 import { aeGetLayersInputSchema } from "../tools/ae_get_layers/schema.js";
+import { aeListEffectsInputSchema } from "../tools/ae_list_effects/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -92,6 +93,27 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async (rawInput) => {
       const out = await wsClient.exec("ae_get_layers", rawInput ?? {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.1.6 — ae_list_effects (read-only, MVP 3/5, effect lane).
+  server.registerTool(
+    "ae_list_effects",
+    {
+      description:
+        "List effects applied to a layer. layerIndex required (1-based, AE convention). " +
+        "compId optional -- defaults to active composition. " +
+        "Returns array of effect metadata (matchName, displayName, enabled). " +
+        "matchName is locale-stable internal id (e.g., 'ADBE Gaussian Blur 2'); " +
+        "displayName is the user-facing label in AE Effect Controls. " +
+        "Throws AENoActiveCompError when compId omitted and no active comp; " +
+        "AENotFoundError when compId is unknown or layerIndex is out of bounds. " +
+        "Layers that don't host effects (Camera/Light/Null) return { effects: [] }.",
+      inputSchema: aeListEffectsInputSchema.shape,
+    },
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_list_effects", rawInput ?? {});
       return toCallToolResult(out);
     },
   );

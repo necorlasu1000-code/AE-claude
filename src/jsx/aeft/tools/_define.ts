@@ -78,6 +78,42 @@ export interface JsxLayerLike {
    *  same shape so impl.ts can use a single reflection pattern across
    *  both environments. */
   toString(): string;
+  /** Phase 5.1.6 -- ExtendScript Layer.property(matchName) -- looks up a
+   *  child PropertyGroup by matchName (e.g., "ADBE Effect Parade").
+   *  Optional in the type; production AE always populates it (Layer
+   *  extends PropertyGroup extends PropertyBase, both define property()).
+   *  Camera/Light/Null layers don't host effects -- production AE may
+   *  throw on `layer.property("ADBE Effect Parade")`, so callers should
+   *  try/catch and treat throws as "no effects". */
+  property?(matchName: string): JsxPropertyGroupLike;
+}
+
+// Phase 5.1.6 -- minimum PropertyBase shape (effects + masks + transforms
+// + future tool domains all share this). matchName is locale-stable
+// (e.g., "ADBE Gaussian Blur 2"); name is the locale-dependent display
+// label that the user can rename. enabled controls the property's eyeball
+// state. impl.ts ae_list_effects maps PropertyBase.name -> output
+// `displayName` field (real AE has no separate displayName property).
+export interface JsxPropertyLike {
+  matchName: string;
+  /** PropertyBase.name -- locale-dependent, user-renameable. Surfaces as
+   *  `displayName` in tool output schemas where that distinction matters. */
+  name: string;
+  enabled: boolean;
+}
+
+// Phase 5.1.6 -- PropertyGroup extends PropertyBase. Adds numProperties
+// and a 1-based child accessor. ae_list_effects iterates the "ADBE Effect
+// Parade" PropertyGroup using these. Future PropertyGroup-domain tools
+// (masks, transform sub-groups, expressions) follow the same shape.
+//
+// Mistakes #17: property(index) MUST be called as group.property(i)
+// directly. Detached calls (var fn = group.property; fn(i)) lose the
+// receiver and ExtendScript SpiderMonkey throws. Mock fixtures enforce
+// receiver identity in _mockApp.ts.
+export interface JsxPropertyGroupLike extends JsxPropertyLike {
+  numProperties: number;
+  property?(index: number): JsxPropertyLike;
 }
 
 // Phase 5.1.4 -- extracted to a named interface so 30-tool growth (5.1.4~)
