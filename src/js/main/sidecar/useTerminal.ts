@@ -179,12 +179,23 @@ export function useTerminal(
     terminal.open(container);
 
     // Phase 5.1.9 — Ctrl+C / Ctrl+V keybindings synced with OS clipboard.
-    //   Ctrl+C with selection → writeText(selection) + clearSelection,
-    //                           suppress xterm default (no SIGINT byte 0x03).
+    //   Ctrl+C with selection → writeText(selection) + clear both selection
+    //                           models, suppress xterm default (no SIGINT 0x03).
     //   Ctrl+C without selection → fall through to xterm default (SIGINT
     //                           preserved — claude CLI interrupt works).
     //   Ctrl+V → readText() → terminal.paste(text); paste fires onData →
     //            ws.send pty.in, identical path to typed input.
+    //
+    // Phase 5.1.9 fix-1 (mistakes #20) — dual selection model check.
+    // xterm 6.x uses canvas/webgl renderer (no DOM nodes per cell); its
+    // selectionService captures mouse drags inside the canvas via internal
+    // state, exposed by terminal.getSelection(). BUT in CEP/CEF the user's
+    // drag may land on the wrapper DOM node and engage native browser
+    // selection instead, leaving terminal.getSelection() empty. Without a
+    // fallback, Ctrl+C falls through to SIGINT (clears claude's input
+    // line) even though the user "sees" highlighted text. Check both
+    // sources; clear whichever fired.
+    //
     // CEP runs CEF (Chromium-based); navigator.clipboard.writeText/readText
     // work in user-gesture context (keypress qualifies). No additional CSP
     // entries required for CEP 11+ (After Effects 22.0+ host).
@@ -194,13 +205,23 @@ export function useTerminal(
       if (!ctrl) return true;
       const key = e.key.toLowerCase();
       if (key === "c") {
-        const sel = terminal.getSelection();
+        const xtermSel = terminal.getSelection();
+        let nativeSel = "";
+        if (typeof window !== "undefined" && typeof window.getSelection === "function") {
+          const s = window.getSelection();
+          nativeSel = s ? s.toString() : "";
+        }
+        const sel = xtermSel || nativeSel;
         if (sel.length > 0) {
           // fire-and-forget; failure leaves user with the visual selection
           // missed clipboard write — better than blocking the UI thread
           // or throwing inside an event listener.
           void navigator.clipboard.writeText(sel).catch(() => { /* */ });
-          terminal.clearSelection();
+          if (xtermSel) terminal.clearSelection();
+          if (nativeSel && typeof window !== "undefined" && typeof window.getSelection === "function") {
+            const s = window.getSelection();
+            if (s) s.removeAllRanges();
+          }
           return false;
         }
         return true; // no selection → SIGINT pass-through

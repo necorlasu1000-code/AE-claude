@@ -497,6 +497,40 @@ describe("useTerminal", () => {
     expect(newSends).toContainEqual({ type: "pty.in", data: "clipped" });
   });
 
+  // ── 18 (Phase 5.1.9 fix-1, mistakes #20) — native window selection fallback ──
+  // CEP/CEF environments may engage native browser selection instead of
+  // xterm's canvas selectionService. terminal.getSelection() returns "" but
+  // window.getSelection().toString() has the user's highlighted text. The
+  // fallback path must copy the native selection AND call removeAllRanges()
+  // to clear it after copy.
+  it("Ctrl+C with empty xterm.getSelection but non-empty window.getSelection → writeText(native) + removeAllRanges + suppress default", async () => {
+    const { deps } = makeDeps();
+    renderHook(() => useWrapped({ aePid: 11111 }, deps));
+    await waitFor(() => expect(lastTerminal).toBeDefined());
+    const handler = lastTerminal!._keyHandler!;
+
+    // xterm sees no selection, but native window does.
+    lastTerminal!._selection = "";
+    const removeAllRanges = vi.fn();
+    const fakeNative = { toString: () => "native highlighted text", removeAllRanges };
+    const getSelectionSpy = vi
+      .spyOn(window, "getSelection")
+      .mockReturnValue(fakeNative as unknown as Selection);
+
+    try {
+      const e = { type: "keydown", ctrlKey: true, metaKey: false, altKey: false, key: "c" } as unknown as KeyboardEvent;
+      const result = handler(e);
+
+      expect(result).toBe(false);                                                  // suppress SIGINT
+      expect(clipboardMock.writeText).toHaveBeenCalledWith("native highlighted text");
+      expect(removeAllRanges).toHaveBeenCalledTimes(1);
+      // xterm clearSelection NOT called — xterm had no selection to clear.
+      expect(lastTerminal!.clearSelection).not.toHaveBeenCalled();
+    } finally {
+      getSelectionSpy.mockRestore();
+    }
+  });
+
   // ── 17 (Phase 5.1.9) — non-Ctrl key → handler returns true (untouched) ──
   it("non-Ctrl key (or Ctrl+other) → handler returns true; clipboard untouched", async () => {
     const { deps } = makeDeps();

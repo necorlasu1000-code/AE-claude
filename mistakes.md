@@ -1362,3 +1362,57 @@ claude MCP 호출 시 보는 것은 (3) only. (1), (2)는 dev 시점 annotation.
 **메타 학습 — fix scope 검증 명시**: 함정 fix 시 production 노출 surface (artifact/registered output/runtime config 등) 직접 검증. dev annotation source만 정정 + unit test 그린 = production 미반영 가능. 30 tool 진화 시 fix sub-step마다 dist/binding/registered output grep로 production scope 좁혀서 검증 명시.
 
 **메타 학습**: 미래 reader는 두 패턴 모두 수입 가능 — (a) "함정 의식했으나 다음 phase로 미루기 + jsdoc에 명시" + (b) "한 layer fix 후 같은 메타 family의 다른 layer 함정 재현해야 발현하는 layered dogfood 가정". 둘 합치면: jsdoc self-aware는 가치 있되, 한 번의 dogfood가 모든 함정 catch한다고 가정하지 말 것. 매 dogfood loop가 새 layer 발견 기회.
+
+---
+
+## 2026-05-08 xterm.js keybinding selection 모델 dual-source 함정 (#20)
+
+**현상 (Phase 5.1.9 fix-1)**: panel xterm에서 마우스 드래그로 텍스트 선택 후 Ctrl+C 누르면 OS clipboard에 복사 안 되고 입력 라인 clear (SIGINT 통과). 사용자 dogfood (commit `3ae033b` 후 panel reload) 발견. Ctrl+V paste는 정상.
+
+**root cause**: xterm.js 6.x의 `terminal.getSelection()` API는 xterm 자체 selectionService가 capture한 selection만 반환. canvas/webgl renderer는 캔버스 mousedown/move/up 이벤트로 selection 추적하나, CEF 환경에서는 동일 mouse drag가 wrapper DOM element의 native browser selection으로 engage될 수 있음 — 이 경우 `terminal.getSelection() === ""` 이지만 `window.getSelection().toString()`은 텍스트 보유. 5.1.9 keybinding이 xterm side만 check → false branch (no selection) → return true → SIGINT pass-through.
+
+**fix (Phase 5.1.9 fix-1)**:
+
+`src/js/main/sidecar/useTerminal.ts:172-218` Ctrl+C 분기에 native selection fallback 추가:
+
+```ts
+const xtermSel = terminal.getSelection();
+let nativeSel = "";
+if (typeof window !== "undefined" && typeof window.getSelection === "function") {
+  const s = window.getSelection();
+  nativeSel = s ? s.toString() : "";
+}
+const sel = xtermSel || nativeSel;
+if (sel.length > 0) {
+  void navigator.clipboard.writeText(sel).catch(() => {});
+  if (xtermSel) terminal.clearSelection();
+  if (nativeSel && typeof window !== "undefined" && typeof window.getSelection === "function") {
+    const s = window.getSelection();
+    if (s) s.removeAllRanges();
+  }
+  return false;
+}
+return true;
+```
+
+clearSelection은 xtermSel side에만 / removeAllRanges는 nativeSel side에만 — 각 source만 정리. writeText는 발화한 sel 사용.
+
+**예방 (미래 패턴)**:
+
+1. **xterm 또는 캔버스 기반 UI 위 키바인딩 작성 시 두 selection 모델 모두 check**: API 가정 (xterm.getSelection이 모든 환경에서 모든 selection 포착) 금지. canvas-based widget의 native browser selection은 host runtime (CEF/Electron/일반 brower 등) 따라 wrapper element에서 engage 가능.
+2. **dogfood-driven validation 필수**: keybinding 같은 UX 기능은 unit test (jsdom)에서 selection 동작 모사 어려움 — production 환경 (CEP panel) dogfood로 분기 정확성 확인.
+3. **mock receiver로 production 환경 모사 한계 인지**: mistakes #11/#17/#18/#19 family와 같은 메타 — test mock의 동작이 production runtime의 동작을 100% 미러하지 않음. UX 작업 시 dogfood loop를 unit test와 별도로 명시.
+
+**검증**:
+
+- `panel test 41 → 42` (+#18 native selection fallback case)
+- `main bundle dist grep`: `window.getSelection`=4 / `removeAllRanges`=2 / `attachCustomKeyEventHandler`=4 매치
+- 사용자 dogfood 재검증: Ctrl+C copy (xterm + native 두 source 모두) → 다른 앱 paste 확인
+
+**family lineage**:
+
+- **#11 (4-faces)** — production 환경 가정 vs 실제 runtime 동작 차이 메타 family. fix-1은 환경 가정 fail의 5번째 face: "API 단일 source 가정 vs 실제 dual model 환경".
+- **#17 (this binding)** — mock 환경에서 production 동작 미러 미흡. 다른 layer (xterm 캔버스 vs CEF DOM selection 모델)지만 같은 "환경 가정 함정" 메타.
+- **#18 (schema description vs runtime)** — TS type만 보고 spec 박음 → production runtime 차이. 같은 "API 가정 vs 실제 동작" 메타.
+
+**메타 학습** — UX 기능 (keybinding/clipboard/event handler) dogfood는 sub-step별 명시: unit test 그린만으로 phase exit 금지. UX 영역은 production 환경 dogfood loop를 phase 검증 절차에 명시.
