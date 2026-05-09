@@ -113,3 +113,25 @@ label {
 ::-webkit-scrollbar-thumb:hover {
   background: $dark;
 }
+
+// Phase 5.1.9 fix-2 (mistakes #20 face-2) — override xterm.js's default
+// `.xterm { user-select: none }` rule (node_modules/@xterm/xterm/css/xterm.css:38-44).
+// xterm ships with native browser selection disabled because its canvas/webgl
+// renderer paints text on a canvas (no DOM text nodes) and uses its own
+// selectionService for Ctrl+drag-to-select. In CEP/CEF the canvas selection
+// path is fragile (terminal.getSelection() returns empty even after a visible
+// drag) — re-enabling native selection lets useTerminal.ts's nativeSel
+// fallback (Phase 5.1.9 fix-1) capture the drag.
+//
+// !important is required because vite bundles index.scss BEFORE
+// @xterm/xterm/css/xterm.css (verified via dist/cep/assets/main-*.css grep:
+// our rule at byte ~1324, xterm.css `.xterm{user-select:none}` at byte ~2969).
+// Without !important, xterm.css wins at equal specificity due to source order.
+// Higher specificity selectors (`.terminal-container .xterm`) only help when
+// xterm mounts as a child of our container, not when it adds the .xterm
+// class to the container itself — !important sidesteps that ambiguity.
+.xterm {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -ms-user-select: text !important;
+}

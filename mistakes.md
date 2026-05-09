@@ -1416,3 +1416,63 @@ clearSelection은 xtermSel side에만 / removeAllRanges는 nativeSel side에만 
 - **#18 (schema description vs runtime)** — TS type만 보고 spec 박음 → production runtime 차이. 같은 "API 가정 vs 실제 동작" 메타.
 
 **메타 학습** — UX 기능 (keybinding/clipboard/event handler) dogfood는 sub-step별 명시: unit test 그린만으로 phase exit 금지. UX 영역은 production 환경 dogfood loop를 phase 검증 절차에 명시.
+
+---
+
+## 2026-05-09 #20 face-2 — xterm.css `.xterm{user-select:none}` library 기본 룰 (Phase 5.1.9 fix-2)
+
+**현상**: fix-1 (`aff9f85`) 후 dogfood 재검증 — Ctrl+V paste / SIGINT 보존 ✅이지만 Ctrl+C copy 여전히 fail. 사용자 panel 안 mouse drag 후 Ctrl+C → clipboard 미반영 + 입력 라인 clear (SIGINT 통과). 분기 로직상 `xtermSel === "" && nativeSel === ""` → return true → SIGINT path 실행.
+
+**root cause** (Step 1 grep으로 발견):
+- `node_modules/@xterm/xterm/css/xterm.css:38-44`의 라이브러리 기본 룰:
+
+  ```css
+  .xterm {
+      cursor: text;
+      position: relative;
+      user-select: none;
+      -ms-user-select: none;
+      -webkit-user-select: none;
+  }
+  ```
+
+- xterm.js 6.x는 canvas/webgl 렌더러 사용 (DOM text node 0). 기본 selection은 canvas mouse 이벤트 + selectionService 내부 상태 (`terminal.getSelection()`로 노출). 라이브러리는 native browser selection이 canvas selection 시각화와 충돌하지 않도록 `user-select: none`으로 차단.
+- CEP/CEF 환경에서 canvas selection 경로가 fragile (`terminal.getSelection()` 빈 문자열 반환 — 캔버스 mouseevent 누락 추정). fix-1 native fallback도 `.xterm`이 user-select:none 박혀있어 미달.
+- 두 selection model 모두 차단된 dead state.
+
+**fix (Phase 5.1.9 fix-2)**:
+
+`src/js/index.scss` 끝에 override 추가:
+
+```scss
+.xterm {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -ms-user-select: text !important;
+}
+```
+
+`!important` 필수. vite bundle 순서: `index.scss` → `xterm.css` (factories.ts:20 import). 미니파이된 CSS bundle (`dist/cep/assets/main-*.css`) byte 위치 확인:
+- 우리 rule @1324
+- xterm.css `.xterm{user-select:none}` @2972 — 후순위 동일 specificity → !important 없으면 우리 rule 패배
+
+**예방**:
+1. **library default CSS는 `node_modules/<pkg>/**/*.css`까지 grep scope 확장**: panel src 영역만 grep하면 library shipped 룰 누락. xterm/jsx-runtime/react 등 import된 CSS는 vite bundle에 합쳐져 production에 도달.
+2. **CSS load order는 import order 따라감 (vite/rollup 기본)**: 동일 specificity 룰은 후순위 import가 승. library CSS override 시 순서 가정 하지 말고 `!important` 또는 더 높은 specificity selector 사용.
+3. **dist CSS bundle byte-position grep**: production CSS의 룰 충돌 검증은 `dist/cep/assets/main-*.css`에서 직접 grep — 우리 rule + library rule 위치 둘 다 출력해서 후순위 확인.
+
+**검증** (build 산출물 grep):
+
+- `dist/cep/assets/main-*.css`에서 `.xterm{user-select:text!important}` 1 매치 확인
+- `!important` 3개 (text + webkit + ms) 매치
+- xterm.css `.xterm{user-select:none}`은 그대로 존재하지만 우리 `!important` rule이 cascade 승 (CSS spec)
+
+**face 통합**:
+
+#20 자체는 "xterm keybinding selection 모델 dual-source 가정 함정". fix-1 (face-1)은 코드 layer (handler.ts에 native fallback 추가). fix-2 (face-2)는 CSS layer (xterm.js library 기본 user-select:none 차단). 둘은 같은 root question("native selection 어떻게 활성화")의 다른 layer. fix-1은 code-side fallback / fix-2는 CSS-side enabling. 통합 필요 — fix-2 없이 fix-1 단독으로는 작동 X.
+
+**메타 family** (#11 / #15 / #19와 같은 "fix scope 한 layer만 보면 production 미달" 메타):
+- fix-1: code layer만 fix → user-select:none CSS는 그대로 → 둘 다 차단 → fix-1 fallback도 못 발화
+- fix-2: CSS layer 추가 fix → native selection 활성화 → fix-1 fallback 발화 가능
+
+**메타 학습 — multi-layer fix dogfood loop**: UX 기능은 code + CSS + 환경 권한 등 multi-layer로 wiring됨. 한 layer만 fix하고 dogfood 그린이 무조건 정답 가정 X. 사용자 dogfood 통해 layer마다 발견 + fix sub-step 누적. mistakes entry 안에 face-N 누적해서 진화 기록.
