@@ -8,6 +8,7 @@
 import type {
   JsxAppLike,
   JsxCompItem,
+  JsxFileLike,
   JsxItemLike,
   JsxLayerLike,
   JsxProjectLike,
@@ -322,6 +323,17 @@ export interface MockProjectOpts {
    *  test fixtures pass [] for empty project, [comp] for single comp,
    *  [comp, footage] for filter validation. */
   items?: JsxItemLike[];
+  /** Phase 5.2.1 -- app.project.file. Pass `null` for unsaved/new project
+   *  (production AE returns null on new untitled project). Pass an object
+   *  with `fsName` + `name` for saved state. Omit to leave the field
+   *  unset (older 5.1.x fixtures that don't touch file). */
+  file?: JsxFileLike | null;
+  /** Phase 5.2.1 -- color depth. Default 8 when omitted. */
+  bitsPerChannel?: number;
+  /** Phase 5.2.1 -- expression engine. Default "javascript-1.0" when omitted. */
+  expressionEngine?: "extendscript" | "javascript-1.0";
+  /** Phase 5.2.1 -- display start frame. Default 0 when omitted. */
+  displayStartFrame?: number;
 }
 
 export function makeMockProject(opts?: MockProjectOpts): JsxProjectLike {
@@ -368,6 +380,16 @@ export function makeMockProject(opts?: MockProjectOpts): JsxProjectLike {
       throw new Error("Mock itemByID: no item with id " + id);
     },
   };
+  // Phase 5.2.1 -- ae_get_project_info fields. Set only when explicitly
+  // provided so existing fixtures (5.1.x) keep producing minimal projects
+  // with just activeItem/items wiring. file === null is a meaningful
+  // value (unsaved project) -- distinguish "not provided" from "null".
+  if (Object.prototype.hasOwnProperty.call(o, "file")) {
+    project.file = o.file !== undefined ? o.file : null;
+  }
+  if (o.bitsPerChannel !== undefined) project.bitsPerChannel = o.bitsPerChannel;
+  if (o.expressionEngine !== undefined) project.expressionEngine = o.expressionEngine;
+  if (o.displayStartFrame !== undefined) project.displayStartFrame = o.displayStartFrame;
   return project;
 }
 
@@ -377,14 +399,31 @@ export interface MockAppOpts {
   activeItem?: JsxItemLike | null;
   /** Phase 5.1.4 — see MockProjectOpts.items. */
   items?: JsxItemLike[];
+  /** Phase 5.2.1 -- app.version. Default unset when omitted. */
+  version?: string;
+  /** Phase 5.2.1 -- forwarded to MockProjectOpts. */
+  file?: JsxFileLike | null;
+  bitsPerChannel?: number;
+  expressionEngine?: "extendscript" | "javascript-1.0";
+  displayStartFrame?: number;
 }
 
 export function makeMockApp(opts?: MockAppOpts): JsxAppLike {
   var o = opts || {};
-  return {
-    project: makeMockProject({
-      activeItem: o.activeItem,
-      items: o.items,
-    }),
+  var projectOpts: MockProjectOpts = {
+    activeItem: o.activeItem,
+    items: o.items,
+    bitsPerChannel: o.bitsPerChannel,
+    expressionEngine: o.expressionEngine,
+    displayStartFrame: o.displayStartFrame,
   };
+  // Preserve file === null semantics (unsaved project) vs omitted.
+  if (Object.prototype.hasOwnProperty.call(o, "file")) {
+    projectOpts.file = o.file !== undefined ? o.file : null;
+  }
+  var app: JsxAppLike = {
+    project: makeMockProject(projectOpts),
+  };
+  if (o.version !== undefined) app.version = o.version;
+  return app;
 }

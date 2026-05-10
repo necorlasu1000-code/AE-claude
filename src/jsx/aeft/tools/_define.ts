@@ -169,10 +169,37 @@ export interface JsxProjectLike {
    *  matching item; production AE throws when id is not found, so callers
    *  must wrap in try/catch. Optional for fixture compatibility. */
   itemByID?(id: number): JsxItemLike;
+  /** Phase 5.2.1 -- app.project.file (ExtendScript File class | null).
+   *  null when project is unsaved/new. Property fsName/name are read
+   *  directly without method calls. */
+  file?: JsxFileLike | null;
+  /** Phase 5.2.1 -- color depth bits per channel: 8/16/32. */
+  bitsPerChannel?: number;
+  /** Phase 5.2.1 -- "extendscript" (legacy) or "javascript-1.0" (modern). */
+  expressionEngine?: "extendscript" | "javascript-1.0";
+  /** Phase 5.2.1 -- frame numbering start (Project Settings > Display Style). */
+  displayStartFrame?: number;
+}
+
+/** Phase 5.2.1 -- ExtendScript File class minimal duck-type. fsName +
+ *  name are read-only properties (not methods), so this interface only
+ *  exposes them as fields. Production File has many more methods (open,
+ *  read, write, etc.) but those are out of scope for read-only project
+ *  metadata; ae_run_extendscript (Phase 5.8) under D3 + AST validator
+ *  is the only path for File method calls. */
+export interface JsxFileLike {
+  /** Absolute path (Windows backslash on Windows, forward slash POSIX). */
+  fsName: string;
+  /** Basename (e.g. "MyProject.aep"). */
+  name: string;
 }
 
 export interface JsxAppLike {
   project: JsxProjectLike;
+  /** Phase 5.2.1 -- app.version (e.g. "22.0.0"). Optional for backward
+   *  compatibility with Phase 3.3-5.1 mock fixtures that don't populate
+   *  it. Production AE always populates. */
+  version?: string;
 }
 
 export interface JsxToolCtx {

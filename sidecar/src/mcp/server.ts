@@ -24,6 +24,7 @@ import { aeGetLayersInputSchema } from "../tools/ae_get_layers/schema.js";
 import { aeListEffectsInputSchema } from "../tools/ae_list_effects/schema.js";
 import { aeGetExpressionInputSchema } from "../tools/ae_get_expression/schema.js";
 import { aeGetKeyframesInputSchema } from "../tools/ae_get_keyframes/schema.js";
+import { aeGetProjectInfoInputSchema } from "../tools/ae_get_project_info/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -173,6 +174,32 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async (rawInput) => {
       const out = await wsClient.exec("ae_get_keyframes", rawInput ?? {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.2.1 -- ae_get_project_info (read-only, 컴프 lane 1/3, 5.2 진입).
+  // Production source description (mistakes #19 single source pattern).
+  // No active-comp dependency -- works on empty/unsaved project too.
+  server.registerTool(
+    "ae_get_project_info",
+    {
+      description:
+        "Get After Effects project metadata. No active-comp dependency -- " +
+        "works on any project state including empty/unsaved. " +
+        "Returns: file ({ path, name } or null when project is unsaved), " +
+        "numItems (total items in Project panel), " +
+        "bitsPerChannel (color depth: 8 / 16 / 32), " +
+        "expressionEngine ('extendscript' for legacy or 'javascript-1.0' for modern -- " +
+        "claude expression-writing tools must match this engine), " +
+        "displayStartFrame (frame numbering display start), " +
+        "and hostVersion (AE host application version, e.g. '22.6.0' -- " +
+        "useful for compatibility checks before further tool calls). " +
+        "Input: no parameters (empty object).",
+      inputSchema: aeGetProjectInfoInputSchema.shape,
+    },
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_get_project_info", rawInput ?? {});
       return toCallToolResult(out);
     },
   );

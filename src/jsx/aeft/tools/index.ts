@@ -15,3 +15,4 @@ export { ae_get_layers } from "@aeTools/ae_get_layers/impl";
 export { ae_list_effects } from "@aeTools/ae_list_effects/impl";
 export { ae_get_expression } from "@aeTools/ae_get_expression/impl";
 export { ae_get_keyframes } from "@aeTools/ae_get_keyframes/impl";
+export { ae_get_project_info } from "@aeTools/ae_get_project_info/impl";
