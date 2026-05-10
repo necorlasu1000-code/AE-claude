@@ -17,7 +17,7 @@ AE ↔ CEP Panel (React + xterm.js)
      claude CLI (Opus 4.7)
 ```
 
-**현재 위치 (2026-05-10)**: **Phase 5.1 ✅ MVP 5/5 완료** + 5.1.9 dogfood UX 부분 완료 (Ctrl+V paste / SIGINT / 좀비 0 ✅, Ctrl+C copy fix-3 보류). **Phase 5.2 진입 대기 — 컴프 lane 첫 sub-step (ae_get_project_info read).** D-N lane 분할 결정 결과: 30 tool 한정 (옵션 1) + 직렬 (옵션 A) + 5.2~5.7 6 lane sub-phase + 5.8 escape hatch.
+**현재 위치 (2026-05-10)**: **Phase 5.2.1 ✅ ae_get_project_info 완료** (read, 컴프 lane 1/3). 5.2 진입 update + 사용자 결정 4건 + 5.2.1 시리얼 진행. **다음 진입 대상: 5.2.2 ae_create_comp** (write 첫 진입, D4 destructive flag + undoGroup wiring reference example). D-N lane 분할: 30 tool 한정 + 직렬 + 5.2~5.7 6 lane sub-phase + 5.8 escape hatch.
 
 **작업 폴더**: `C:\Users\user\Desktop\성윤\에펙 클로드` (한글 path — 함정 #7)
 
@@ -174,8 +174,10 @@ AE ↔ CEP Panel (React + xterm.js)
 | 5.1.9 fix-1 | mistakes #20 face-1 — terminal.getSelection 빈 문자열 시 window.getSelection.toString fallback. 두 selection 모델 모두 check + 양쪽 clearSelection/removeAllRanges. panel 41 → 42 | `aff9f85` | ✅ |
 | 5.1.9 fix-2 | mistakes #20 face-2 — node_modules @xterm/xterm/css/xterm.css `.xterm{user-select:none}` library 기본 룰 발견. src/js/index.scss `.xterm{user-select:text!important}` override (vite bundle order index.scss → xterm.css 후순위 패배 → !important 필수, dist CSS @1324 vs @2972 검증) | `314a2d1` | ✅ |
 | 5.1.9 보류 | Ctrl+C copy fix-3 (사용자 dogfood 결과 fail 시 진단 — Step 2 xterm 옵션 / Step 3 debug logger + CEP DevTools). paste / SIGINT / 좀비 0 모두 ✅ | | ⏸ |
-| 5.2 진입 update | plan.md / PROJECT_CONTEXT / mistakes 인덱스 update + 사용자 결정 4건 박음 (옵션 1 + 옵션 2 + 옵션 A + 별도 commit 우선) | (본 commit) | ✅ |
-| **5.2** | **컴프 lane** (3 신규: 5.2.1 ae_get_project_info read → 5.2.2 ae_create_comp **write 첫 진입 D4 reference** → 5.2.3 ae_set_active_comp write) | | ⏳ **다음 진입 대상** |
+| 5.2 진입 update | plan.md / PROJECT_CONTEXT / mistakes 인덱스 update + 사용자 결정 4건 박음 (옵션 1 + 옵션 2 + 옵션 A + 별도 commit 우선) | `fcc7f30` | ✅ |
+| **5.2.1** | **ae_get_project_info** (read, 컴프 lane 1/3) — 4파일 collocation + 6 field 출력 (file/numItems/bitsPerChannel/expressionEngine/displayStartFrame/hostVersion) + JsxFileLike 신설 + JsxAppLike.version + JsxProjectLike 5.2.1 fields optional + 6 cases. Project 전역 (AENoActiveCompError 의존성 X). Gate §12 자동 catch (header comment 한글 → 영어 정정) | `91549e8` | ✅ |
+| **5.2.2** | **ae_create_comp** (write 첫 진입, D4 destructive flag + undoGroup wiring reference example) | | ⏳ **다음 진입 대상** |
+| 5.2.3 | ae_set_active_comp (write) | | |
 | 5.3 | 레이어 lane (9 신규 write: solid / text / shape / null / adjustment / set_layer_property / duplicate / delete / reorder) | | |
 | 5.4 | 키프레임 lane (3 신규 write: set_keyframe / set_keyframe_easing / remove_keyframe) | | |
 | 5.5 | 이펙트 lane (5 신규: list_available_effects read → describe_effect read → apply_effect write → set_effect_property write → remove_effect write) | | |
@@ -310,27 +312,29 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## G. 통계 (Phase 5.1 + 5.1.9 complete 시점, 2026-05-10)
+## G. 통계 (Phase 5.2.1 complete 시점, 2026-05-10)
 
 | 항목 | 수치 |
 |---|---|
-| Phase 5.1 commits (5.1.0 → 5.1.9 fix-2 + 5.2 update) | 17+ |
-| 누적 commits (Phase 0 → 현재) | 75+ |
-| Sidecar 테스트 | **185** (was 132 in Phase 4, +53: 5.1.4 ae_list_comps +6 / 5.1.5 ae_get_layers +6 / 5.1.6 ae_list_effects +6 / 5.1.7 ae_get_expression +7 / 5.1.8 ae_get_keyframes +11 / 5.1.3 architecture refactor +17) |
-| Panel 테스트 | **42** (was 44 in Phase 4 — 5.1.2 좀비 fix로 -7 시나리오 통합 후 5.1.9 keybinding +4 = 37→41, fix-1 +1 = 41→42; 누적 차이 -2) |
-| 총 자동 회귀 테스트 | **227** (was 176 in Phase 4, +51) |
-| 영구 등재 함정 (mistakes.md) | **20** (was 15, +5: #16 D-J multi-role grace timer 회귀 / #17 ExtendScript this-binding / #18 schema description vs runtime / #19 description duplication / #20 xterm keybinding dual-source) |
-| Validation Gates (CLAUDE.md) | 13 (변경 0 — Phase 5는 기존 게이트 적용) |
+| Phase 5 commits (5.0 → 5.2.1) | 19+ |
+| 누적 commits (Phase 0 → 현재) | 76+ |
+| Sidecar 테스트 | **191** (was 185 in 5.1.8, +6: 5.2.1 ae_get_project_info 6 cases — saved/unsaved/defaults/extendscript engine/32-bit + non-zero displayStart/korean filename) |
+| Panel 테스트 | **42** (변경 0 — 5.2.1 sidecar-only) |
+| 총 자동 회귀 테스트 | **233** (was 227 in 5.1.8, +6) |
+| 영구 등재 함정 (mistakes.md) | **20** (변경 0 — 5.2.1에서 Gate §12 자동 catch 1회 정정, mistakes 등재 기준 미달) |
+| Validation Gates (CLAUDE.md) | **14** (was 13 in Phase 4, +§14 jsx 양쪽 등록 — 5.1.8 발견) |
 | Architectural decisions | D1-D11 (10) + D-A~D-G (Phase 3, 7) + D-H~D-K (Phase 4, 4) + D-L~D-N (Phase 5, 3) |
-| MVP 5/5 tool 진행 | ✅ ae_list_comps / ae_get_layers / ae_list_effects / ae_get_expression / ae_get_keyframes (+ baseline ae_get_active_comp 5.1.1) |
+| Phase 5 tool 진행 | ✅ 7/30 (MVP baseline `ae_get_active_comp` + MVP 5/5 + 5.2.1 `ae_get_project_info`). 잔여 23 신규 + 1 escape hatch (5.8) |
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1 ✅ MVP 5/5 + 5.1.9 부분, 5.2 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.2.1 ✅, 5.2.2 진입 대기)
 
 ### 현재 상태
 
-**Phase 5.1 ✅ MVP 5/5 완료** (2026-05-10). 5.1.4 (ae_list_comps) → 5.1.5 (ae_get_layers) → 5.1.6 (ae_list_effects) → 5.1.7 (ae_get_expression) + fix + fix-2 → 5.1.8 (ae_get_keyframes). **5.1.9 ae-claude xterm Ctrl+C/V dogfood UX** 부분 완료 — Ctrl+V paste / SIGINT 보존 / 좀비 0 모두 ✅, **Ctrl+C copy fix-3 보류** (사용자 dogfood 결과 받기 전).
+**Phase 5.2.1 ✅ ae_get_project_info 완료** (2026-05-10, `91549e8`). 컴프 lane 1/3 (read-only). 6 field 출력 (file{path,name}|null / numItems / bitsPerChannel / expressionEngine / displayStartFrame / hostVersion). **다음 진입 대상: 5.2.2 ae_create_comp** (write 첫 진입, D4 destructive flag + undoGroup wiring reference example).
+
+5.1 완료 mile-stone (`fcc7f30` 5.2 진입 update + 사용자 결정 4건 박음): MVP 5/5 + UX 부분.
 
 5.1 sub-step 진행 (확정 commit):
 - **5.1.4** (`a157ae9`) ae_list_comps + JsxProjectLike + items[] mock
@@ -378,12 +382,24 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 **D-Q read → write 진입 순서 (lane 안)**: 5.2.1 read → 5.2.2 write 첫 진입 (D4 destructive + undoGroup wiring reference). 5.5.1/5.5.2 read 먼저, 5.5.3+ write. 5.7.1 read 먼저, 5.7.2 write.
 
-**5.2.1 진입 명세** (다음 작업):
-- `sidecar/src/tools/ae_get_project_info/{schema,handler,impl,impl.test}.ts` 4파일
-- input: 빈 object 또는 fields 옵션 (CLI 자율)
-- output: { name, file (path), version, frameRate (default), dimensions, duration, items count 등 — types-for-adobe Project class API 자율 조사}
-- active comp 무관 — `app.project` 직접 호출 (5.1.4 ae_list_comps 패턴 reference)
-- 5.1.7 fix-2 (server.ts single source) + 5.1.8 (jsx 양쪽 등록) + 5.1.4 (project.item this binding 가드) 모두 적용
+**5.2.1 ✅ 완료 결과** (`91549e8`):
+- 4파일 collocation + 6 field 출력 + JsxFileLike 신설 + JsxAppLike.version + JsxProjectLike 5.2.1 fields optional + makeMockProject/makeMockApp 확장 + 6 cases
+- Project 전역 (AENoActiveCompError 의존성 X — thinnest handler in registry)
+- Gate §12 jsx ASCII-only 자동 catch 1회 (header comment "컴프 lane" 한글 → 영어 정정 후 0 매치)
+- 등록 4 위치 모두 박음 (sidecar tools/index.ts + mcp/server.ts + jsx tools/index.ts + aeft.ts) — Gate §14 ae_get_project_info 4 매치
+- sidecar test 185 → 191 (+6) / panel test 42 그대로
+
+**5.2.2 진입 명세** (다음 작업):
+- `sidecar/src/tools/ae_create_comp/{schema,handler,impl,impl.test}.ts` 4파일
+- input: name (string) / width (positive int) / height (positive int) / pixelAspect (default 1) / duration (positive number, seconds) / frameRate (positive number, fps) — types-for-adobe Project.items.addComp 시그니처 따라 (사이드 콜 가능)
+- 추가 옵션: bgColor ([r,g,b] 0-1 normalized) / setActive (boolean, 생성 후 active 설정 여부)
+- output: { compId: number } — 생성된 CompItem.id (다음 호출에 compId로 사용)
+- **D4 destructive flag wiring 첫 검증** — `defineAETool({destructive: true, ...})` flag + handler 내부에서 자동 `app.beginUndoGroup` / `app.endUndoGroup` wrap. 사용자 옵션 C 결정: 5.2.2 안에서 함께 박음 (별도 sub-step 분할 X)
+- ExtendScript: `app.project.items.addComp(name, w, h, pixelAspect, duration, frameRate)` — 1-based ItemCollection 메서드. mistakes #17 패턴 (this binding) 적용 — `var addCompFn = app.project.items.addComp; addCompFn(...)` 금지, 직접 호출
+- **AST validator (D7) 골든셋에 case 1+ 추가** — 새 ExtendScript 코드 패턴 (items.addComp + property access 체인)이 _validateAst.test.ts 골든셋 통과 확인
+- mock fixture 확장: ItemCollection.addComp method (receiver guard + items[] push) + 새 CompItem id 할당 로직
+- 등록 4 위치 (5.1.8 발견 양쪽 등록 패턴)
+- mistakes 적용: #17 (this binding) + #18 (production runtime — 사용자 dogfood 후 description 정확도 검증) + #19 (server.ts single source) + #20 (해당 없음, UX 영역) + Gate §14 (jsx 양쪽 등록)
 
 ### 검증된 실측치
 
@@ -495,65 +511,75 @@ git log --oneline | head -20 로 Phase 4 sub-step (4.0~4.4 fix-4 + 4.5) 모두 �
 
 ---
 
-## K. 재진입 절차 (CLI용 — Phase 5 진입 첫 명령어)
+## K. 재진입 절차 (CLI용 — Phase 5.2.2 진입 첫 명령어)
 
 새 채팅 또는 같은 채팅 재개 시 이 순서로 실행:
 
 ```bash
-# 1. 컨텍스트 파일들 빠르게 확인 (CLI 자동)
+# 1. 컨텍스트 파일 확인 (CLI 자동)
 cd "C:/Users/user/Desktop/성윤/에펙 클로드"
-git log --oneline | head -20           # Phase 4 sub-step (4.0 → 4.5) 모두 추적
-git status -s                           # 깨끗해야 (eye/ untracked만)
+git log --oneline | head -10           # 최근: 91549e8 (5.2.1) → fcc7f30 (5.2 update) → 314a2d1 (5.1.9 fix-2)
+git status -s                           # eye/ + sidecar/.claude/ untracked만 = clean
 
-# 2. Phase 4 산출물 정합성 (Phase 5 시작 전 baseline)
-diff -q dist/cep/jsx/index.js \
-        "/c/Users/user/AppData/Roaming/Adobe/CEP/extensions/com.aeclaude.panel/jsx/index.js"
-# → 출력 0 = sync OK
+# 2. 회귀 테스트 baseline (Gate §8 monorepo 양쪽 build 명시)
+source ~/.bashrc && cd sidecar && npm test 2>&1 | tail -3 && npm run build 2>&1 | tail -3 && cd ..
+# → sidecar 191/191 그린 + tsc strict 그린
 
-# 3. Phase 4 산출물 게이트 (§10/§11/§12 효과 유지)
-grep -c "localhost:3000" dist/cep/main/index.html         # → 0 (production build)
-grep -c "__proto__" dist/cep/jsx/index.js                  # → 0 (Gate §11)
-LC_ALL=C perl -ne 'BEGIN{$c=0} for(split //){$c++ if ord($_)>127} END{print "non-ASCII bytes: $c\n"}' \
-  dist/cep/jsx/index.js                                    # → "non-ASCII bytes: 0" (Gate §12)
+npm test 2>&1 | tail -3 && npm run build 2>&1 | tail -3
+# → panel 42/42 그린 + vite build 그린
 
-# 4. 회귀 테스트 baseline (Phase 5 sub-step 시작 전 그린 확인)
-source ~/.bashrc && cd sidecar && npm run build && npm test 2>&1 | tail -3 && cd ..
-npm run build && npm test 2>&1 | tail -3
-# → sidecar 132/132 + panel 44/44 = 176/176 (Gate §8 monorepo 양쪽 build 명시 — #13 방어)
+# 3. 산출물 게이트 (§10/§11/§12/§14)
+grep -c "localhost:3000" dist/cep/main/index.html         # → 0 (Gate §10)
+node -e "const f=require('fs').readFileSync('dist/cep/jsx/index.js','utf8');const b=require('fs').readFileSync('dist/cep/jsx/index.js');let n=0;for(const c of b){if(c>=0x80)n++;}console.log('__proto__:',(f.match(/__proto__/g)||[]).length);console.log('non-ASCII bytes:',n);console.log('ae_get_project_info:',(f.match(/ae_get_project_info/g)||[]).length);"
+# → __proto__: 0 (§11) / non-ASCII bytes: 0 (§12) / ae_get_project_info: 4 (§14 양쪽 등록)
 
-# 5. Phase 4 ae-mcp 등록 baseline 확인 (claude CLI 측)
-#    - .claude.json projects[<cwd>].mcpServers.ae-mcp 엔트리 존재 확인
-#    - 사이드카 부팅 시 자동 idempotent remove + add (Phase 4.2)
-#    - 첫 panel 띄우면 /mcp로 ae-mcp ✓ connected 보일 것
-
-# 6. Phase 5 sub-step 합의 후 진입 (메시지 템플릿 §J 참조)
+# 4. 5.2.1 production source 검증 (mistakes #19 single source pattern)
+node -e "const f=require('fs').readFileSync('sidecar/dist/mcp/server.js','utf8');const start=f.indexOf('server.registerTool(\"ae_get_project_info\"');const end=f.indexOf('return server',start);console.log('block bytes:',f.substring(start,end).length);"
+# → block bytes: ~1065 (description single source 박힘)
 ```
 
-### Phase 5 sub-step 진입 권장 순서
+### 다음 진입 명령어 (Phase 5.2.2 ae_create_comp)
 
-```bash
-# 5.0 ✅ 결정 게이트 (이 commit, D-L/D-M/D-N lock-in)
-#    - D-L: ae_run_extendscript = Phase 5.6 별도 sub-step (last)
-#    - D-M: 5.1 첫 작업으로 ae_get_active_comp을 sidecar/src/tools/로 이동 + vite-cep-plugin 합본 config
-#    - D-N: 5.1 MVP 5 직렬 → 5.2~5.5 25 병렬 lane (컴프/레이어/키프레임/이펙트/익스프레션)
-
-# 5.1 ⏳ MVP 5 tool 직렬 — collocation 패턴 확립
-#    - 첫 작업 (D-M): ae_get_active_comp panel→sidecar 이동 + vite-cep-plugin 합본
-#      Gate §11 (__proto__ 0) / §12 (non-ASCII 0) / Phase 4 dogfood (e/f) 회귀 확인
-#    - 4 새 tool: 각 lane reference example 1개씩 (컴프/레이어/키프레임/이펙트, 익스프레션은 5.2~5.5 분배)
-#    - tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts} 4파일 패턴 첫 적용
-#    - 각 tool마다 dispatcher 통과 round-trip 검증 + golden case 1+ + integration test
-#    - mistakes #11 4-faces / #15 (production assembly point) 자동 가드 적용
-
-# 5.2~5.5 25 tool 병렬 lane (D8 덕분에 lane 충돌 0)
-#    - 5.2 컴프 / 5.3 레이어 / 5.4 키프레임 / 5.5 이펙트 lane (익스프레션은 분배)
-#    - tool 개별 명세는 5.2 진입 시 별도 합의
-#    - 매 5 tool마다 dogfood loop + idle scenario Gate §13 확인
-
-# 5.6 ae_run_extendscript 도입 (D3 + D-L)
-#    - 29 tool 패턴 누적 후 escape hatch 위에 얹기
-#    - AST validator 골든셋 (D7) + approval modal (D11) + needsApproval: true flag (유일)
 ```
+Phase 5.2.2 진입 — ae_create_comp (write 첫 진입, D4 destructive flag + undoGroup wiring reference example, 컴프 lane 2/3).
+
+5.2.1 ae_get_project_info ✅ 완료 (commit 91549e8). 사용자 dogfood 통과 (또는 dogfood 결과 보고 후 진입).
+
+작업:
+1. types-for-adobe AE 22.0 ItemCollection.addComp 시그니처 자율 조사 (name, w, h, pixelAspect, duration, frameRate)
+2. sidecar/src/tools/ae_create_comp/ 4파일 collocation
+3. **D4 destructive flag 첫 검증** — defineAETool({destructive: true}) flag + handler 내부 app.beginUndoGroup/endUndoGroup 자동 wrap. 사용자 옵션 C 결정 (5.2.2 안에서 함께 박음, 별도 sub-step 분할 X)
+4. AST validator (D7) 골든셋 case +1 (items.addComp 패턴)
+5. mock fixture 확장 — ItemCollection.addComp method + receiver guard + items[] push + 새 CompItem id 할당
+6. 등록 4 위치 (5.1.8 발견 양쪽 등록 패턴 + Gate §14)
+7. server.ts description single source (mistakes #19) + ASCII only (Gate §12) + this binding (mistakes #17)
+8. sidecar test +N / panel test 42 그대로 / Gate §10/§11/§12/§14 0/0/0/1+
+9. 사용자 dogfood 검증 (panel reload + 자연어 "1920x1080 30fps 5초 컴프 만들어줘" → ae_create_comp 호출 → 실제 컴프 생성 + undo group 작동 확인)
+
+추측 fix 금지. ItemCollection.addComp 시그니처 / undoGroup wiring 정확도 / D4 flag 동작 회의 시 보고 후 멈춤.
+```
+
+### Phase 5 sub-step 진행 표 (전체)
+
+| sub-phase | tool | type | 상태 | commit |
+|---|---|---|---|---|
+| 5.1.1 | ae_get_active_comp | R | ✅ baseline | `711fd6d` |
+| 5.1.4 | ae_list_comps | R | ✅ MVP 1/5 | `a157ae9` (+`26dd304` fix #17) |
+| 5.1.5 | ae_get_layers | R | ✅ MVP 2/5 | `690fcf1` |
+| 5.1.6 | ae_list_effects | R | ✅ MVP 3/5 | `2e498a5` |
+| 5.1.7 | ae_get_expression | R | ✅ MVP 4/5 | `6ed8f08` (+`1ad3feb` fix #18, +`8909a6e` fix-2 #19) |
+| 5.1.8 | ae_get_keyframes | R | ✅ MVP 5/5 | `b206d7a` |
+| 5.1.9 | xterm Ctrl+C/V UX | UX | ✅ paste/SIGINT/좀비, copy 보류 | `3ae033b` (+`aff9f85` fix-1 #20 face-1, +`314a2d1` fix-2 #20 face-2) |
+| 5.2 update | 사용자 결정 4건 박음 | docs | ✅ | `fcc7f30` |
+| **5.2.1** | **ae_get_project_info** | **R** | **✅ 컴프 lane 1/3** | **`91549e8`** |
+| 5.2.2 | ae_create_comp | W | ⏳ **다음 진입 대상** (D4 reference) | |
+| 5.2.3 | ae_set_active_comp | W | | |
+| 5.3.1~5.3.9 | 레이어 lane 9 (모두 W) | W | | |
+| 5.4.1~5.4.3 | 키프레임 lane 3 (모두 W) | W | | |
+| 5.5.1~5.5.5 | 이펙트 lane 5 (R/R/W/W/W) | R+W | | |
+| 5.6.1~5.6.2 | 익스프레션 lane 2 (모두 W) | W | | |
+| 5.7.1~5.7.2 | 마커 lane 2 (R/W) | R+W | | |
+| 5.8 | ae_run_extendscript | escape | (D3 + D-L) | |
 
 ---
 
@@ -568,6 +594,6 @@ npm run build && npm test 2>&1 | tail -3
 
 ---
 
-**문서 마지막 갱신**: 2026-05-10. Phase 5.1 ✅ MVP 5/5 + 5.1.9 부분 (paste / SIGINT / 좀비 0 ✅, Ctrl+C copy fix-3 보류). 사용자 결정 4건 확정 (옵션 1 + 옵션 2 + 옵션 A + 별도 commit). Phase 5.2 진입 대기.
+**문서 마지막 갱신**: 2026-05-10 EOD. Phase 5.2.1 ✅ 완료 (`91549e8`, ae_get_project_info read 6 field). 다음 진입 대상 = 5.2.2 ae_create_comp (write 첫 진입, D4 destructive flag + undoGroup wiring reference example).
 
-다음 갱신 시점: 5.2 lane 종료 (5.2.3 ae_set_active_comp 후) 또는 5.3 진입 시.
+다음 갱신 시점: 5.2.2 진입 또는 5.2 lane 종료 (5.2.3 후).

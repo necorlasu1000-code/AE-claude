@@ -345,7 +345,8 @@ Sub-step 분할 (결정 게이트 5.0 → MVP 5 직렬 → 25 병렬 lane → es
   - **5.1.9 fix-2** ✅ mistakes #20 (face-2) — `node_modules/@xterm/xterm/css/xterm.css` 라이브러리 기본 룰 `.xterm{user-select:none}`이 native selection 차단 발견. `src/js/index.scss` `.xterm{user-select:text!important}` override 추가. vite bundle order 우리 index.scss → xterm.css 후순위로 동일 specificity 패배 → !important 필수. (`314a2d1`)
   - **5.1.9 보류**: Ctrl+C copy fix-3 — 사용자 dogfood 결과 통과 시 종료, fail 시 fix-3 진단 (Step 2 xterm 옵션 / Step 3 debug logger + CEP DevTools). paste / SIGINT / 좀비 0 모두 ✅.
 - **5.2~5.7** 24 신규 tool 직렬 lane (D-N 결정 결과: 사용자 옵션 1 + 옵션 A 직렬 — 30 tool 한정, ae_audio_to_markers + 임포트/익스포트 4 v1.5+ deferred)
-  - 5.2 컴프 lane (3 신규: ae_get_project_info read → ae_create_comp **write 첫 진입 D4 reference** → ae_set_active_comp write)
+  - **5.2.1** ✅ `ae_get_project_info` (read, 컴프 lane 1/3) — 4파일 collocation + 6 field 출력 (file{path,name}|null / numItems / bitsPerChannel / expressionEngine / displayStartFrame / hostVersion) + JsxFileLike 신설 + JsxAppLike.version + JsxProjectLike 5.2.1 fields optional + 6 cases. Project 전역 (AENoActiveCompError 의존성 X, thinnest handler in registry). Gate §12 jsx ASCII-only 자동 catch (header comment 한글 → 영어 정정 1회). (`91549e8`)
+  - 5.2 컴프 lane (3 신규: ae_get_project_info read ✅ → **5.2.2 ae_create_comp write 첫 진입 D4 reference** → 5.2.3 ae_set_active_comp write)
   - 5.3 레이어 lane (9 신규 write: ae_add_solid_layer / ae_add_text_layer / ae_add_shape_layer / ae_add_null_layer / ae_add_adjustment_layer / ae_set_layer_property / ae_duplicate_layer / ae_delete_layer / ae_reorder_layer)
   - 5.4 키프레임 lane (3 신규 write: ae_set_keyframe → ae_set_keyframe_easing → ae_remove_keyframe)
   - 5.5 이펙트 lane (5 신규: ae_list_available_effects read → ae_describe_effect read → ae_apply_effect write → ae_set_effect_property write → ae_remove_effect write)
