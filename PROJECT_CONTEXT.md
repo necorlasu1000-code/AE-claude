@@ -17,11 +17,11 @@ AE ↔ CEP Panel (React + xterm.js)
      claude CLI (Opus 4.7)
 ```
 
-**현재 위치 (2026-05-07)**: **Phase 4 ✅ 완료**. 사용자 AE dogfood 4 시나리오 (e/f/g/h) 모두 통과 — 자연어 → ae_get_active_comp MCP full round-trip ✅, 1시간+ idle 안정, panel close 잔존 0. **Phase 5 (30 MCP tool + D8 collocation) 진입 대기.**
+**현재 위치 (2026-05-10)**: **Phase 5.1 ✅ MVP 5/5 완료** + 5.1.9 dogfood UX 부분 완료 (Ctrl+V paste / SIGINT / 좀비 0 ✅, Ctrl+C copy fix-3 보류). **Phase 5.2 진입 대기 — 컴프 lane 첫 sub-step (ae_get_project_info read).** D-N lane 분할 결정 결과: 30 tool 한정 (옵션 1) + 직렬 (옵션 A) + 5.2~5.7 6 lane sub-phase + 5.8 escape hatch.
 
 **작업 폴더**: `C:\Users\user\Desktop\성윤\에펙 클로드` (한글 path — 함정 #7)
 
-**진실의 원천**: `plan.md` (전체 비전 + 페이즈 + GSTACK 리뷰 + Phase 2/3/4 회고), `CLAUDE.md` (코딩 게이트, 13 Validation Gates), `mistakes.md` (영구 학습, **15 함정**), 본 문서 (온보딩 인덱스 + 재진입 절차).
+**진실의 원천**: `plan.md` (전체 비전 + 페이즈 + GSTACK 리뷰 + Phase 2/3/4 회고 + Phase 5 MVP), `CLAUDE.md` (코딩 게이트, 13 Validation Gates), `mistakes.md` (영구 학습, **20 함정**), 본 문서 (온보딩 인덱스 + 재진입 절차).
 
 ---
 
@@ -88,7 +88,7 @@ AE ↔ CEP Panel (React + xterm.js)
 |---|---|---|
 | D-L | `ae_run_extendscript` 도입 시점 | Phase 5.6 별도 sub-step (last) — 29 tool 패턴 누적 후 escape hatch 위에 얹기. AST validator 골든셋 (D7) + approval modal (D11) + `needsApproval: true` flag (유일). 첫 도입 시 두 패턴 동시 디버깅 risk 회피. |
 | D-M | D8 collocation 이동 시점 | 5.1 첫 작업으로 `ae_get_active_comp`을 `src/jsx/aeft/tools/` (panel spike) → `sidecar/src/tools/<ae_name>/{schema.ts, handler.ts, impl.jsx, test.ts}` 정식 위치 이동 + vite-cep-plugin 합본 config. 첫 reference example 역할. Gate §11 (`__proto__` 0) / §12 (non-ASCII 0) / Phase 4 dogfood (e/f) 회귀 확인. |
-| D-N | lane 분할 전략 | 5.1 MVP 5 직렬 → 5.2~5.5 25 병렬 lane (그룹 5개: 컴프 / 레이어 / 키프레임 / 이펙트 / 익스프레션). tool 개별 명세는 5.2 진입 시 별도 합의. 매 5 tool dogfood loop + Gate §13 idle. |
+| D-N | lane 분할 전략 | 5.1 MVP 5 직렬 → **5.2~5.7 24 신규 tool 직렬 lane** (옵션 A) + 5.8 escape hatch. **2026-05-10 5.2 진입 시 사용자 결정**: 옵션 1 (30 tool 한정 — ae_audio_to_markers + 임포트/익스포트 4 = 5 tool v1.5+ deferred), 옵션 2 (이펙트 영역 ae_list_effects 5.1.6 + ae_list_available_effects 신규 둘 다 별도), 6 lane (컴프/레이어/키프레임/이펙트/익스프레션/마커). lane 안 read → write 순서 (D-Q E1). 5.2.2 ae_create_comp = D4 destructive flag + undoGroup wiring reference example. 매 lane 종료마다 dogfood loop + Gate §13 idle. |
 
 ---
 
@@ -168,13 +168,20 @@ AE ↔ CEP Panel (React + xterm.js)
 | 5.1.6 | `ae_list_effects` (read-only, MVP 3/5 이펙트 lane) — JsxPropertyLike/JsxPropertyGroupLike + makeMockEffect/makeMockEffectsParade + Effect Parade try/catch (Camera/Light/Null layer fail mode 우회) + layerIndex 사전 검증 | `2e498a5` | ✅ |
 | 5.1.7 | `ae_get_expression` (read-only, MVP 4/5 익스프레션 lane) — JsxPropertyLike 확장 (expression?/expressionEnabled?) + makeMockProperty + MockLayerOpts.properties map + propertyMatchName not-found → AENotFoundError | `6ed8f08` | ✅ |
 | 5.1.7 fix | mistakes #18 — schema description vs production runtime 차이. propertyMatchName → propertyName + description 정정 + mock display-name keyed + 회귀 case | `1ad3feb` | ✅ |
-| 5.1.7 fix-2 | mistakes #19 — description duplication / single source of truth 위반. server.ts:127-134 정정 (production source) + handler.ts JSDoc cleanup + dist grep scope 검증. root cause fix (description 통합)는 5.2 진입 전 검토 | (본 commit) | ✅ |
-| 5.1.8 | `ae_get_keyframes` (MVP 5/5 키프레임 lane) | | ⏳ **다음 진입 대상** |
-| 5.2 | 컴프 lane (병렬) | | |
-| 5.3 | 레이어 lane (병렬) | | |
-| 5.4 | 키프레임 lane (병렬) | | |
-| 5.5 | 이펙트 lane (병렬, 익스프레션 분배) | | |
-| 5.6 | `ae_run_extendscript` 도입 (D3 + D-L) — AST 골든셋 + approval modal + `needsApproval: true` | | |
+| 5.1.7 fix-2 | mistakes #19 — description duplication / single source of truth 위반. server.ts:127-134 정정 (production source) + handler.ts JSDoc cleanup + dist grep scope 검증. root cause fix (description 통합)는 5.2 진입 전 검토 | `8909a6e` | ✅ |
+| 5.1.8 | `ae_get_keyframes` (MVP 5/5 키프레임 lane) — 4파일 collocation + JsxPropertyLike 키프레임 영역 확장 (numKeys / keyTime / keyValue / keyIn/Out InterpolationType optional + receiver guards) + KeyframeInterpolationType int → enum string 매핑 (LINEAR=6612 / BEZIER=6613 / HOLD=6614) + value: z.unknown + 11 cases. **jsx 양쪽 등록 패턴 발견** (aeft/tools/index.ts + aeft.ts named import + object literal 양쪽 필수) | `b206d7a` | ✅ |
+| 5.1.9 | xterm Ctrl+C / Ctrl+V OS clipboard 연동 (dogfood UX) — attachCustomKeyEventHandler + navigator.clipboard.writeText/readText + Ctrl+C 분기 (selection → copy / no selection → SIGINT pass) + Ctrl+V terminal.paste → ws.send pty.in. panel test 37 → 41 | `3ae033b` | ✅ |
+| 5.1.9 fix-1 | mistakes #20 face-1 — terminal.getSelection 빈 문자열 시 window.getSelection.toString fallback. 두 selection 모델 모두 check + 양쪽 clearSelection/removeAllRanges. panel 41 → 42 | `aff9f85` | ✅ |
+| 5.1.9 fix-2 | mistakes #20 face-2 — node_modules @xterm/xterm/css/xterm.css `.xterm{user-select:none}` library 기본 룰 발견. src/js/index.scss `.xterm{user-select:text!important}` override (vite bundle order index.scss → xterm.css 후순위 패배 → !important 필수, dist CSS @1324 vs @2972 검증) | `314a2d1` | ✅ |
+| 5.1.9 보류 | Ctrl+C copy fix-3 (사용자 dogfood 결과 fail 시 진단 — Step 2 xterm 옵션 / Step 3 debug logger + CEP DevTools). paste / SIGINT / 좀비 0 모두 ✅ | | ⏸ |
+| 5.2 진입 update | plan.md / PROJECT_CONTEXT / mistakes 인덱스 update + 사용자 결정 4건 박음 (옵션 1 + 옵션 2 + 옵션 A + 별도 commit 우선) | (본 commit) | ✅ |
+| **5.2** | **컴프 lane** (3 신규: 5.2.1 ae_get_project_info read → 5.2.2 ae_create_comp **write 첫 진입 D4 reference** → 5.2.3 ae_set_active_comp write) | | ⏳ **다음 진입 대상** |
+| 5.3 | 레이어 lane (9 신규 write: solid / text / shape / null / adjustment / set_layer_property / duplicate / delete / reorder) | | |
+| 5.4 | 키프레임 lane (3 신규 write: set_keyframe / set_keyframe_easing / remove_keyframe) | | |
+| 5.5 | 이펙트 lane (5 신규: list_available_effects read → describe_effect read → apply_effect write → set_effect_property write → remove_effect write) | | |
+| 5.6 | 익스프레션 lane (2 신규 write: set_expression → remove_expression) | | |
+| 5.7 | 마커 lane (2 신규: list_markers read → add_marker write) | | |
+| 5.8 | `ae_run_extendscript` 도입 (D3 + D-L) — escape hatch, AST 골든셋 + approval modal + `needsApproval: true` flag (유일) | | |
 
 ### Phase 6-7 (다음 이상)
 - Phase 6 — UX (logger.ts, Recent AI ops 카드, status bar 5상태)
@@ -182,7 +189,7 @@ AE ↔ CEP Panel (React + xterm.js)
 
 ---
 
-## E. 19개 발견 함정 (mistakes.md 인덱스)
+## E. 20개 발견 함정 (mistakes.md 인덱스)
 
 | # | 함정 한 줄 | Phase | 해결 메커니즘 |
 |---|---|---|---|
@@ -205,6 +212,7 @@ AE ↔ CEP Panel (React + xterm.js)
 | **17** | **ExtendScript SpiderMonkey method this-binding 강제 — `var fn = obj.method; fn(i)` detach 시 production AE throw "Function global.item() cannot work with this class". vitest mock vanilla JS는 receiver 미강제 → 4 case 그린이지만 production fail** | **5.1.4 fix** | **impl.ts: `project.item!(i)` 직접 호출. _mockApp.ts: receiver guard (`this !== project` throw) — 30 tool 공통 자동 가드. impl.test.ts regression case. 메타 family = #11/#13/#14 mock vs production 시뮬 정확도** |
 | **18** | **schema description vs production AE runtime 차이 — `propertyMatchName: "ADBE Position"` (TS type 추론 spec) → claude first-attempt fail × 5. layer.property() 실제 동작은 display-name lookup. types-for-adobe만 보고 spec 박은 결과** | **5.1.7 fix** | **`propertyName` 인자명 변경 + description 정정 (display-name 명시) + mock `properties` map jsdoc "KEYED BY DISPLAY NAME" 명시 + 회귀 case (matchName-shaped → fail, display-name → 성공). 새 메타 family — "spec / description 정확도가 production runtime 검증 필요"** |
 | **19** | **description duplication / single source of truth 위반 — fix-1이 zod schema + handler.ts description 정정했지만 production source는 `mcp/server.ts` inline description. claude는 server.ts만 본다 → fix-1이 dead code만 정정** | **5.1.7 fix-2** | **server.ts:127-134 description 정정 (사용자 spec, negative example "Do NOT use 'ADBE Position'") + handler.ts:7 JSDoc cleanup + dist grep 검증 (server.js scope `propertyMatchName` 0). #15 family lineage (production assembly point가 fix scope 밖). root cause fix 후보 (description 통합) 5.2 진입 전 별도 검토** |
+| **20** | **xterm.js keybinding selection dual-source 함정 — 2 face. (face-1) terminal.getSelection() 단일 source 가정 vs CEF 환경 native browser selection도 engage 가능. (face-2) `node_modules/@xterm/xterm/css/xterm.css` 라이브러리 기본 `.xterm{user-select:none}` 룰이 native selection 차단 — fix-1 native fallback도 미달. 두 layer 모두 fix해야 작동** | **5.1.9 fix-1 + fix-2** | **face-1: useTerminal.ts:172-218 Ctrl+C 분기에 window.getSelection fallback (xtermSel \|\| nativeSel) + 양쪽 clear (clearSelection/removeAllRanges) + #18 fallback test case. face-2: src/js/index.scss `.xterm{user-select:text!important}` override (vite bundle order 후순위 패배 → !important 필수, dist CSS byte position 검증). #11/#15/#19 family lineage — fix scope 한 layer만 보면 production 미달 메타. UX 영역 dogfood loop 명시 학습** |
 
 ### #11 4-faces (Phase 3.7 wiring 발견 누적)
 
@@ -302,45 +310,80 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
-## G. 통계 (Phase 4 complete 시점)
+## G. 통계 (Phase 5.1 + 5.1.9 complete 시점, 2026-05-10)
 
 | 항목 | 수치 |
 |---|---|
-| Phase 4 commits (4.0 → 4.4 fix-4 + 4.5) | 10 |
-| 누적 commits (Phase 0 → 현재) | 55+ |
-| Sidecar 테스트 | **132** (was 95 in Phase 3, +37: dispatcher execHandler 3 + integration-mcp 2 + integration-shell-not-found 2 + registerWithClaude 6 + wsClient + server.test + integration-production-wiring 2 + 등) |
-| Panel 테스트 | 44 (변경 0) |
-| 총 자동 회귀 테스트 | **176** (was 139 in Phase 3, +37) |
-| 영구 등재 함정 (mistakes.md) | **15** (was 12, +3: #13 + #14 family + #15) |
-| Validation Gates (CLAUDE.md) | 13 (변경 0 — Phase 4는 기존 게이트 적용) |
-| Architectural decisions | D1-D11 (10) + D-A~D-G (Phase 3, 7) + D-H~D-K (Phase 4, 4) |
+| Phase 5.1 commits (5.1.0 → 5.1.9 fix-2 + 5.2 update) | 17+ |
+| 누적 commits (Phase 0 → 현재) | 75+ |
+| Sidecar 테스트 | **185** (was 132 in Phase 4, +53: 5.1.4 ae_list_comps +6 / 5.1.5 ae_get_layers +6 / 5.1.6 ae_list_effects +6 / 5.1.7 ae_get_expression +7 / 5.1.8 ae_get_keyframes +11 / 5.1.3 architecture refactor +17) |
+| Panel 테스트 | **42** (was 44 in Phase 4 — 5.1.2 좀비 fix로 -7 시나리오 통합 후 5.1.9 keybinding +4 = 37→41, fix-1 +1 = 41→42; 누적 차이 -2) |
+| 총 자동 회귀 테스트 | **227** (was 176 in Phase 4, +51) |
+| 영구 등재 함정 (mistakes.md) | **20** (was 15, +5: #16 D-J multi-role grace timer 회귀 / #17 ExtendScript this-binding / #18 schema description vs runtime / #19 description duplication / #20 xterm keybinding dual-source) |
+| Validation Gates (CLAUDE.md) | 13 (변경 0 — Phase 5는 기존 게이트 적용) |
+| Architectural decisions | D1-D11 (10) + D-A~D-G (Phase 3, 7) + D-H~D-K (Phase 4, 4) + D-L~D-N (Phase 5, 3) |
+| MVP 5/5 tool 진행 | ✅ ae_list_comps / ae_get_layers / ae_list_effects / ae_get_expression / ae_get_keyframes (+ baseline ae_get_active_comp 5.1.1) |
 
 ---
 
-## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1.7 + fix + fix-2 ✅, 5.1.8 진입 대기)
+## H. 재진입 시 즉시 알아야 할 것 (Phase 5.1 ✅ MVP 5/5 + 5.1.9 부분, 5.2 진입 대기)
 
 ### 현재 상태
 
-**Phase 5.1.7 + fix + fix-2 ✅ 완료** (2026-05-08). MVP 4/5 익스프레션 lane + dogfood 발견 함정 #18 (schema description vs production runtime) + fix-1 scope 누락 함정 #19 (description duplication / production source 미반영) 둘 다 fix.
+**Phase 5.1 ✅ MVP 5/5 완료** (2026-05-10). 5.1.4 (ae_list_comps) → 5.1.5 (ae_get_layers) → 5.1.6 (ae_list_effects) → 5.1.7 (ae_get_expression) + fix + fix-2 → 5.1.8 (ae_get_keyframes). **5.1.9 ae-claude xterm Ctrl+C/V dogfood UX** 부분 완료 — Ctrl+V paste / SIGINT 보존 / 좀비 0 모두 ✅, **Ctrl+C copy fix-3 보류** (사용자 dogfood 결과 받기 전).
 
-Sub-step 진행:
-- **5.1.7** (`6ed8f08`) — `ae_get_expression` 4파일 + `JsxPropertyLike` 확장 + `makeMockProperty` + `MockLayerOpts.properties` map
-- **5.1.7 fix** (`1ad3feb`) — mistakes #18. schema description이 production runtime 동작과 부정확. propertyMatchName → propertyName + description 정정 (display-name lookup 명시) + mock display-name keyed + 회귀 case
-- **5.1.7 fix-2** (본 commit) — mistakes #19. fix-1이 production source (`mcp/server.ts` inline description) 미반영 — claude는 server.ts만 본다. server.ts:127-134 정정 + handler.ts JSDoc cleanup + dist grep scope 검증. #15 family lineage
+5.1 sub-step 진행 (확정 commit):
+- **5.1.4** (`a157ae9`) ae_list_comps + JsxProjectLike + items[] mock
+- **5.1.4 fix** (`26dd304`) mistakes #17 ExtendScript this-binding (project.item 직접 호출 + receiver guard, 30 tool 공통 mock policy)
+- **5.1.5** (`690fcf1`) ae_get_layers + AENotFoundError + JsxLayerLike + makeMockLayer + Object.prototype.toString reflection (Layer subclass 분류)
+- **5.1.6** (`2e498a5`) ae_list_effects + JsxPropertyLike/JsxPropertyGroupLike + Effect Parade try/catch (Camera/Light/Null fail mode)
+- **5.1.7** (`6ed8f08`) ae_get_expression + JsxPropertyLike 확장 (expression?/expressionEnabled?) + makeMockProperty + MockLayerOpts.properties
+- **5.1.7 fix** (`1ad3feb`) mistakes #18 schema description vs runtime (propertyMatchName → propertyName, display-name lookup)
+- **5.1.7 fix-2** (`8909a6e`) mistakes #19 description duplication (server.ts production source single source of truth)
+- **5.1.8** (`b206d7a`) ae_get_keyframes + JsxPropertyLike 키프레임 영역 확장 + KeyframeInterpolationType int → enum string (LINEAR/BEZIER/HOLD) + **jsx 양쪽 등록 패턴 발견** (aeft/tools/index.ts + aeft.ts named import + object literal 양쪽 필수)
+- **5.1.9** (`3ae033b`) xterm Ctrl+C/V OS clipboard 연동 (panel test 37 → 41)
+- **5.1.9 fix-1** (`aff9f85`) mistakes #20 face-1 native selection fallback (panel 41 → 42)
+- **5.1.9 fix-2** (`314a2d1`) mistakes #20 face-2 xterm.css user-select:none override (CSS layer)
 
-함정 인덱스: 18 → 19. mistakes #19는 **#15 family lineage** — production assembly point/source가 fix scope 밖. layer 다름 (wiring vs description). 5.1.7 sub-step에서 fix → fix-2 layered loop가 필요했던 이유: fix-1 scope가 dev annotation source (zod/handler)만 정정 + production 노출 source (server.ts inline) 미명시.
+함정 인덱스: 19 → 20. mistakes #20는 **2 face** — face-1 (code-side fallback) + face-2 (CSS layer enabling). 같은 root question("native selection 활성화")의 multi-layer fix. fix-2 없이 fix-1 단독 작동 X.
 
-5.1.7 통합 학습 (3 sub-step):
+**5.1 통합 학습**:
 - types-for-adobe TS type만 보고 schema spec 박지 말 것 — production runtime semantic (display name lookup, locale 의존, instance method receiver 강제)은 TS type에 표현 안 됨 (#18)
 - description의 production source는 `mcp/server.ts` registerTool block — single source of truth. handler.ts/schema.ts description은 dev annotation only (#19)
-- description fix 시 dist grep scope 명시 — production 노출 source의 dist 산출물 (`dist/mcp/server.js`) 직접 grep. dev source만 grep하면 production 미반영 (#19)
-- root cause fix 후보 (description 통합, 5.2 진입 전 별도 검토): zod `.describe()` import / handler.ts ToolDef.description lookup / 두 곳 const string 추출
+- description fix 시 dist grep scope 명시 — production 노출 source의 dist 산출물 (`dist/mcp/server.js`) 직접 grep (#19)
+- xterm/캔버스 기반 UI 키바인딩 작성 시 두 selection 모델 모두 check + library 기본 CSS도 `node_modules/<pkg>/**/*.css` grep scope 확장 (#20)
+- **jsx 양쪽 등록 패턴** (5.1.8 발견): 신규 tool 추가 시 `src/jsx/aeft/tools/index.ts` (alias re-export) + `src/jsx/aeft/aeft.ts` (named import + object literal — gate §11 패턴) 양쪽 필수. 한쪽만 박으면 jsx bundle에 함수 0 매치 (gate §11 안 잡힘 — namespace import는 정상이지만 등록 누락)
+- **multi-layer fix 메타**: UX 기능 (keybinding/clipboard/CSS)은 code + CSS + 환경 권한 multi-layer로 wiring. 한 layer fix 후 dogfood 그린 ≠ 정답 (#20 face-1 → face-2 layered loop)
+- root cause fix 후보 (description 통합, 5.2 진입 전 별도 검토): zod `.describe()` import / handler.ts ToolDef.description lookup / 두 곳 const string 추출 — **5.2 진행 중 점진 도입 또는 보류 결정** (현재는 mistakes #19 패턴 그대로 server.ts에서 single source 유지)
 
-**Phase 5.1.8 (`ae_get_keyframes`, MVP 5/5 키프레임 lane) 진입 대기.** 5.1.4/5.1.5/5.1.6/5.1.7 패턴 안정 — 매 tool마다 4파일 + 3 registry 1줄 + 필요 시 `_mockApp.ts` 추가 fixture. 5.1.8 진입 시 mistakes #18 + #19 둘 다 적용:
-- description은 server.ts inline에서 single source로 박기 (production runtime 검증 후)
-- description 변경 시 dist/mcp/server.js scope 직접 grep로 production 반영 확인
+### Phase 5.2 진입 명세 (사용자 결정 4건 확정 후 — 2026-05-10)
 
-키프레임은 leaf Property에 부착된 array-like accessor — 5.1.7 PropertyLike 확장 또는 별도 sub-interface 결정 필요 (5.1.8 진입 시).
+**D-N lane 분할 결정 결과**:
+- 옵션 1 — 30 tool 한정 (ae_audio_to_markers + 임포트/익스포트 4 = 5 tool v1.5+ deferred)
+- 옵션 2 — 이펙트 영역 ae_list_effects (5.1.6 layer 적용) + ae_list_available_effects (catalog) 둘 다 별도 tool 보유
+- 옵션 A — 직렬 (5.2~5.7 6 lane sub-phase, lane 한 번에 1개)
+- 별도 commit 우선 — 5.2 진입 전 plan.md / PROJECT_CONTEXT / mistakes 인덱스 + 사용자 결정 박음 commit (본 commit)
+
+**5.2~5.7 24 신규 tool lane 매핑**:
+
+| Lane | sub-phase | 신규 | tools |
+|---|---|---|---|
+| 컴프 | 5.2 | 3 | 5.2.1 ae_get_project_info (read) → 5.2.2 ae_create_comp (**write 첫 진입 D4 reference**) → 5.2.3 ae_set_active_comp (write) |
+| 레이어 | 5.3 | 9 | 5.3.1~5.3.9: ae_add_solid_layer / ae_add_text_layer / ae_add_shape_layer / ae_add_null_layer / ae_add_adjustment_layer / ae_set_layer_property / ae_duplicate_layer / ae_delete_layer / ae_reorder_layer (모두 write) |
+| 키프레임 | 5.4 | 3 | 5.4.1 ae_set_keyframe → 5.4.2 ae_set_keyframe_easing → 5.4.3 ae_remove_keyframe (모두 write) |
+| 이펙트 | 5.5 | 5 | 5.5.1 ae_list_available_effects (read) → 5.5.2 ae_describe_effect (read) → 5.5.3 ae_apply_effect (write) → 5.5.4 ae_set_effect_property (write) → 5.5.5 ae_remove_effect (write) |
+| 익스프레션 | 5.6 | 2 | 5.6.1 ae_set_expression → 5.6.2 ae_remove_expression (모두 write) |
+| 마커 | 5.7 | 2 | 5.7.1 ae_list_markers (read) → 5.7.2 ae_add_marker (write) |
+| Escape Hatch | 5.8 | 1 | ae_run_extendscript (D3 + D-L, AST 골든셋 + approval modal + needsApproval flag) |
+
+**D-Q read → write 진입 순서 (lane 안)**: 5.2.1 read → 5.2.2 write 첫 진입 (D4 destructive + undoGroup wiring reference). 5.5.1/5.5.2 read 먼저, 5.5.3+ write. 5.7.1 read 먼저, 5.7.2 write.
+
+**5.2.1 진입 명세** (다음 작업):
+- `sidecar/src/tools/ae_get_project_info/{schema,handler,impl,impl.test}.ts` 4파일
+- input: 빈 object 또는 fields 옵션 (CLI 자율)
+- output: { name, file (path), version, frameRate (default), dimensions, duration, items count 등 — types-for-adobe Project class API 자율 조사}
+- active comp 무관 — `app.project` 직접 호출 (5.1.4 ae_list_comps 패턴 reference)
+- 5.1.7 fix-2 (server.ts single source) + 5.1.8 (jsx 양쪽 등록) + 5.1.4 (project.item this binding 가드) 모두 적용
 
 ### 검증된 실측치
 
@@ -397,6 +440,29 @@ Sub-step 진행:
 | 프로젝트 path | `C:\Users\user\Desktop\성윤\에펙 클로드` | 한글 + 공백 |
 | AE extension path | `C:\Users\user\AppData\Roaming\Adobe\CEP\extensions\com.aeclaude.panel\` | bolt-cep dev mode auto-sync from `dist/cep/` |
 | Editor | VS Code 미설치 | Claude Code CLI가 직접 파일 수정 |
+
+### Phase 5 신규 tool 추가 가이드 (5.1.4~5.1.8 패턴 누적)
+
+**1. sidecar collocation 4파일** (`sidecar/src/tools/<ae_name>/`):
+- `schema.ts` — zod input/output (description은 dev annotation only, 5.1.7 fix-2 #19)
+- `handler.ts` — `defineAETool` HOF + AENoActiveCompError / AENotFoundError 재사용 (5.1.5 신설)
+- `impl.ts` — ExtendScript ES3, types-for-adobe, ASCII only (gate §12), this binding 가드 (5.1.4 fix #17), display name lookup (5.1.7 fix #18)
+- `impl.test.ts` — vitest mock-AE, receiver guard 자동 catch
+
+**2. 등록 4 위치** (한 군데라도 누락 = jsx bundle 0 매치 또는 dispatcher unknown tool):
+- `sidecar/src/tools/index.ts` — `import { ae_X } from "./ae_X/handler.js"` + `tools` registry entry
+- `sidecar/src/mcp/server.ts` — `aeXInputSchema` import + `server.registerTool` block (**production description single source**, 5.1.7 fix-2 #19)
+- `src/jsx/aeft/tools/index.ts` — `export { ae_X } from "@aeTools/ae_X/impl"` (alias re-export)
+- `src/jsx/aeft/aeft.ts` — named import + tools 객체 literal entry (gate §11, **5.1.8 발견 — index.ts 등록만으로는 부족**)
+
+**3. mock fixture 확장** (필요 시):
+- `src/jsx/aeft/tools/_mockApp.ts` — 새 ExtendScript object/method 추가 시 `MockXxxOpts` + `makeMockX` + receiver guard 패턴 (mistakes #17, 30 tool 공통)
+- `src/jsx/aeft/tools/_define.ts` — `JsxXxxLike` interface 새 field optional (5.1.5/5.1.6/5.1.7/5.1.8 누적)
+
+**4. dogfood loop**:
+- 4파일 → registry 4 위치 → mock fixture → sidecar test +N + panel test 변경 0 → sidecar build green → panel build green → gate §10 (localhost:3000) / §11 (__proto__) / §12 (non-ASCII) 0/0/0 → dist grep (alias 합본 + server.js description block) → commit
+- 사용자 dogfood 재검증 (panel reload + 단일 호출 first-attempt + 좀비 0)
+- dogfood fail 시 mistakes 신규 entry 등재 후 fix sub-step
 
 ---
 
@@ -502,6 +568,6 @@ npm run build && npm test 2>&1 | tail -3
 
 ---
 
-**문서 마지막 갱신**: 2026-05-07. Phase 4 complete (4.5 commit과 함께). Phase 5 진입 대기.
+**문서 마지막 갱신**: 2026-05-10. Phase 5.1 ✅ MVP 5/5 + 5.1.9 부분 (paste / SIGINT / 좀비 0 ✅, Ctrl+C copy fix-3 보류). 사용자 결정 4건 확정 (옵션 1 + 옵션 2 + 옵션 A + 별도 commit). Phase 5.2 진입 대기.
 
-다음 갱신 시점: Phase 5 sub-step 진행하면서 EOD 또는 phase exit.
+다음 갱신 시점: 5.2 lane 종료 (5.2.3 ae_set_active_comp 후) 또는 5.3 진입 시.

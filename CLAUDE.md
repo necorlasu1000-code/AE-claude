@@ -158,6 +158,14 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
     - timer-driven close path는 panelBridge.test.ts에 누적 (active disconnect path와 별도 시나리오).
     - 사용자 dogfood 시 panel 1분+ idle 두기 → 사이드카 살아있는지 항상 확인.
 
+14. **jsx 양쪽 등록 gate** (Phase 5.1.8 발견) — 신규 jsx tool 추가 시 **`src/jsx/aeft/tools/index.ts` (alias re-export) + `src/jsx/aeft/aeft.ts` (named import + tools 객체 literal entry) 양쪽 모두 박아야** jsx bundle에 함수 reachable. `tools/index.ts`만 박고 `aeft.ts` 누락 시 dist/cep/jsx/index.js에서 함수 0 매치 — gate §11 (`__proto__` 0)은 정상이지만 등록 자체가 누락된 silent fail.
+    `src/jsx/index.ts`의 `host[ns] = aeft`는 `aeft.ts` 객체를 등록 — `tools` sub-namespace의 entry는 `aeft.ts` named import 통해서만 도달. 등록 누락 시 `$[ns].tools.<tool>` 호출이 undefined → `Cannot read property of undefined` ExtendScript throw → IIFE 중단 가능.
+    매 phase exit에 dist 산출물에서 신규 tool 이름 grep로 등록 검증:
+    ```bash
+    grep -c "<new_tool_name>" dist/cep/jsx/index.js  # → 1+ 매치 (없으면 누락)
+    ```
+    Phase 5.2~5.8 24 신규 tool 추가 시 자동 적용.
+
 ### Directory Rules (D8 collocation)
 
 ```

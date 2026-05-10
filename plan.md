@@ -178,70 +178,73 @@ ae-claude-panel/
 
 ---
 
-## 6. MCP Tool 카탈로그 (1차 구현)
+## 6. MCP Tool 카탈로그 (1차 구현, v1.0 = 30 tool + escape hatch 1)
 
 모든 tool 이름은 `ae_*` 프리픽스로 통일. 기본 ID 기반 타겟팅 (compId/layerId).
 
-### 프로젝트 / 컴프
+**v1.0 = 30 tool (5.1~5.7) + escape hatch 1 (5.8)**. 사용자 결정 (2026-05-09 Phase 5.2 진입 시): ae_audio_to_markers + 임포트/익스포트 카테고리 4 (ae_import_file / ae_add_to_render_queue / ae_set_render_settings / ae_start_render) = **5 tool v1.5+ deferred**.
+
+### 프로젝트 / 컴프 (5)
 
 - `ae_get_project_info` — 프로젝트 메타 (FPS, 해상도, 컴프 수)
-- `ae_list_comps` — 모든 컴프 목록
-- `ae_create_comp` — 새 컴프 (name, w, h, fps, duration, bgColor)
-- `ae_get_active_comp` — 현재 활성 컴프 정보
-- `ae_set_active_comp` — 활성 컴프 변경
+- `ae_list_comps` — 모든 컴프 목록 ✅ (5.1.4)
+- `ae_create_comp` — 새 컴프 (name, w, h, fps, duration, bgColor) [WRITE]
+- `ae_get_active_comp` — 현재 활성 컴프 정보 ✅ (5.1.1)
+- `ae_set_active_comp` — 활성 컴프 변경 [WRITE]
 
-### 레이어
+### 레이어 (10)
 
-- `ae_list_layers` — 컴프 안의 레이어 목록
-- `ae_add_solid_layer` — 솔리드 추가
-- `ae_add_text_layer` — 텍스트 (font, size, color, position)
-- `ae_add_shape_layer` — rect/ellipse/star/polygon
-- `ae_add_null_layer`
-- `ae_add_adjustment_layer`
-- `ae_set_layer_property` — 위치/회전/스케일/불투명도/앵커
-- `ae_duplicate_layer`
-- `ae_delete_layer`
-- `ae_reorder_layer`
+- `ae_get_layers` — 컴프 안의 레이어 목록 ✅ (5.1.5; catalog의 ae_list_layers 명세 → impl 시 rename)
+- `ae_add_solid_layer` — 솔리드 추가 [WRITE]
+- `ae_add_text_layer` — 텍스트 (font, size, color, position) [WRITE]
+- `ae_add_shape_layer` — rect/ellipse/star/polygon [WRITE]
+- `ae_add_null_layer` [WRITE]
+- `ae_add_adjustment_layer` [WRITE]
+- `ae_set_layer_property` — 위치/회전/스케일/불투명도/앵커 [WRITE]
+- `ae_duplicate_layer` [WRITE]
+- `ae_delete_layer` [WRITE]
+- `ae_reorder_layer` [WRITE]
 
-### 키프레임 / 애니메이션
+### 키프레임 / 애니메이션 (4)
 
-- `ae_set_keyframe` — 특정 시간에 프로퍼티 키 설정
-- `ae_get_keyframes` — 레이어/프로퍼티의 모든 키 조회
-- `ae_set_keyframe_easing` — easyEaseIn/Out, custom bezier
-- `ae_remove_keyframe`
+- `ae_set_keyframe` — 특정 시간에 프로퍼티 키 설정 [WRITE]
+- `ae_get_keyframes` — 레이어/프로퍼티의 모든 키 조회 ✅ (5.1.8)
+- `ae_set_keyframe_easing` — easyEaseIn/Out, custom bezier [WRITE]
+- `ae_remove_keyframe` [WRITE]
 
-### 이펙트
+### 이펙트 (6 — 사용자 결정 옵션 2: 두 read tool 별도 보유)
 
-- `ae_list_available_effects` — 설치된 이펙트 카탈로그
-- `ae_apply_effect` — 레이어에 이펙트 추가 (matchName 기반)
+- `ae_list_effects` — 레이어에 적용된 이펙트 목록 ✅ (5.1.6 신규 추가, layer 적용 효과)
+- `ae_list_available_effects` — 설치된 이펙트 카탈로그 (host에 설치된 이펙트, layer 무관)
+- `ae_apply_effect` — 레이어에 이펙트 추가 (matchName 기반) [WRITE]
 - `ae_describe_effect` — 이펙트 파라미터 메타
-- `ae_set_effect_property` — 이펙트 파라미터 값 변경
-- `ae_remove_effect`
+- `ae_set_effect_property` — 이펙트 파라미터 값 변경 [WRITE]
+- `ae_remove_effect` [WRITE]
 
-### 익스프레션
+### 익스프레션 (3)
 
-- `ae_set_expression` — 프로퍼티에 익스프레션 적용
-- `ae_get_expression`
-- `ae_remove_expression`
+- `ae_set_expression` — 프로퍼티에 익스프레션 적용 [WRITE]
+- `ae_get_expression` ✅ (5.1.7)
+- `ae_remove_expression` [WRITE]
 
-### 마커 / 음원
+### 마커 (2 — ae_audio_to_markers v1.5+ deferred)
 
-- `ae_add_marker`
+- `ae_add_marker` [WRITE]
 - `ae_list_markers`
-- `ae_audio_to_markers` — 오디오 피크 자동 마커화 (waveform 분석)
+- ~~`ae_audio_to_markers`~~ — 오디오 피크 자동 마커화 (waveform 분석) **v1.5+ deferred**
 
-### 임포트 / 익스포트
+### ~~임포트 / 익스포트 (4)~~ — **카테고리 통째 v1.5+ deferred**
 
-- `ae_import_file` — 파일 임포트
-- `ae_add_to_render_queue` — 렌더 큐 추가
-- `ae_set_render_settings`
-- `ae_start_render`
+- ~~`ae_import_file`~~ — 파일 임포트
+- ~~`ae_add_to_render_queue`~~ — 렌더 큐 추가
+- ~~`ae_set_render_settings`~~
+- ~~`ae_start_render`~~
 
-### Escape Hatch
+### Escape Hatch (1)
 
-- `ae_run_extendscript` — 임의 ExtendScript 실행 (Claude가 직접 코드 작성하는 케이스)
+- `ae_run_extendscript` — 임의 ExtendScript 실행 (Claude가 직접 코드 작성하는 케이스) [Phase 5.8, D3 + D-L]
 
-각 tool은 zod 스키마 + 상세 description. Claude가 정확히 사용하도록 description에 example 포함.
+각 tool은 zod 스키마 + 상세 description (production source = `mcp/server.ts` registerTool block, mistakes #19 single source). Claude가 정확히 사용하도록 description에 example 포함 + 부정확 경로는 negative example 명시 (mistakes #18).
 
 ---
 
@@ -336,13 +339,22 @@ Sub-step 분할 (결정 게이트 5.0 → MVP 5 직렬 → 25 병렬 lane → es
   - **5.1.7** ✅ `ae_get_expression` (read-only, MVP 4/5 익스프레션 lane) — 4파일 collocation + `JsxPropertyLike` 확장 (expression?/expressionEnabled? optional) + `makeMockProperty` helper + `MockLayerOpts.properties` map + propertyMatchName not-found → AENotFoundError 재사용 + 7 cases (`6ed8f08`)
   - **5.1.7 fix** ✅ mistakes #18 — schema description vs production AE 동작 차이. dogfood 발견 (claude first-attempt fail × 5 → retry 회복). `propertyMatchName` → `propertyName` 인자명 변경 + description 정정 (display-name lookup 명시) + mock `properties` map jsdoc 정정 (KEYED BY DISPLAY NAME) + 회귀 case 1개 (`1ad3feb`)
   - **5.1.7 fix-2** ✅ mistakes #19 — description duplication / single source of truth 위반. fix-1이 zod schema + handler.ts 정정했지만 production source는 `mcp/server.ts:127-134` inline description (claude는 거기만 봄). server.ts 정정 + handler.ts JSDoc cleanup + dist grep 검증 (server.js scope `propertyMatchName` 0 매치, 새 negative example "Do NOT use 'ADBE Position'" 의도된 1 매치). #15 family lineage. root cause fix (description 통합)는 5.2 진입 전 별도 검토 (본 commit)
-  - **5.1.8** ⏳ `ae_get_keyframes` (MVP 5/5 키프레임 lane reference example)
-- **5.2~5.5** 25 tool 병렬 lane (D-N 그룹 5개, D8 덕분에 lane 충돌 0)
-  - 5.2 컴프 / 5.3 레이어 / 5.4 키프레임 / 5.5 이펙트 (익스프레션은 분배)
-  - tool 개별 명세는 5.2 진입 시 별도 합의
-  - 매 5 tool마다 dogfood loop + idle scenario Gate §13 확인
-- **5.6** `ae_run_extendscript` 도입 (D3 + D-L)
-  - 29 tool 패턴 누적 후 escape hatch 위에 얹기
+  - **5.1.8** ✅ `ae_get_keyframes` (MVP 5/5 키프레임 lane) — 4파일 collocation + `JsxPropertyLike` 키프레임 영역 확장 (numKeys / keyTime / keyValue / keyInInterpolationType / keyOutInterpolationType optional + receiver guards) + KeyframeInterpolationType int (LINEAR=6612 / BEZIER=6613 / HOLD=6614) → enum string 매핑 + value: z.unknown (propertyValueType 다양) + 11 cases. **jsx 양쪽 등록 패턴 발견 (5.1.8)** — `aeft/tools/index.ts` (alias re-export) + `aeft/aeft.ts` (named import + object literal) 양쪽 필수. (`b206d7a`)
+  - **5.1.9** ✅ ae-claude xterm Ctrl+C / Ctrl+V OS clipboard 연동 (dogfood UX 개선) — `attachCustomKeyEventHandler` inline + `navigator.clipboard.writeText/readText` (CEP 11+ CEF user-gesture context) + Ctrl+C 분기 (selection → copy / no selection → SIGINT pass) + Ctrl+V paste → terminal.paste → ws.send pty.in. panel test 37 → 41 (+4 keybinding). (`3ae033b`)
+  - **5.1.9 fix-1** ✅ mistakes #20 (face-1) — `terminal.getSelection()` 빈 문자열일 때 `window.getSelection().toString()` fallback. xterm canvas selectionService와 native browser selection 두 모델 모두 check. panel test 41 → 42 (+#18 fallback case). (`aff9f85`)
+  - **5.1.9 fix-2** ✅ mistakes #20 (face-2) — `node_modules/@xterm/xterm/css/xterm.css` 라이브러리 기본 룰 `.xterm{user-select:none}`이 native selection 차단 발견. `src/js/index.scss` `.xterm{user-select:text!important}` override 추가. vite bundle order 우리 index.scss → xterm.css 후순위로 동일 specificity 패배 → !important 필수. (`314a2d1`)
+  - **5.1.9 보류**: Ctrl+C copy fix-3 — 사용자 dogfood 결과 통과 시 종료, fail 시 fix-3 진단 (Step 2 xterm 옵션 / Step 3 debug logger + CEP DevTools). paste / SIGINT / 좀비 0 모두 ✅.
+- **5.2~5.7** 24 신규 tool 직렬 lane (D-N 결정 결과: 사용자 옵션 1 + 옵션 A 직렬 — 30 tool 한정, ae_audio_to_markers + 임포트/익스포트 4 v1.5+ deferred)
+  - 5.2 컴프 lane (3 신규: ae_get_project_info read → ae_create_comp **write 첫 진입 D4 reference** → ae_set_active_comp write)
+  - 5.3 레이어 lane (9 신규 write: ae_add_solid_layer / ae_add_text_layer / ae_add_shape_layer / ae_add_null_layer / ae_add_adjustment_layer / ae_set_layer_property / ae_duplicate_layer / ae_delete_layer / ae_reorder_layer)
+  - 5.4 키프레임 lane (3 신규 write: ae_set_keyframe → ae_set_keyframe_easing → ae_remove_keyframe)
+  - 5.5 이펙트 lane (5 신규: ae_list_available_effects read → ae_describe_effect read → ae_apply_effect write → ae_set_effect_property write → ae_remove_effect write)
+  - 5.6 익스프레션 lane (2 신규 write: ae_set_expression → ae_remove_expression)
+  - 5.7 마커 lane (2 신규: ae_list_markers read → ae_add_marker write)
+  - lane 안 진행: read tool 먼저 → write tool 나중 (D-Q 옵션 E1). 첫 write tool 진입 sub-step (5.2.2 ae_create_comp)이 D4 destructive flag + undoGroup wiring reference example
+  - 매 lane 종료마다 dogfood loop + idle scenario Gate §13 확인
+- **5.8** `ae_run_extendscript` 도입 (D3 + D-L) — escape hatch
+  - 30 tool 패턴 누적 후 escape hatch 위에 얹기
   - AST validator 골든셋 (D7) + approval modal (in-panel, ESC=Reject, D11) + `needsApproval: true` flag (유일)
 
 각 tool은 collocation 4파일 (schema/handler/impl/impl.test) + dispatcher 통과 round-trip 검증 + golden case 1+ + integration test. 단위 테스트는 mock-AE → tool 호출 → 실제 AE 상태 변화 확인.
