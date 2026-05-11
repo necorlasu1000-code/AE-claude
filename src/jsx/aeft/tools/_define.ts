@@ -52,6 +52,11 @@ export interface JsxCompItem extends JsxItemLike {
    *  enforce method receiver identity (mistakes #17 -- ExtendScript
    *  SpiderMonkey throws on detached calls). */
   layer?(index: number): JsxLayerLike;
+  /** Phase 5.2.2 -- CompItem.bgColor (ThreeDColorValue per types-for-adobe
+   *  AE 22.0, line 1133+1899). RGB normalized [0-1, 0-1, 0-1]. Writable
+   *  in production AE; ae_create_comp sets this after addComp when the
+   *  caller supplies the bgColor input. Optional for fixture compatibility. */
+  bgColor?: [number, number, number];
 }
 
 // Phase 5.1.5 -- minimum Layer shape used by ae_get_layers and future
@@ -179,6 +184,33 @@ export interface JsxProjectLike {
   expressionEngine?: "extendscript" | "javascript-1.0";
   /** Phase 5.2.1 -- frame numbering start (Project Settings > Display Style). */
   displayStartFrame?: number;
+  /** Phase 5.2.2 -- app.project.items (ItemCollection class). ae_create_comp
+   *  calls items.addComp(...). Optional for 5.1.x fixture compatibility;
+   *  destructive-tool fixtures must populate. Real AE exposes the full
+   *  ItemCollection (indexable + addComp + addFolder); we model only the
+   *  methods used by tools. */
+  items?: JsxItemCollectionLike;
+}
+
+/** Phase 5.2.2 -- ItemCollection minimal duck-type. Production AE class
+ *  per types-for-adobe AE 22.0 line 1362: ItemCollection extends Collection,
+ *  exposes `[index]: _ItemClasses` + `addComp(...)` + `addFolder(name)`.
+ *  We model addComp (5.2.2) only; future tools (5.3+ layer/marker) don't
+ *  need addFolder. Indexing is left out -- tools that need item lookup go
+ *  through project.item(i) (existing pattern). */
+export interface JsxItemCollectionLike {
+  /** Production signature per types-for-adobe AE 22.0 line 1367:
+   *  addComp(name, width, height, pixelAspect, duration, frameRate): CompItem.
+   *  Mistakes #17 -- must be called as project.items.addComp(...) directly,
+   *  not via a detached method reference. Mock fixtures enforce receiver. */
+  addComp?(
+    name: string,
+    width: number,
+    height: number,
+    pixelAspect: number,
+    duration: number,
+    frameRate: number,
+  ): JsxCompItem;
 }
 
 /** Phase 5.2.1 -- ExtendScript File class minimal duck-type. fsName +
@@ -200,6 +232,12 @@ export interface JsxAppLike {
    *  compatibility with Phase 3.3-5.1 mock fixtures that don't populate
    *  it. Production AE always populates. */
   version?: string;
+  /** Phase 5.2.2 -- D4 undo group wiring. defineJsxTool HOF auto-wraps
+   *  destructive tool fn in beginUndoGroup(name)/endUndoGroup via
+   *  try/finally. Optional so 5.1.x read fixtures (without undo wiring)
+   *  still type-check; destructive-tool fixtures MUST populate both. */
+  beginUndoGroup?(undoString: string): void;
+  endUndoGroup?(): void;
 }
 
 export interface JsxToolCtx {
@@ -252,11 +290,58 @@ const helpers: JsxToolHelpers = {
 
 export type JsxToolFn<I, O> = (input: I, ctx: JsxToolCtx, h: JsxToolHelpers) => O;
 
+/** Phase 5.2.2 -- per-tool options consumed by the HOF before fn runs.
+ *  Backward-compat overload preserves `defineJsxTool(fn)` for the 6
+ *  existing 5.1.x read tools (no opts needed).
+ *
+ *  destructive=true is the D4 wiring contract: HOF wraps fn in
+ *  app.beginUndoGroup(name)/endUndoGroup via try/finally. This is the
+ *  single source of truth for 24 future destructive tools (5.2.2~5.7)
+ *  -- per-impl manual begin/end calls are forbidden (CLAUDE.md gate #2
+ *  -- wrapper handles undo group, handler must not call beginUndoGroup
+ *  directly). */
+export interface JsxToolOpts {
+  /** D4 destructive flag. When true, HOF wraps fn execution in
+   *  app.beginUndoGroup(name)/endUndoGroup via try/finally. Read-only
+   *  tools omit (default false). */
+  destructive?: boolean;
+  /** undoGroup label passed to app.beginUndoGroup. Convention: tool
+   *  name (e.g., "ae_create_comp") -- visible in AE Edit > Undo menu
+   *  for first-attempt debug discoverability. Required when
+   *  destructive=true; the HOF falls back to "ae_tool" defensively if
+   *  omitted (but tools must always populate). */
+  name?: string;
+}
+
+export type JsxWrappedTool = (rawInput: string, ctxOverride?: JsxToolCtx) => string;
+
 /** Wraps a tool fn into a `(rawInput, ctxOverride?) => string` callable.
- *  Panel calls with rawInput only; tests pass ctxOverride to inject mock app. */
+ *  Panel calls with rawInput only; tests pass ctxOverride to inject mock app.
+ *
+ *  Two call forms:
+ *    defineJsxTool(fn)              -- read-only tool (no undo wrapping)
+ *    defineJsxTool(opts, fn)        -- with options (destructive flag etc.)
+ */
+export function defineJsxTool<I, O>(fn: JsxToolFn<I, O>): JsxWrappedTool;
+export function defineJsxTool<I, O>(opts: JsxToolOpts, fn: JsxToolFn<I, O>): JsxWrappedTool;
 export function defineJsxTool<I, O>(
-  fn: JsxToolFn<I, O>
-): (rawInput: string, ctxOverride?: JsxToolCtx) => string {
+  fnOrOpts: JsxToolFn<I, O> | JsxToolOpts,
+  maybeFn?: JsxToolFn<I, O>
+): JsxWrappedTool {
+  // Normalize the two overload shapes. The destructive flag lives on opts;
+  // the read-only call form leaves opts empty.
+  var actualFn: JsxToolFn<I, O>;
+  var opts: JsxToolOpts;
+  if (typeof fnOrOpts === "function") {
+    actualFn = fnOrOpts;
+    opts = {};
+  } else {
+    opts = fnOrOpts;
+    actualFn = maybeFn as JsxToolFn<I, O>;
+  }
+  var destructive = opts.destructive === true;
+  var undoLabel = opts.name || "ae_tool";
+
   return function (rawInput, ctxOverride) {
     var input: I;
     try {
@@ -283,8 +368,25 @@ export function defineJsxTool<I, O>(
     }
 
     try {
-      var output = fn(input, ctx, helpers);
-      return JSON.stringify({ ok: true, output: output } as JsxOk<O>);
+      // D4: open undo group BEFORE fn runs so any items the fn creates land
+      // inside the group. Failure to open (begin throws) propagates to the
+      // outer catch and the error envelope -- no endUndoGroup call because
+      // the group was never opened.
+      if (destructive) {
+        (ctx.app.beginUndoGroup as (s: string) => void)(undoLabel);
+      }
+      try {
+        var output = actualFn(input, ctx, helpers);
+        return JSON.stringify({ ok: true, output: output } as JsxOk<O>);
+      } finally {
+        // D4: always close the group, even when fn throws (h.fail sentinel
+        // or generic error). Without finally, a thrown fn would leave AE
+        // in "recording" state and the next destructive op would chain into
+        // the same group -- silently mis-attributing the undo entry.
+        if (destructive) {
+          (ctx.app.endUndoGroup as () => void)();
+        }
+      }
     } catch (err) {
       // h.fail sentinel -- convert to typed error envelope
       if (err && (err as JsxFailSentinel).__jsxFail === true) {

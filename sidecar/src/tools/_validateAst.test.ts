@@ -178,6 +178,43 @@ describe("D7 validator — valid AE scripts pass", () => {
     expect(r.ok).toBe(true);
   });
 
+  // Phase 5.2.2 -- ae_create_comp pattern. First write tool. Exercises
+  // sub-namespace member access (ctx.app.project.items.addComp), positional
+  // arg passing, and writable bgColor property assignment. The HOF (not
+  // shown -- runs outside fn body) handles app.beginUndoGroup/endUndoGroup
+  // wrapping, so fn body itself stays linear without #include or other
+  // forbidden patterns. Future destructive tools (5.3+) share the same
+  // shape and inherit coverage from this case.
+  it("allows ae_create_comp pattern (items.addComp + bgColor write)", () => {
+    const code = `
+      function ae_create_comp(input, ctx, _h) {
+        var pixelAspect = typeof input.pixelAspect === "number" ? input.pixelAspect : 1;
+        var items = ctx.app.project.items;
+        var comp = items.addComp(
+          input.name,
+          input.width,
+          input.height,
+          pixelAspect,
+          input.duration,
+          input.frameRate
+        );
+        if (input.bgColor) {
+          comp.bgColor = input.bgColor;
+        }
+        return {
+          id: comp.id,
+          name: comp.name,
+          width: comp.width,
+          height: comp.height,
+          frameRate: comp.frameRate,
+          duration: comp.duration
+        };
+      }
+    `;
+    const r = validateExtendScript(code);
+    expect(r.ok).toBe(true);
+  });
+
   it("allows array index access (literal number)", () => {
     const r = validateExtendScript(`var arr = [1, 2, 3]; var first = arr[0];`);
     expect(r.ok).toBe(true);

@@ -9,6 +9,7 @@ import type {
   JsxAppLike,
   JsxCompItem,
   JsxFileLike,
+  JsxItemCollectionLike,
   JsxItemLike,
   JsxLayerLike,
   JsxProjectLike,
@@ -334,6 +335,85 @@ export interface MockProjectOpts {
   expressionEngine?: "extendscript" | "javascript-1.0";
   /** Phase 5.2.1 -- display start frame. Default 0 when omitted. */
   displayStartFrame?: number;
+  /** Phase 5.2.2 -- project.items (ItemCollection). Pass
+   *  `makeMockItemCollection()` to model addComp. Omit to leave the field
+   *  unset (5.1.x fixtures that don't touch items collection). */
+  itemsCollection?: JsxItemCollectionLike;
+}
+
+/** Phase 5.2.2 -- ItemCollection mock options. */
+export interface MockItemCollectionOpts {
+  /** Auto-assigned id for the next addComp call. Increments per call.
+   *  Default 100. Tests that need a specific id sequence override this. */
+  nextCompId?: number;
+  /** Optional capture callback fired on every addComp. Tests use this to
+   *  assert addComp was called with specific args (matching schema.ts
+   *  parameter order: name, width, height, pixelAspect, duration, frameRate).
+   *  Equivalent to vi.fn() interception. */
+  onAddComp?: (
+    name: string,
+    width: number,
+    height: number,
+    pixelAspect: number,
+    duration: number,
+    frameRate: number,
+  ) => void;
+  /** When provided, addComp throws the given Error instead of creating a
+   *  comp. Tests use this to verify HOF's endUndoGroup-on-throw path
+   *  (D4 finally block runs even when fn throws). */
+  throwOnAddComp?: Error;
+}
+
+/** Phase 5.2.2 -- makeMockItemCollection. addComp method is receiver-guarded
+ *  (mistakes #17 pattern) -- detached `var fn = items.addComp; fn(...)` calls
+ *  throw at the unit-test layer so we don't ride the bug into production AE
+ *  where SpiderMonkey throws the same way. */
+export function makeMockItemCollection(
+  opts?: MockItemCollectionOpts,
+): JsxItemCollectionLike {
+  var o = opts || {};
+  var nextId = o.nextCompId !== undefined ? o.nextCompId : 100;
+  var collection: JsxItemCollectionLike;
+  collection = {
+    addComp: function (
+      this: unknown,
+      name: string,
+      width: number,
+      height: number,
+      pixelAspect: number,
+      duration: number,
+      frameRate: number,
+    ): JsxCompItem {
+      if (this !== collection) {
+        throw new Error(
+          "Mock this-binding violation: itemCollection.addComp called with " +
+          "wrong receiver. ExtendScript SpiderMonkey throws on detached " +
+          "calls. Use project.items.addComp(...) directly, NOT var fn = " +
+          "items.addComp; fn(...). See mistakes.md #17.",
+        );
+      }
+      if (o.onAddComp) {
+        o.onAddComp(name, width, height, pixelAspect, duration, frameRate);
+      }
+      if (o.throwOnAddComp) {
+        throw o.throwOnAddComp;
+      }
+      var id = nextId;
+      nextId = nextId + 1;
+      var comp: JsxCompItem = {
+        typeName: "Composition",
+        id: id,
+        name: name,
+        width: width,
+        height: height,
+        duration: duration,
+        frameRate: frameRate,
+        numLayers: 0,
+      };
+      return comp;
+    },
+  };
+  return collection;
 }
 
 export function makeMockProject(opts?: MockProjectOpts): JsxProjectLike {
@@ -390,6 +470,8 @@ export function makeMockProject(opts?: MockProjectOpts): JsxProjectLike {
   if (o.bitsPerChannel !== undefined) project.bitsPerChannel = o.bitsPerChannel;
   if (o.expressionEngine !== undefined) project.expressionEngine = o.expressionEngine;
   if (o.displayStartFrame !== undefined) project.displayStartFrame = o.displayStartFrame;
+  // Phase 5.2.2 -- items collection (ae_create_comp dependency).
+  if (o.itemsCollection !== undefined) project.items = o.itemsCollection;
   return project;
 }
 
@@ -406,6 +488,14 @@ export interface MockAppOpts {
   bitsPerChannel?: number;
   expressionEngine?: "extendscript" | "javascript-1.0";
   displayStartFrame?: number;
+  /** Phase 5.2.2 -- D4 undo-group spies. Pass vi.fn() to verify the HOF
+   *  invokes begin/end correctly. When omitted, the field is unset on the
+   *  returned app (matches 5.1.x read-tool fixtures). Destructive tool
+   *  tests MUST provide both. */
+  beginUndoGroup?: (undoString: string) => void;
+  endUndoGroup?: () => void;
+  /** Phase 5.2.2 -- forwarded to MockProjectOpts.itemsCollection. */
+  itemsCollection?: JsxItemCollectionLike;
 }
 
 export function makeMockApp(opts?: MockAppOpts): JsxAppLike {
@@ -416,6 +506,7 @@ export function makeMockApp(opts?: MockAppOpts): JsxAppLike {
     bitsPerChannel: o.bitsPerChannel,
     expressionEngine: o.expressionEngine,
     displayStartFrame: o.displayStartFrame,
+    itemsCollection: o.itemsCollection,
   };
   // Preserve file === null semantics (unsaved project) vs omitted.
   if (Object.prototype.hasOwnProperty.call(o, "file")) {
@@ -425,5 +516,8 @@ export function makeMockApp(opts?: MockAppOpts): JsxAppLike {
     project: makeMockProject(projectOpts),
   };
   if (o.version !== undefined) app.version = o.version;
+  // Phase 5.2.2 -- expose undo-group hooks only when test wires them.
+  if (o.beginUndoGroup !== undefined) app.beginUndoGroup = o.beginUndoGroup;
+  if (o.endUndoGroup !== undefined) app.endUndoGroup = o.endUndoGroup;
   return app;
 }

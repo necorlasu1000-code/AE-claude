@@ -25,6 +25,7 @@ import { aeListEffectsInputSchema } from "../tools/ae_list_effects/schema.js";
 import { aeGetExpressionInputSchema } from "../tools/ae_get_expression/schema.js";
 import { aeGetKeyframesInputSchema } from "../tools/ae_get_keyframes/schema.js";
 import { aeGetProjectInfoInputSchema } from "../tools/ae_get_project_info/schema.js";
+import { aeCreateCompInputSchema } from "../tools/ae_create_comp/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -200,6 +201,32 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async (rawInput) => {
       const out = await wsClient.exec("ae_get_project_info", rawInput ?? {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.2.2 -- ae_create_comp (write, comp lane 2/3 -- D4 destructive
+  // flag + undoGroup wiring first reference). Production source description
+  // (mistakes #19 single source pattern). DESTRUCTIVE: wraps in undo group
+  // named "ae_create_comp" so a single Ctrl+Z reverts the creation.
+  server.registerTool(
+    "ae_create_comp",
+    {
+      description:
+        "Create a new composition in the project. Specify name (Project " +
+        "panel label), width (pixels, max 30000), height (pixels, max " +
+        "30000), frameRate (fps, max 999), duration (SECONDS, not frames). " +
+        "Optional bgColor [r, g, b] each in 0-1 range (NOT 0-255 -- remap " +
+        "if user gives hex/255). Optional pixelAspect (default 1.0 square " +
+        "pixels; 2.0 widescreen anamorphic, 1.21 DV anamorphic). Returns " +
+        "the created composition's id (use as compId in subsequent layer/" +
+        "effect calls), plus echo of name/width/height/frameRate/duration. " +
+        "DESTRUCTIVE: registered to AE undo history as a single 'ae_create_" +
+        "comp' undo group -- one Ctrl+Z reverts. No active-comp dependency.",
+      inputSchema: aeCreateCompInputSchema.shape,
+    },
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_create_comp", rawInput ?? {});
       return toCallToolResult(out);
     },
   );
