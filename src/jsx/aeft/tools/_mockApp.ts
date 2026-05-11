@@ -272,6 +272,12 @@ export interface MockCompOpts {
    *  (1-based per ExtendScript convention); numLayers auto-derived from
    *  layers.length when provided (overrides numLayers field). */
   layers?: JsxLayerLike[];
+  /** Phase 5.2.3 -- openInViewer spy. When provided, mock comp's
+   *  openInViewer method invokes this callback then returns null
+   *  (production AE returns Viewer | null; ae_set_active_comp ignores
+   *  the return value). When omitted, openInViewer is not modeled
+   *  (matches 5.1.x fixtures that don't touch viewer state). */
+  onOpenInViewer?: () => void;
 }
 
 export function makeMockComp(opts?: MockCompOpts): JsxCompItem {
@@ -304,6 +310,27 @@ export function makeMockComp(opts?: MockCompOpts): JsxCompItem {
       return layers[index - 1] as JsxLayerLike;
     },
   };
+  // Phase 5.2.3 -- openInViewer mock. Wire only when test opts in via
+  // onOpenInViewer spy; omitting it keeps the field unset (mirrors 5.1.x
+  // fixtures that don't model viewer state). Receiver-guarded the same
+  // way comp.layer is (mistakes #17 pattern). Returns null because the
+  // ae_set_active_comp impl ignores the return value -- production AE
+  // would return a Viewer | null.
+  if (o.onOpenInViewer !== undefined) {
+    var spy = o.onOpenInViewer;
+    comp.openInViewer = function (this: unknown) {
+      if (this !== comp) {
+        throw new Error(
+          "Mock this-binding violation: comp.openInViewer called with " +
+          "wrong receiver. ExtendScript SpiderMonkey throws on detached " +
+          "calls. Use comp.openInViewer() directly, NOT var fn = " +
+          "comp.openInViewer; fn(). See mistakes.md #17."
+        );
+      }
+      spy();
+      return null;
+    };
+  }
   return comp;
 }
 

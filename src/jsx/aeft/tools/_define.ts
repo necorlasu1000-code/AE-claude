@@ -57,6 +57,13 @@ export interface JsxCompItem extends JsxItemLike {
    *  in production AE; ae_create_comp sets this after addComp when the
    *  caller supplies the bgColor input. Optional for fixture compatibility. */
   bgColor?: [number, number, number];
+  /** Phase 5.2.3 -- CompItem.openInViewer (types-for-adobe AE 22.0 line
+   *  1174). Opens the comp in a Composition viewer panel and makes it the
+   *  active item. Returns Viewer | null in production AE; ae_set_active_comp
+   *  ignores the return (Project.activeItem is readonly -- openInViewer is
+   *  the only sanctioned path to set active). Optional for fixture
+   *  compatibility -- 5.1.x mocks don't model the viewer. */
+  openInViewer?(): unknown;
 }
 
 // Phase 5.1.5 -- minimum Layer shape used by ae_get_layers and future

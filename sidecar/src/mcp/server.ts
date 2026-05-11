@@ -26,6 +26,7 @@ import { aeGetExpressionInputSchema } from "../tools/ae_get_expression/schema.js
 import { aeGetKeyframesInputSchema } from "../tools/ae_get_keyframes/schema.js";
 import { aeGetProjectInfoInputSchema } from "../tools/ae_get_project_info/schema.js";
 import { aeCreateCompInputSchema } from "../tools/ae_create_comp/schema.js";
+import { aeSetActiveCompInputSchema } from "../tools/ae_set_active_comp/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -201,6 +202,34 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async (rawInput) => {
       const out = await wsClient.exec("ae_get_project_info", rawInput ?? {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.2.3 -- ae_set_active_comp (write, comp lane 3/3 -- 5.2 comp
+  // lane completion). Production source description (mistakes #19 single
+  // source pattern). NOT destructive -- changing active comp is UI state
+  // in production AE, not undo-tracked. No undo group entry is created.
+  server.registerTool(
+    "ae_set_active_comp",
+    {
+      description:
+        "Set the active composition by opening it in the After Effects " +
+        "viewer panel. Either compId (numeric Item ID, unambiguous, takes " +
+        "precedence) or compName (display name, first matching Composition " +
+        "wins) must be provided -- supply at least one. Use compId when " +
+        "known (e.g., from ae_list_comps or ae_create_comp output) -- " +
+        "compName is ambiguous if duplicates exist. Returns the activated " +
+        "composition's id and name. NOT destructive: production AE does " +
+        "not register changing the active comp in the undo stack, so this " +
+        "tool also leaves Edit > Undo untouched. " +
+        "Throws AENotFoundError when compId is unknown, when compId " +
+        "resolves to a non-Composition item (Folder/Footage), or when " +
+        "no Composition matches compName.",
+      inputSchema: aeSetActiveCompInputSchema.shape,
+    },
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_set_active_comp", rawInput ?? {});
       return toCallToolResult(out);
     },
   );
