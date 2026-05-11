@@ -27,6 +27,7 @@ import { aeGetKeyframesInputSchema } from "../tools/ae_get_keyframes/schema.js";
 import { aeGetProjectInfoInputSchema } from "../tools/ae_get_project_info/schema.js";
 import { aeCreateCompInputSchema } from "../tools/ae_create_comp/schema.js";
 import { aeSetActiveCompInputSchema } from "../tools/ae_set_active_comp/schema.js";
+import { aeAddSolidLayerInputSchema } from "../tools/ae_add_solid_layer/schema.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -230,6 +231,36 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     },
     async (rawInput) => {
       const out = await wsClient.exec("ae_set_active_comp", rawInput ?? {});
+      return toCallToolResult(out);
+    },
+  );
+
+  // Phase 5.3.1 -- ae_add_solid_layer (write, layer lane 1/9 -- 5.3 lane
+  // first sub-step, D4 HOF reuse first activation). Production source
+  // description (mistakes #19 single source pattern). DESTRUCTIVE: wraps
+  // in undo group named "ae_add_solid_layer" so a single Ctrl+Z reverts.
+  server.registerTool(
+    "ae_add_solid_layer",
+    {
+      description:
+        "Add a new solid color layer to a composition. Specify name and " +
+        "color (RGB array [r, g, b] in 0-1 range, NOT 0-255 -- remap if " +
+        "user gives hex/255). Optional: width and height (pixels, max " +
+        "30000, default = comp dimensions matching AE 'Make Solid' " +
+        "default), pixelAspect (default 1.0 square pixels), duration " +
+        "(SECONDS not frames, default = comp duration), compId (default " +
+        "= active composition). Returns { index (1-based, typically 1 " +
+        "since AE inserts solids as topmost layer), name, compId } -- " +
+        "use compId in follow-up tools to avoid re-resolving the active " +
+        "comp. DESTRUCTIVE: wraps in undo group named 'ae_add_solid_" +
+        "layer' so a single Ctrl+Z reverts. " +
+        "Throws AENoActiveCompError when compId omitted and no active " +
+        "comp; AENotFoundError when compId is unknown or resolves to a " +
+        "non-Composition item.",
+      inputSchema: aeAddSolidLayerInputSchema.shape,
+    },
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_add_solid_layer", rawInput ?? {});
       return toCallToolResult(out);
     },
   );

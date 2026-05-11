@@ -22,6 +22,7 @@ import { ae_get_keyframes } from "./ae_get_keyframes/handler.js";
 import { ae_get_project_info } from "./ae_get_project_info/handler.js";
 import { ae_create_comp } from "./ae_create_comp/handler.js";
 import { ae_set_active_comp } from "./ae_set_active_comp/handler.js";
+import { ae_add_solid_layer } from "./ae_add_solid_layer/handler.js";
 
 export const tools: Record<string, DefinedTool> = {
   ae_get_active_comp,
@@ -33,4 +34,5 @@ export const tools: Record<string, DefinedTool> = {
   ae_get_project_info,
   ae_create_comp,
   ae_set_active_comp,
+  ae_add_solid_layer,
 };

@@ -11,6 +11,7 @@ import type {
   JsxFileLike,
   JsxItemCollectionLike,
   JsxItemLike,
+  JsxLayerCollectionLike,
   JsxLayerLike,
   JsxProjectLike,
   JsxPropertyGroupLike,
@@ -278,6 +279,13 @@ export interface MockCompOpts {
    *  the return value). When omitted, openInViewer is not modeled
    *  (matches 5.1.x fixtures that don't touch viewer state). */
   onOpenInViewer?: () => void;
+  /** Phase 5.3.1 -- LayerCollection mock for write-side tests (addSolid,
+   *  addText, addNull, ...). Pass `makeMockLayerCollection({...})` to
+   *  model the writable collection that comp.layers exposes. Distinct
+   *  from MockCompOpts.layers (above), which is the read-side index
+   *  fixture used by comp.layer(i). Omit to leave .layers unset --
+   *  read-only tests (5.1.5+) keep their existing behavior. */
+  layersCollection?: JsxLayerCollectionLike;
 }
 
 export function makeMockComp(opts?: MockCompOpts): JsxCompItem {
@@ -331,7 +339,93 @@ export function makeMockComp(opts?: MockCompOpts): JsxCompItem {
       return null;
     };
   }
+  // Phase 5.3.1 -- layers collection (write-side). Distinct from the
+  // 5.1.5 layer(i) read accessor (above) -- this is the LayerCollection
+  // getter used by addSolid/addText/etc. tools.
+  if (o.layersCollection !== undefined) {
+    comp.layers = o.layersCollection;
+  }
   return comp;
+}
+
+// Phase 5.3.1 -- LayerCollection mock helpers. Mirrors the 5.2.2
+// ItemCollection pattern (receiver guard, onAddX spy, throw injection).
+// Each 5.3 sub-step (addSolid, addText, addNull, ...) extends this with
+// one method + spy/throw pair; the test author opts into the methods
+// they need via spy callbacks.
+
+export interface MockLayerCollectionOpts {
+  /** Auto-assigned index for the next addX call. Production AE inserts
+   *  new layers as topmost (index 1) shifting others down, but unit-test
+   *  mocks don't model the shift -- we just hand out an incrementing
+   *  index starting from this seed. Tests assert the return shape, not
+   *  the AE-shift semantics. Default 1. */
+  nextLayerIndex?: number;
+  /** Phase 5.3.1 -- addSolid capture callback. Invoked with the same
+   *  positional args the impl passed: (color, name, width, height,
+   *  pixelAspect, duration). Equivalent to vi.fn() interception. */
+  onAddSolid?: (
+    color: [number, number, number],
+    name: string,
+    width: number,
+    height: number,
+    pixelAspect: number,
+    duration: number | undefined,
+  ) => void;
+  /** When provided, addSolid throws the given Error instead of creating
+   *  a layer. Tests use this to verify HOF's endUndoGroup-on-throw path
+   *  (D4 finally block runs even when the destructive fn throws). */
+  throwOnAddSolid?: Error;
+}
+
+export function makeMockLayerCollection(
+  opts?: MockLayerCollectionOpts,
+): JsxLayerCollectionLike {
+  var o = opts || {};
+  var nextIndex = o.nextLayerIndex !== undefined ? o.nextLayerIndex : 1;
+  var collection: JsxLayerCollectionLike;
+  collection = {
+    addSolid: function (
+      this: unknown,
+      color: [number, number, number],
+      name: string,
+      width: number,
+      height: number,
+      pixelAspect: number,
+      duration?: number,
+    ): JsxLayerLike {
+      if (this !== collection) {
+        throw new Error(
+          "Mock this-binding violation: layerCollection.addSolid called " +
+          "with wrong receiver. ExtendScript SpiderMonkey throws on " +
+          "detached calls. Use comp.layers.addSolid(...) directly, NOT " +
+          "var fn = layers.addSolid; fn(...). See mistakes.md #17.",
+        );
+      }
+      if (o.onAddSolid) {
+        o.onAddSolid(color, name, width, height, pixelAspect, duration);
+      }
+      if (o.throwOnAddSolid) {
+        throw o.throwOnAddSolid;
+      }
+      var index = nextIndex;
+      nextIndex = nextIndex + 1;
+      var layer: JsxLayerLike = {
+        index: index,
+        name: name,
+        matchName: "ADBE Solid",
+        enabled: true,
+        locked: false,
+        inPoint: 0,
+        outPoint: typeof duration === "number" ? duration : 5,
+        toString: function () {
+          return "[object AVLayer]";
+        },
+      };
+      return layer;
+    },
+  };
+  return collection;
 }
 
 /** Non-comp item (Folder, Footage) for negative path tests. */

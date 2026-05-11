@@ -18,3 +18,4 @@ export { ae_get_keyframes } from "@aeTools/ae_get_keyframes/impl";
 export { ae_get_project_info } from "@aeTools/ae_get_project_info/impl";
 export { ae_create_comp } from "@aeTools/ae_create_comp/impl";
 export { ae_set_active_comp } from "@aeTools/ae_set_active_comp/impl";
+export { ae_add_solid_layer } from "@aeTools/ae_add_solid_layer/impl";

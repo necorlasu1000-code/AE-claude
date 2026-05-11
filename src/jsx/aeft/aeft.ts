@@ -27,6 +27,7 @@ import {
   ae_get_project_info,
   ae_create_comp,
   ae_set_active_comp,
+  ae_add_solid_layer,
 } from "./tools";
 export const tools = {
   ae_get_active_comp,
@@ -38,6 +39,7 @@ export const tools = {
   ae_get_project_info,
   ae_create_comp,
   ae_set_active_comp,
+  ae_add_solid_layer,
 };
 
 export const helloWorld = () => {

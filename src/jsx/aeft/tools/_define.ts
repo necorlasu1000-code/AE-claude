@@ -64,6 +64,35 @@ export interface JsxCompItem extends JsxItemLike {
    *  the only sanctioned path to set active). Optional for fixture
    *  compatibility -- 5.1.x mocks don't model the viewer. */
   openInViewer?(): unknown;
+  /** Phase 5.3.1 -- CompItem.layers (LayerCollection getter per
+   *  types-for-adobe AE 22.0 line 1506). ae_add_solid_layer (and the rest
+   *  of the 5.3 layer lane) call comp.layers.addSolid/addText/... to
+   *  insert new layers. Distinct from the 5.1.5 comp.layer(i) accessor
+   *  (read-only index lookup); .layers is the mutable collection itself.
+   *  Optional for fixture compatibility. */
+  layers?: JsxLayerCollectionLike;
+}
+
+/** Phase 5.3.1 -- LayerCollection minimal duck-type. Production AE class
+ *  per types-for-adobe AE 22.0 line 1506: LayerCollection extends Collection,
+ *  exposes 1-based indexing plus addSolid/addText/addCamera/addLight/...
+ *  factories. We model the methods used by 5.3 tools incrementally; 5.3.1
+ *  adds only addSolid. Future 5.3.2~5.3.9 tools extend this interface
+ *  (one method per sub-step). Indexing via comp.layer(i) (5.1.5 baseline)
+ *  is the read path -- this collection is the write path. */
+export interface JsxLayerCollectionLike {
+  /** Production signature per types-for-adobe AE 22.0 line 1517:
+   *  addSolid(color, name, width, height, pixelAspect, duration?): AVLayer.
+   *  Mistakes #17 -- must be called as comp.layers.addSolid(...) directly
+   *  (attached receiver); mock fixtures enforce identity. */
+  addSolid?(
+    color: [number, number, number],
+    name: string,
+    width: number,
+    height: number,
+    pixelAspect: number,
+    duration?: number,
+  ): JsxLayerLike;
 }
 
 // Phase 5.1.5 -- minimum Layer shape used by ae_get_layers and future
