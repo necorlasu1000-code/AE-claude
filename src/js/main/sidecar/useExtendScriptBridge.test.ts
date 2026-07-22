@@ -217,6 +217,69 @@ describe("useExtendScriptBridge", () => {
     expect(inputObjRecovered).toEqual({ name: "한글 컴프", size: { w: 1920, h: 1080 } });
   });
 
+  it("invalid tool name → AEInvalidToolName, evalScript never called (injection guard)", async () => {
+    const evalScript = vi.fn((_s: string, cb: (raw: string) => void) => cb('{"ok":true,"output":{}}'));
+    const bridge = useExtendScriptBridge(makeDeps(evalScript));
+
+    const result = await bridge.exec({
+      requestId: "inj",
+      tool: "x)(function(){$.evalFile('/evil')})(",
+      input: {},
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("AEInvalidToolName");
+    expect(evalScript).not.toHaveBeenCalled();
+    expect(bridge.inflight).toBe(0);
+  });
+
+  it("watchdog timeout — callback never fires → AEBridgeTimeout, queue unblocks", async () => {
+    vi.useFakeTimers();
+    try {
+      // First call's callback never fires (simulates AE modal alert hang).
+      const evalScript = vi.fn((_s: string, _cb: (raw: string) => void) => {
+        /* intentionally never calls cb */
+      });
+      const bridge = useExtendScriptBridge({ csInterface: { evalScript }, ns: "ns", timeoutMs: 1000 });
+
+      const p1 = bridge.exec({ requestId: "stuck", tool: "ae_get_active_comp", input: {} });
+      expect(bridge.inflight).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      const r1 = await p1;
+      expect(r1.ok).toBe(false);
+      if (!r1.ok) expect(r1.code).toBe("AEBridgeTimeout");
+      // Queue must be drainable again after the stuck call.
+      expect(bridge.inflight).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("late callback after timeout is dropped (no double-resolve)", async () => {
+    vi.useFakeTimers();
+    try {
+      let saved: ((raw: string) => void) | null = null;
+      const evalScript = vi.fn((_s: string, cb: (raw: string) => void) => { saved = cb; });
+      const emit = vi.fn();
+      const bridge = useExtendScriptBridge({ csInterface: { evalScript }, ns: "ns", emit, timeoutMs: 500 });
+
+      const p = bridge.exec({ requestId: "late", tool: "any", input: {} });
+      await vi.advanceTimersByTimeAsync(500);
+      const r = await p;
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.code).toBe("AEBridgeTimeout");
+
+      // Late callback arrives — must be ignored (single settle).
+      saved!('{"ok":true,"output":{"late":true}}');
+      const exits = emit.mock.calls.map((c) => c[0]).filter((e) => e.event === "bridge:exit");
+      expect(exits).toHaveLength(1);
+      expect(bridge.inflight).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ── Phase 3.7 fix verification — production ns with dots ──────────
   // Mock-with-short-ns hides chained-property ambiguity. Use the real
   // production ns ("com.aeclaude.panel") and parse the generated script
