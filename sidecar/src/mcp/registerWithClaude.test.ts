@@ -62,6 +62,41 @@ describe("registerMcpWithClaude", () => {
     expect(events).toContain("mcp:register:success");
   });
 
+  // Boot-window zombie family (mistakes #23) — a timed-out `remove` means
+  // claude itself is wedged; burning a second 15s timeout on `add` just
+  // stretches the boot tail. Bail with reason:"timeout" after step 1.
+  it("remove times out → skips add, ok=false reason=timeout", async () => {
+    const { run, calls } = makeRunner((_cmd, args) => {
+      if (args[1] === "remove") {
+        return { exitCode: -1, stdout: "", stderr: "[timed out after 15000ms]", timedOut: true };
+      }
+      return { exitCode: 0, stdout: "Added", stderr: "" };
+    });
+    const log = vi.fn<(e: LogEvent) => void>();
+
+    const result = await registerMcpWithClaude({
+      port: 12345, ...PROD_SPAWN, cwd: CWD, runCommand: run, logger: log,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "timeout" });
+    expect(calls).toHaveLength(1);   // add was never attempted
+    const events = log.mock.calls.map((c) => c[0].event);
+    expect(events).toContain("mcp:register:timeout");
+  });
+
+  it("add times out → ok=false reason=timeout (not add-failed)", async () => {
+    const { run } = makeRunner((_cmd, args) => {
+      if (args[1] === "remove") return { exitCode: 1, stdout: "", stderr: "No MCP server found" };
+      return { exitCode: -1, stdout: "", stderr: "[timed out after 15000ms]", timedOut: true };
+    });
+
+    const result = await registerMcpWithClaude({
+      port: 12345, ...PROD_SPAWN, cwd: CWD, runCommand: run,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "timeout" });
+  });
+
   // Phase 4.4 fix-2 (mistakes #14 Aspect B) — dev mode passes a multi-arg
   // spawn shape (node + tsx_cli + src/mcp/server.ts) so claude can spawn the
   // MCP entry without requiring a sidecar dist build.

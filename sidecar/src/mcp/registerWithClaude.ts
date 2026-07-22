@@ -23,6 +23,10 @@ export interface RunCommandResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** True when the invocation was killed by the RUN_COMMAND_TIMEOUT_MS cap.
+   *  A timed-out `remove` means claude itself is wedged (auth/config lock),
+   *  so the caller skips `add` instead of burning a second timeout. */
+  timedOut?: boolean;
 }
 
 /** Spawn a command and capture stdout/stderr/exit. ENOENT (binary missing)
@@ -41,6 +45,7 @@ export type LogEvent =
   | { event: "mcp:register:success" }
   | { event: "mcp:register:claude-not-found" }
   | { event: "mcp:register:add-failed"; stderr: string }
+  | { event: "mcp:register:timeout"; step: "remove" | "add" }
   | { event: "mcp:register:unexpected"; message: string };
 
 export interface RegisterMcpOptions {
@@ -69,7 +74,7 @@ export interface RegisterMcpOptions {
 export interface RegisterMcpResult {
   ok: boolean;
   /** Why the registration didn't complete. Absent on success. */
-  reason?: "claude-not-found" | "add-failed" | "unexpected";
+  reason?: "claude-not-found" | "add-failed" | "timeout" | "unexpected";
 }
 
 export async function registerMcpWithClaude(
@@ -100,6 +105,13 @@ export async function registerMcpWithClaude(
   }
   log({ event: "mcp:register:remove-result", exitCode: removeResult.exitCode });
 
+  // A timed-out remove means claude is wedged (first-run prompt, config
+  // lock) — the add would burn a second 15s timeout for nothing. Bail.
+  if (removeResult.timedOut) {
+    log({ event: "mcp:register:timeout", step: "remove" });
+    return { ok: false, reason: "timeout" };
+  }
+
   // 2. add. Args after `--` are passed to the spawned stdio server entry.
   // Shape: claude mcp add ae-mcp -e KEY=VAL -- <cmd> <...args>
   // dev (tsx) → node <tsx_cli> <src/mcp/server.ts>
@@ -123,6 +135,10 @@ export async function registerMcpWithClaude(
   }
   log({ event: "mcp:register:add-result", exitCode: addResult.exitCode, stderr: addResult.stderr });
 
+  if (addResult.timedOut) {
+    log({ event: "mcp:register:timeout", step: "add" });
+    return { ok: false, reason: "timeout" };
+  }
   if (addResult.exitCode !== 0) {
     log({ event: "mcp:register:add-failed", stderr: addResult.stderr });
     return { ok: false, reason: "add-failed" };
@@ -150,6 +166,29 @@ function isEnoent(e: unknown): boolean {
 // "ignore" so any prompt reads EOF immediately instead of waiting.
 const RUN_COMMAND_TIMEOUT_MS = 15_000;
 
+/** Tree-kill a timed-out `claude mcp` child. plain child.kill("SIGKILL")
+ *  reaps only the direct process — a wedged claude's own children (auth
+ *  helper, node subprocess) would orphan. Windows: taskkill /F /T,
+ *  detached+unref (same rationale as PtyHost.osTreeKill, mistakes #25 —
+ *  must not depend on this process staying alive). POSIX: SIGKILL the
+ *  child directly (no detached group here; claude rarely nests on POSIX). */
+function treeKillChild(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean }): void {
+  const pid = child.pid;
+  if (process.platform === "win32" && pid !== undefined) {
+    try {
+      const tk = spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
+        windowsHide: true,
+        stdio: "ignore",
+        detached: true,
+      });
+      tk.unref();
+      tk.on("error", () => { /* already dead / taskkill missing */ });
+      return;
+    } catch { /* fall through to plain kill */ }
+  }
+  try { child.kill("SIGKILL"); } catch { /* best-effort */ }
+}
+
 const defaultRunCommand: RunCommand = (cmd, args, { cwd }) => {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -163,8 +202,13 @@ const defaultRunCommand: RunCommand = (cmd, args, { cwd }) => {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { child.kill("SIGKILL"); } catch { /* best-effort */ }
-      resolve({ exitCode: -1, stdout, stderr: stderr + "\n[timed out after " + RUN_COMMAND_TIMEOUT_MS + "ms]" });
+      treeKillChild(child);
+      resolve({
+        exitCode: -1,
+        stdout,
+        stderr: stderr + "\n[timed out after " + RUN_COMMAND_TIMEOUT_MS + "ms]",
+        timedOut: true,
+      });
     }, RUN_COMMAND_TIMEOUT_MS);
     timer.unref?.();
     child.stdout?.on("data", (d) => { stdout += d.toString(); });
@@ -175,11 +219,13 @@ const defaultRunCommand: RunCommand = (cmd, args, { cwd }) => {
       clearTimeout(timer);
       reject(e);
     });
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ exitCode: code ?? 0, stdout, stderr });
+      // code === null means killed by signal — that is NOT success. `?? 0`
+      // here would report ok:true for an externally-killed `claude mcp add`.
+      resolve({ exitCode: code ?? (signal ? -1 : 0), stdout, stderr });
     });
   });
 };
