@@ -497,6 +497,72 @@ describe("PanelBridge", () => {
     panel.close();
   });
 
+  // ── 17 (mistakes.md #21) ─────────────────────────────────────────
+  // Connect-direction counterpart of scenario 15/16. handleConnection
+  // used to cancel the grace timer for ANY new client, before parsing
+  // the role. An mcp client (re)connecting during the grace window —
+  // e.g. claude CLI restarting its MCP stdio child right as the panel
+  // closes — would cancel the timer, and since the timer is only armed
+  // on panel close it would never re-arm: sidecar + PTY + MCP zombie.
+  // The cancel must be panel-only, mirroring the close-side gate.
+  it("scenario 17: mcp connect during grace window does NOT cancel the timer → shutdown still fires", async () => {
+    const onShutdownRequest = vi.fn();
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+      onShutdownRequest,
+      clientDisconnectGracePeriodMs: 100,
+    });
+    ({ port } = await bridge.start());
+
+    const panel = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(panel, (m) => m.type === "sys.version");
+
+    // Panel closes → grace timer armed (100ms).
+    panel.close();
+    await delay(30);
+
+    // Mid-grace: an mcp client connects. Pre-fix this canceled the timer
+    // unconditionally; post-fix only a panel connect cancels it.
+    const mcp = await openWs(`ws://127.0.0.1:${port}/?role=mcp`);
+    await nextMessage(mcp, (m) => m.type === "sys.version");
+
+    await delay(150);
+    expect(onShutdownRequest).toHaveBeenCalledTimes(1);
+    expect(onShutdownRequest).toHaveBeenCalledWith("panel-disconnect");
+
+    mcp.close();
+  });
+
+  // Sanity for the fixed cancel path: a PANEL reconnect during grace
+  // must still cancel the timer (scenario 13 behavior preserved with
+  // the role-gated condition).
+  it("scenario 17b: panel reconnect during grace window still cancels the timer", async () => {
+    const onShutdownRequest = vi.fn();
+    await bridge.stop();
+    bridge = new PanelBridge({
+      pty, execHandler, port: 0, host: "127.0.0.1",
+      heartbeatIntervalMs: 60_000, heartbeatTimeoutMs: 60_000, watchdogIntervalMs: 60_000,
+      onShutdownRequest,
+      clientDisconnectGracePeriodMs: 100,
+    });
+    ({ port } = await bridge.start());
+
+    const panel = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(panel, (m) => m.type === "sys.version");
+    panel.close();
+    await delay(30);
+
+    const panel2 = await openWs(`ws://127.0.0.1:${port}`);
+    await nextMessage(panel2, (m) => m.type === "sys.version");
+
+    await delay(150);
+    expect(onShutdownRequest).not.toHaveBeenCalled();
+
+    panel2.close();
+  });
+
   // ── 8 ────────────────────────────────────────────────────────────
   it("multi-client: secondary's pty.in refused with AEMultiClientRefused", async () => {
     const wsA = await openWs(url);

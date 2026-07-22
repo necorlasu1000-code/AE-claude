@@ -282,14 +282,22 @@ export class PanelBridge {
   // ─── Connection lifecycle ────────────────────────────────────────
 
   private handleConnection(ws: WebSocket, req: IncomingMessage): void {
-    // New client arrived — cancel any pending auto-shutdown grace timer
-    // (the previous panel may have just disconnected and reopened).
-    if (this.clientDisconnectTimer) {
+    const role = parseRole(req.url);
+
+    // New *panel* client arrived — cancel any pending auto-shutdown grace
+    // timer (the previous panel may have just disconnected and reopened).
+    // Panel-only gate on BOTH directions (mistakes #16 / #21): the close
+    // handler below arms the timer only when no panel remains, and this
+    // connect-side cancel must mirror that rule. An mcp client (re)connecting
+    // during the grace window — e.g. claude CLI restarting its MCP child —
+    // must NOT cancel the timer: the timer is never re-armed except on a
+    // panel close, so a role-blind cancel here would leave the sidecar +
+    // PTY(claude) + MCP child as zombies until the AE watchdog fires.
+    if (role === "panel" && this.clientDisconnectTimer) {
       clearTimeout(this.clientDisconnectTimer);
       this.clientDisconnectTimer = undefined;
     }
 
-    const role = parseRole(req.url);
     const state: ClientState = { lastRecvAt: Date.now(), role };
     this.clients.set(ws, state);
     // Per-role primary selection (D-J).

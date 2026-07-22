@@ -1476,3 +1476,21 @@ clearSelection은 xtermSel side에만 / removeAllRanges는 nativeSel side에만 
 - fix-2: CSS layer 추가 fix → native selection 활성화 → fix-1 fallback 발화 가능
 
 **메타 학습 — multi-layer fix dogfood loop**: UX 기능은 code + CSS + 환경 권한 등 multi-layer로 wiring됨. 한 layer만 fix하고 dogfood 그린이 무조건 정답 가정 X. 사용자 dogfood 통해 layer마다 발견 + fix sub-step 누적. mistakes entry 안에 face-N 누적해서 진화 기록.
+
+## 2026-07-22 #16 connect 방향 재발 — grace timer 취소가 role-blind (#21)
+
+**문제**: 심층 코드 리뷰 (외부 감사)에서 발견. `panelBridge.ts handleConnection`이 **role 파싱 전에** 무조건 `clientDisconnectTimer`를 취소. #16 fix는 close 방향(타이머 arm)만 panel-only 게이트를 걸었고, connect 방향(타이머 cancel)은 role-blind로 남아있었음.
+
+**발현 시나리오**: panel close → 5s grace timer 진행 중 → mcp client 신규/재접속 (claude CLI 부팅 직후 MCP stdio child가 접속하는 1-2s 구간에 panel을 닫거나, claude가 MCP server를 재시작해 reverse-connect하는 경우) → 타이머 취소 → 타이머 re-arm은 **close 이벤트에서만** 일어나므로 다시는 안 걸림 → 사이드카 + PTY(claude) + MCP child 좀비 (AE watchdog이 잡을 때까지).
+
+**Root cause**: #16과 동일한 정책-구현 어긋남의 **반대 방향**. "grace 정책은 panel runtime 존재 여부만 묻는다"는 정책이 close 방향에만 적용되고 connect 방향은 누락. #16 fix 시 같은 타이머를 만지는 **모든 지점** (arm + cancel)을 열거하지 않은 것이 원인.
+
+**Fix**: `handleConnection`에서 role 파싱을 타이머 취소 **앞으로** 이동 + `role === "panel"`일 때만 취소.
+
+**예방**:
+1. **상태 전이 fix 시 그 상태를 만지는 모든 지점 열거**: 타이머/플래그/카운터에 조건 게이트를 넣을 때 set/clear/reset 전 지점을 grep해서 같은 게이트 적용 여부 점검. 한 방향만 고치면 #16→#21처럼 같은 함정이 반대 방향에서 재발.
+2. **회귀 테스트는 양방향**: scenario 15/16 (close 방향 정/역) 페어에 connect 방향 페어 (scenario 17/17b) 추가 — mcp connect during grace → 타이머 유지 + panel reconnect during grace → 타이머 취소 (기존 scenario 13 동작 보존).
+
+**검증**: `panelBridge.test.ts` scenario 17 (mcp connect mid-grace → shutdown 발동) + 17b (panel reconnect mid-grace → 발동 X). pre-fix에서 17은 fail (타이머 취소로 shutdown 미발동), post-fix 26 tests 그린.
+
+**메타 family**: #16 direct lineage — "통합 조건이 새 차원(role)을 합산"의 arm 방향이 #16, cancel 방향이 #21. 정책 게이트는 상태 lifecycle 전체 (arm/cancel/re-arm)에 일관 적용해야 완결.
