@@ -178,11 +178,18 @@ export function useExtendScriptBridge(
     // are valid JSON but are line terminators in an ES3 string literal, so
     // JSON.stringify leaves them unescaped and they would break the source —
     // escape them explicitly.
-    const inputJson = JSON.stringify(req.input);
+    // `?? null`: JSON.stringify(undefined) returns undefined (not a string);
+    // the .split chain below would throw and wedge the queue until the
+    // watchdog. null round-trips to a JSON-parseable "null" on the jsx side.
+    const inputJson = JSON.stringify(req.input ?? null);
+    // The .join arguments must be the 6-char literal TEXT backslash-u-2-0-2-8
+    // (double backslash in this source). A single-backslash escape sequence
+    // here would be the raw character itself, making split/join an identity
+    // no-op (mistakes #24).
     const inputLiteral = JSON.stringify(inputJson)
-      .split(String.fromCharCode(0x2028)).join("\u2028")
-      .split(String.fromCharCode(0x2029)).join("\u2029");
-   const script = `$[${JSON.stringify(deps.ns)}].tools.${req.tool}(${inputLiteral})`;
+      .split(String.fromCharCode(0x2028)).join("\\u2028")
+      .split(String.fromCharCode(0x2029)).join("\\u2029");
+    const script = `$[${JSON.stringify(deps.ns)}].tools.${req.tool}(${inputLiteral})`;
 
     deps.csInterface.evalScript(script, (raw) => {
       finish(parseEnvelope(raw));

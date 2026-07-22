@@ -217,6 +217,57 @@ describe("useExtendScriptBridge", () => {
     expect(inputObjRecovered).toEqual({ name: "한글 컴프", size: { w: 1920, h: 1080 } });
   });
 
+  // mistakes #24 — the U+2028/9 escape shipped as a no-op (single-backslash
+  // escape sequence = the raw char itself → split(X).join(X) identity). This
+  // test feeds the raw characters through input and asserts the generated
+  // script (a) no longer contains them raw, (b) still parses, (c) round-trips.
+  it("U+2028/U+2029 in input → escaped in script (no raw line terminators), round-trips", async () => {
+    const { Parser } = await import("acorn");
+    const LS = String.fromCharCode(0x2028);
+    const PS = String.fromCharCode(0x2029);
+    const evalScript = vi.fn((_script: string, cb: (raw: string) => void) =>
+      cb('{"ok":true,"output":null}'),
+    );
+    const bridge = useExtendScriptBridge(makeDeps(evalScript));
+
+    const input = { text: "a" + LS + "b" + PS + "c" };
+    await bridge.exec({ requestId: "r-ls", tool: "ae_create_comp", input });
+
+    const script = evalScript.mock.calls[0][0] as string;
+    // (a) raw line terminators must not survive into the evalScript source.
+    expect(script.indexOf(LS)).toBe(-1);
+    expect(script.indexOf(PS)).toBe(-1);
+    // (b) the source must be parseable (ES3-era grammar; raw U+2028/9 inside
+    // a string literal would be a syntax error here, as in ExtendScript).
+    expect(() => Parser.parse(script, { ecmaVersion: 5 })).not.toThrow();
+    // (c) the double-stringify round-trip still recovers the exact input.
+    const argMatch = script.match(/^\$\["ns"\]\.tools\.ae_create_comp\((.*)\)$/);
+    expect(argMatch).toBeTruthy();
+    const wire = JSON.parse(argMatch![1]);
+    expect(JSON.parse(wire)).toEqual(input);
+  });
+
+  // mistakes #24 follow-on — JSON.stringify(undefined) returns undefined (not
+  // a string); pre-fix the escape chain then threw inside the exec promise
+  // executor → unhandled rejection + queue wedged until the watchdog.
+  it("input === undefined → no throw, serialized as null, queue stays healthy", async () => {
+    const evalScript = vi.fn((_script: string, cb: (raw: string) => void) =>
+      cb('{"ok":true,"output":null}'),
+    );
+    const bridge = useExtendScriptBridge(makeDeps(evalScript));
+
+    const result = await bridge.exec({
+      requestId: "r-undef",
+      tool: "ae_get_active_comp",
+      input: undefined,
+    });
+
+    expect(result.ok).toBe(true);
+    const script = evalScript.mock.calls[0][0] as string;
+    expect(script.endsWith('("null")')).toBe(true);
+    expect(bridge.inflight).toBe(0);
+  });
+
   it("invalid tool name → AEInvalidToolName, evalScript never called (injection guard)", async () => {
     const evalScript = vi.fn((_s: string, cb: (raw: string) => void) => cb('{"ok":true,"output":{}}'));
     const bridge = useExtendScriptBridge(makeDeps(evalScript));
