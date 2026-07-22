@@ -376,6 +376,17 @@ export interface MockLayerCollectionOpts {
    *  a layer. Tests use this to verify HOF's endUndoGroup-on-throw path
    *  (D4 finally block runs even when the destructive fn throws). */
   throwOnAddSolid?: Error;
+  /** Phase 5.3.2 -- addText capture callback (sourceText positional). */
+  onAddText?: (sourceText: string | undefined) => void;
+  /** When provided, addText throws instead of creating a layer. */
+  throwOnAddText?: Error;
+  /** Phase 5.3.2 -- captures the TextDocument object passed to the created
+   *  text layer's property("Source Text").setValue(doc). The impl mutates
+   *  the doc it read from .value, so assertions see font/fontSize/fillColor
+   *  exactly as production AE would receive them. */
+  onSetTextDocument?: (doc: unknown) => void;
+  /** Phase 5.3.2 -- captures property("Position").setValue([x, y]). */
+  onSetPosition?: (pos: unknown) => void;
 }
 
 export function makeMockLayerCollection(
@@ -423,6 +434,94 @@ export function makeMockLayerCollection(
         },
       };
       return layer;
+    },
+
+    // Phase 5.3.2 -- TextLayer factory. The created mock layer models the
+    // two property() targets ae_add_text_layer touches: "Source Text"
+    // (TextDocument value round-trip) and "Position" (setValue). Receiver
+    // guards on every method per mistakes #17.
+    addText: function (this: unknown, sourceText?: string): JsxLayerLike {
+      if (this !== collection) {
+        throw new Error(
+          "Mock this-binding violation: layerCollection.addText called " +
+          "with wrong receiver. ExtendScript SpiderMonkey throws on " +
+          "detached calls. Use comp.layers.addText(...) directly. " +
+          "See mistakes.md #17.",
+        );
+      }
+      if (o.onAddText) {
+        o.onAddText(sourceText);
+      }
+      if (o.throwOnAddText) {
+        throw o.throwOnAddText;
+      }
+      var index = nextIndex;
+      nextIndex = nextIndex + 1;
+
+      // Mock TextDocument -- production AE seeds a real TextDocument from
+      // the character panel defaults; tests only need a mutable object the
+      // impl can read (.value), mutate, and write back (setValue).
+      var sourceTextProp: JsxPropertyGroupLike = {
+        matchName: "ADBE Text Document",
+        name: "Source Text",
+        enabled: true,
+        numProperties: 0,
+        value: { font: "MockDefaultFont", fontSize: 36, fillColor: [1, 1, 1] },
+        setValue: function (this: unknown, v: unknown) {
+          if (this !== sourceTextProp) {
+            throw new Error(
+              "Mock this-binding violation: sourceText.setValue called with " +
+              "wrong receiver. See mistakes.md #17.",
+            );
+          }
+          sourceTextProp.value = v;
+          if (o.onSetTextDocument) o.onSetTextDocument(v);
+        },
+      };
+      var positionProp: JsxPropertyGroupLike = {
+        matchName: "ADBE Position",
+        name: "Position",
+        enabled: true,
+        numProperties: 0,
+        value: [0, 0],
+        setValue: function (this: unknown, v: unknown) {
+          if (this !== positionProp) {
+            throw new Error(
+              "Mock this-binding violation: position.setValue called with " +
+              "wrong receiver. See mistakes.md #17.",
+            );
+          }
+          positionProp.value = v;
+          if (o.onSetPosition) o.onSetPosition(v);
+        },
+      };
+
+      var textLayer: JsxLayerLike = {
+        index: index,
+        // Production AE names a new text layer after its source text.
+        name: typeof sourceText === "string" ? sourceText : "",
+        matchName: "ADBE Text Layer",
+        enabled: true,
+        locked: false,
+        inPoint: 0,
+        outPoint: 5,
+        toString: function () {
+          return "[object TextLayer]";
+        },
+        property: function (this: unknown, matchName: string) {
+          if (this !== textLayer) {
+            throw new Error(
+              "Mock this-binding violation: textLayer.property called with " +
+              "wrong receiver. See mistakes.md #17.",
+            );
+          }
+          if (matchName === "Source Text") return sourceTextProp;
+          if (matchName === "Position") return positionProp;
+          // Production AE returns null for unknown display names.
+          return null as unknown as JsxPropertyGroupLike;
+        },
+      };
+      return textLayer;
     },
   };
   return collection;

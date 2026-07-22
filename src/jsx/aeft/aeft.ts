@@ -17,6 +17,7 @@ import {
   ae_create_comp,
   ae_set_active_comp,
   ae_add_solid_layer,
+  ae_add_text_layer,
 } from "./tools";
 export const tools = {
   ae_get_active_comp,
@@ -29,4 +30,5 @@ export const tools = {
   ae_create_comp,
   ae_set_active_comp,
   ae_add_solid_layer,
+  ae_add_text_layer,
 };

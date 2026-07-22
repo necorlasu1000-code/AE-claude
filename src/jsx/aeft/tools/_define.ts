@@ -93,6 +93,12 @@ export interface JsxLayerCollectionLike {
     pixelAspect: number,
     duration?: number,
   ): JsxLayerLike;
+  /** Phase 5.3.2 -- LayerCollection.addText(sourceText?): TextLayer per
+   *  types-for-adobe AE 22.0. Production AE names the new layer after its
+   *  source text. Styling (font/fontSize/fillColor) is NOT a factory arg --
+   *  it goes through layer.property("Source Text") value round-trip
+   *  (TextDocument mutation + setValue). Mistakes #17 -- attached receiver. */
+  addText?(sourceText?: string): JsxLayerLike;
 }
 
 // Phase 5.1.5 -- minimum Layer shape used by ae_get_layers and future
@@ -175,6 +181,15 @@ export interface JsxPropertyLike {
   /** Phase 5.1.8 -- Property.keyOutInterpolationType(keyIndex). Same as
    *  in-side; AE allows mismatched in/out types. */
   keyOutInterpolationType?(keyIndex: number): number;
+  /** Phase 5.3.2 -- Property.value. Leaf Property only (PropertyGroup
+   *  omits). Shape varies by PropertyValueType; for "Source Text" it is a
+   *  TextDocument object whose font/fontSize/fillColor fields the text
+   *  tools mutate before setValue. */
+  value?: unknown;
+  /** Phase 5.3.2 -- Property.setValue(value). Leaf Property only. The
+   *  sanctioned write path for property values (TextDocument round-trip,
+   *  Position [x,y], ...). Mistakes #17 -- attached receiver required. */
+  setValue?(value: unknown): void;
 }
 
 // Phase 5.1.6 -- PropertyGroup extends PropertyBase. Adds numProperties

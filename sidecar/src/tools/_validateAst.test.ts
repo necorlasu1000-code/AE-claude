@@ -224,6 +224,30 @@ describe("D7 validator — valid AE scripts pass", () => {
     expect(r.ok).toBe(true);
   });
 
+  // Phase 5.3.2 -- ae_add_text_layer pattern. Exercises the TextDocument
+  // round-trip that text tools use: layers.addText factory, leaf-Property
+  // .value read, field mutation on the read doc, and .setValue write-back.
+  // setValue on a string-arg property() lookup was already covered; the
+  // read-mutate-write composite is the novel shape this case pins.
+  it("allows ae_add_text_layer pattern (addText + TextDocument value round-trip)", () => {
+    const code = `
+      function ae_add_text_layer(input, ctx, _h) {
+        var comp = ctx.app.project.activeItem;
+        var layer = comp.layers.addText(input.text);
+        var st = layer.property("Source Text");
+        var doc = st.value;
+        doc.fontSize = input.fontSize;
+        doc.applyFill = true;
+        doc.fillColor = input.fillColor;
+        st.setValue(doc);
+        layer.property("Position").setValue(input.position);
+        return { index: layer.index, name: layer.name, compId: comp.id };
+      }
+    `;
+    const r = validateExtendScript(code);
+    expect(r.ok).toBe(true);
+  });
+
   it("allows array index access (literal number)", () => {
     const r = validateExtendScript(`var arr = [1, 2, 3]; var first = arr[0];`);
     expect(r.ok).toBe(true);

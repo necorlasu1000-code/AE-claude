@@ -17,7 +17,7 @@ AE ↔ CEP Panel (React + xterm.js)
      claude CLI (Opus 4.7)
 ```
 
-**현재 위치 (2026-05-10)**: **Phase 5.2.1 ✅ ae_get_project_info 완료** (read, 컴프 lane 1/3). 5.2 진입 update + 사용자 결정 4건 + 5.2.1 시리얼 진행. **다음 진입 대상: 5.2.2 ae_create_comp** (write 첫 진입, D4 destructive flag + undoGroup wiring reference example). D-N lane 분할: 30 tool 한정 + 직렬 + 5.2~5.7 6 lane sub-phase + 5.8 escape hatch.
+**현재 위치 (2026-07-23)**: **Phase 5.3.2 ✅ ae_add_text_layer 완료** (write, 레이어 lane 2/9 — addText factory + TextDocument round-trip 첫 도입). 5.2 컴프 lane 3/3 ✅, 5.3.1 solid ✅. 그 사이 심층 리뷰 fix 패스 2회 완료 (§G-0/§G-0-b — mistakes #21~#25, server.ts registry 루프 전환, 도그푸딩 검증 2026-07-23 ✅). **다음 진입 대상: 5.3.3 ae_add_shape_layer**. D-N lane 분할: 30 tool 한정 + 직렬 + 5.2~5.7 6 lane sub-phase + 5.8 escape hatch. 등록 위치는 registry 루프 도입으로 3곳 (sidecar tools/index.ts + jsx tools/index.ts + jsx aeft.ts; server.ts 자동).
 
 **작업 폴더**: `C:\Users\user\Desktop\성윤\에펙 클로드` (한글 path — 함정 #7)
 
