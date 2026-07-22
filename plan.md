@@ -244,7 +244,18 @@ ae-claude-panel/
 
 - `ae_run_extendscript` — 임의 ExtendScript 실행 (Claude가 직접 코드 작성하는 케이스) [Phase 5.8, D3 + D-L]
 
-각 tool은 zod 스키마 + 상세 description (production source = `mcp/server.ts` registerTool block, mistakes #19 single source). Claude가 정확히 사용하도록 description에 example 포함 + 부정확 경로는 negative example 명시 (mistakes #18).
+각 tool은 zod 스키마 + 상세 description (production source = 각 tool의 `handler.ts` defineAETool def — 2026-07-22 registry 루프 전환으로 단일화, mistakes #19 root fix). Claude가 정확히 사용하도록 description에 example 포함 + 부정확 경로는 negative example 명시 (mistakes #18).
+
+### v1.5+ 로드맵 (2026-07-23 사용자 목표 반영 — 우선순위순)
+
+30 tool + escape hatch 완료 후의 확장 방향. 사용자 최종 목표: **"말 한마디로 키네틱 모션그래픽·AE 애니메이션 제작"** (복잡한 실무 템플릿 수정 + 3D 카메라 연출 + 레퍼런스용 렌더 출력까지).
+
+1. **`ae_set_text`** — 기존 텍스트 레이어의 내용/스타일 교체. 템플릿 실무 1순위 작업("자막 바꿔줘")인데 30 tool 목록에 누락. 5.3.2의 TextDocument round-trip 인프라(JsxPropertyLike.value/setValue + mock) 그대로 재사용 — 비용 대비 가치 최상. 5.3 lane 완주 후 첫 후보.
+2. **임포트/렌더 lane 해동** (`ae_import_file` / `ae_add_to_render_queue` / `ae_set_render_settings` / `ae_start_render`) — "로고 갈아끼우고 뽑아줘" 풀 파이프라인의 나머지 절반. 주의: **escape hatch로 대체 불가** — AST validator가 `File`을 원천 차단(보안 설계, 유지)하므로 반드시 전용 tool + 경로 화이트리스트 설계 필요 (D5 연계).
+3. **카메라/3D lane** — `ae_add_camera` / `ae_add_light` / `ae_set_layer_3d`(threeDLayer + X/Y/Z 회전·위치) / 카메라 POI·줌·DOF. 키프레임 lane(5.4) 완성 시 카메라 무빙 애니메이션은 기존 keyframe tool로 조작 가능 — 이 lane은 생성/속성 표면만 추가하면 됨.
+4. **`ae_render_frame` — 시각 피드백 루프 (전략적 최우선 가치)** — 특정 시간 프레임을 PNG로 저장(saveFrameToPng, 전용 출력 폴더 고정) → claude CLI가 이미지로 읽고 결과를 눈으로 확인 → 수정 → 재확인 루프. **"말 한마디로 알아서" 목표의 실제 열쇠**: 현재 구조에서 claude는 수치는 완벽히 알지만 렌더 결과를 못 봄 → 패턴화된 모션은 잘 되나 미감·타이밍은 사람 피드백 의존. 이 툴 하나로 "만들고→보고→다듬는" 자율 루프가 열림. 텍스트 애니메이터(Range Selector) tool lane도 키네틱 타이포 품질에 직결되므로 이 단계에서 함께 검토.
+
+솔직한 도달 전망 (2026-07-23 평가): 패턴화된 모션·기하학적 구성(박스 배치+카메라 무빙 등 제작형)은 피드백 루프까지 갖추면 "말 한마디" 실현 가능성 높음. 진단형("울렁이는 정도 줄여줘" — 100+ 레이어에서 원인 이펙트/익스프레션 추적)은 표준 이펙트 기반이면 강하지만 서드파티 플러그인·베이크된 키프레임이 원인이면 반복 대화 필요 — "1회 완결"이 아니라 "2~3턴 수렴"이 현실적 모델.
 
 ---
 
