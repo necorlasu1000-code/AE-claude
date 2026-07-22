@@ -26,13 +26,13 @@ describe("ae_get_layers", () => {
     expect(parsed.error.code).toBe("AENoActiveCompError");
   });
 
-  it("compId omitted + active comp empty -> { layers: [] }", () => {
+  it("compId omitted + active comp empty -> empty page envelope", () => {
     const comp = makeMockComp({ id: 1, name: "Main", layers: [] });
     const ctx = { app: makeMockApp({ activeItem: comp }) };
     const parsed = JSON.parse(ae_get_layers("{}", ctx));
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output).toEqual({ layers: [] });
+    expect(parsed.output).toEqual({ items: [], total: 0, hasMore: false, nextOffset: null });
   });
 
   it("compId provided + comp exists + layers populated -> array returned", () => {
@@ -63,8 +63,11 @@ describe("ae_get_layers", () => {
     const parsed = JSON.parse(ae_get_layers(JSON.stringify({ compId: 42 }), ctx));
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output.layers).toHaveLength(2);
-    expect(parsed.output.layers[0]).toEqual({
+    expect(parsed.output.items).toHaveLength(2);
+    expect(parsed.output.total).toBe(2);
+    expect(parsed.output.hasMore).toBe(false);
+    expect(parsed.output.nextOffset).toBeNull();
+    expect(parsed.output.items[0]).toEqual({
       index: 1,
       name: "Background",
       matchName: "ADBE Vector Layer",
@@ -74,8 +77,8 @@ describe("ae_get_layers", () => {
       inPoint: 0,
       outPoint: 5,
     });
-    expect(parsed.output.layers[1].type).toBe("TextLayer");
-    expect(parsed.output.layers[1].matchName).toBe("ADBE Text Layer");
+    expect(parsed.output.items[1].type).toBe("TextLayer");
+    expect(parsed.output.items[1].matchName).toBe("ADBE Text Layer");
   });
 
   it("compId provided + unknown id -> AENotFoundError", () => {
@@ -110,12 +113,36 @@ describe("ae_get_layers", () => {
     const parsed = JSON.parse(ae_get_layers("{}", ctx));
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output.layers.map((l: { type: string }) => l.type)).toEqual([
+    expect(parsed.output.items.map((l: { type: string }) => l.type)).toEqual([
       "AVLayer",
       "CameraLayer",
       "LightLayer",
       "ShapeLayer",
       "TextLayer",
     ]);
+  });
+
+  // Pagination gate (CLAUDE.md section 5) -- window math over the 1-based
+  // layer sequence, mirroring ae_list_comps' boundary cases.
+  it("pagination: limit/offset window + hasMore/nextOffset boundaries", () => {
+    const layers = Array.from({ length: 5 }, (_v, i) =>
+      makeMockLayer({ type: "AVLayer", index: i + 1, name: "L" + (i + 1), matchName: "ADBE AV Layer" }),
+    );
+    const comp = makeMockComp({ id: 1, name: "Big", layers });
+    const ctx = { app: makeMockApp({ activeItem: comp }) };
+
+    // page 1: [1,2]
+    const p1 = JSON.parse(ae_get_layers(JSON.stringify({ limit: 2, offset: 0 }), ctx));
+    expect(p1.output.items.map((l: { index: number }) => l.index)).toEqual([1, 2]);
+    expect(p1.output).toMatchObject({ total: 5, hasMore: true, nextOffset: 2 });
+
+    // page 3 (last, partial): [5]
+    const p3 = JSON.parse(ae_get_layers(JSON.stringify({ limit: 2, offset: 4 }), ctx));
+    expect(p3.output.items.map((l: { index: number }) => l.index)).toEqual([5]);
+    expect(p3.output).toMatchObject({ total: 5, hasMore: false, nextOffset: null });
+
+    // offset beyond total: empty page, total preserved
+    const beyond = JSON.parse(ae_get_layers(JSON.stringify({ limit: 2, offset: 10 }), ctx));
+    expect(beyond.output).toEqual({ items: [], total: 5, hasMore: false, nextOffset: null });
   });
 });

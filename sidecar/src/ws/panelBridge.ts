@@ -683,14 +683,20 @@ export class PanelBridge {
    * receives result/error responses tied to its own requestId via the
    * normal response path (sendTo on the originating ws).
    */
-  sendToPrimary(msg: ExecMsg | CancelMsg): void {
-    if (this.primaryPanel) this.sendTo(this.primaryPanel, msg);
+  sendToPrimary(msg: ExecMsg | CancelMsg): boolean {
+    // Returns whether the message was actually handed to an OPEN primary
+    // panel socket. `false` lets the dispatcher fail an exec fast
+    // (AEPanelNotConnectedError) instead of burning its full timeout on a
+    // message that went nowhere.
+    if (!this.primaryPanel) return false;
+    return this.sendTo(this.primaryPanel, msg);
   }
 
-  private sendTo(ws: WebSocket, msg: Msg): void {
+  private sendTo(ws: WebSocket, msg: Msg): boolean {
     if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(encode(msg)); } catch { /* socket may have closed mid-send */ }
+      try { ws.send(encode(msg)); return true; } catch { /* closed mid-send */ }
     }
+    return false;
   }
 
   private broadcast(msg: Msg): void {

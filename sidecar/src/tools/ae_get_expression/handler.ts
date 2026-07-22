@@ -21,13 +21,14 @@ import {
 export const ae_get_expression = defineAETool<AeGetExpressionInput, AeGetExpressionOutput>({
   name: "ae_get_expression",
   description:
-    "Get expression on a property of a layer. propertyName is the display name " +
-    "in the current locale (e.g., 'Position', 'Scale', 'Rotation', 'Anchor Point', " +
-    "'Opacity') -- NOT the internal matchName. ExtendScript's layer.property() " +
-    "uses display-name lookup when called directly on a Layer. " +
+    "Get expression on a property of a layer. propertyName is the property " +
+    "name as shown in the After Effects panel timeline (display name in current " +
+    "locale). Examples: 'Position', 'Scale', 'Rotation', 'Anchor Point', 'Opacity'. " +
+    "Do NOT use internal matchNames (e.g., 'ADBE Position') -- ExtendScript's " +
+    "layer.property() lookup uses display name only. " +
     "Returns expression source string and enabled flag. " +
     "compId optional -- defaults to active composition. " +
-    "Returns { expression: '', enabled: false } when no expression is set on the property. " +
+    "Returns { expression: '', enabled: false } when no expression is set. " +
     "Throws AENoActiveCompError when compId omitted and no active comp; " +
     "AENotFoundError when compId is unknown, layerIndex is out of bounds, " +
     "or propertyName is not present on the layer.",

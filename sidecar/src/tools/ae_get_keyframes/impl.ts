@@ -46,6 +46,8 @@ export interface AeGetKeyframesInput {
   layerIndex: number;
   propertyName: string;
   compId?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export type AeKeyframeInterpolation = "LINEAR" | "BEZIER" | "HOLD";
@@ -61,7 +63,10 @@ export interface AeKeyframeEntry {
 }
 
 export interface AeGetKeyframesOutput {
-  keyframes: AeKeyframeEntry[];
+  items: AeKeyframeEntry[];
+  total: number;
+  hasMore: boolean;
+  nextOffset: number | null;
 }
 
 // types-for-adobe AE 22.0 KeyframeInterpolationType enum values.
@@ -151,19 +156,31 @@ export const ae_get_keyframes = defineJsxTool<AeGetKeyframesInput, AeGetKeyframe
       );
     }
 
-    // ---- Iterate keyframes -----------------------------------------------
+    // ---- Iterate keyframes (paginated, gate section 5) -------------------
     // PropertyGroup invocation (e.g., user passes "Effects" by mistake)
     // returns a group with no numKeys field -- treat as 0 keyframes
     // rather than throw. Leaf Property always has numKeys (0 or more).
-    var numKeys = (typeof property.numKeys === "number") ? property.numKeys : 0;
-    var keyframes: AeKeyframeEntry[] = [];
-    for (var i = 1; i <= numKeys; i++) {
+    // Defensive clamp mirrors ae_list_comps (zod applies defaults on the
+    // validated path; impl.test.ts calls this directly with raw input).
+    var limit = (input && typeof input.limit === "number" && input.limit > 0) ? input.limit : 50;
+    if (limit > 200) limit = 200;
+    var offset = (input && typeof input.offset === "number" && input.offset > 0) ? input.offset : 0;
+
+    var total = (typeof property.numKeys === "number") ? property.numKeys : 0;
+    var items: AeKeyframeEntry[] = [];
+    // Keys are an unfiltered 1-based sequence -- window maps directly to
+    // indices [offset+1, offset+limit]; no need to walk the whole property.
+    var start = offset + 1;
+    var end = offset + limit;
+    if (end > total) end = total;
+
+    for (var i = start; i <= end; i++) {
       // Direct calls only -- mistakes #17.
       var t = property.keyTime!(i);
       var v = property.keyValue!(i);
       var inRaw = property.keyInInterpolationType!(i);
       var outRaw = property.keyOutInterpolationType!(i);
-      keyframes.push({
+      items.push({
         index: i,
         time: t,
         value: v,
@@ -174,6 +191,13 @@ export const ae_get_keyframes = defineJsxTool<AeGetKeyframesInput, AeGetKeyframe
       });
     }
 
-    return { keyframes: keyframes };
+    var nextIdx = offset + items.length;
+    var hasMore = nextIdx < total;
+    return {
+      items: items,
+      total: total,
+      hasMore: hasMore,
+      nextOffset: hasMore ? nextIdx : null,
+    };
   },
 );

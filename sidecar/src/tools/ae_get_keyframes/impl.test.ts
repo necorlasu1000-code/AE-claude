@@ -72,7 +72,7 @@ describe("ae_get_keyframes", () => {
     expect(parsed.error.userMessage).toMatch(/Position/);
   });
 
-  it("property numKeys 0 -> { keyframes: [] }", () => {
+  it("property numKeys 0 -> empty page envelope", () => {
     const prop = makeMockProperty({
       matchName: "ADBE Position",
       name: "Position",
@@ -85,7 +85,30 @@ describe("ae_get_keyframes", () => {
     const parsed = JSON.parse(ae_get_keyframes(JSON.stringify(baseInput), ctx));
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output).toEqual({ keyframes: [] });
+    expect(parsed.output).toEqual({ items: [], total: 0, hasMore: false, nextOffset: null });
+  });
+
+  // Pagination gate (CLAUDE.md section 5) -- window over the 1-based key
+  // sequence; keyframe index stays ABSOLUTE (page 2 starts at index 3).
+  it("pagination: limit/offset window, absolute indices, boundaries", () => {
+    const prop = makeMockProperty({
+      matchName: "ADBE Position",
+      name: "Position",
+      keyframes: Array.from({ length: 5 }, (_v, i) => ({
+        time: i, value: i * 10, inInterp: 6612, outInterp: 6612,
+      })),
+    });
+    const layer = makeMockLayer({ index: 1, properties: { Position: prop } });
+    const comp = makeMockComp({ id: 1, name: "Main", layers: [layer] });
+    const ctx = { app: makeMockApp({ activeItem: comp }) };
+
+    const p2 = JSON.parse(ae_get_keyframes(JSON.stringify({ ...baseInput, limit: 2, offset: 2 }), ctx));
+    expect(p2.output.items.map((k: { index: number }) => k.index)).toEqual([3, 4]);
+    expect(p2.output).toMatchObject({ total: 5, hasMore: true, nextOffset: 4 });
+
+    const last = JSON.parse(ae_get_keyframes(JSON.stringify({ ...baseInput, limit: 2, offset: 4 }), ctx));
+    expect(last.output.items.map((k: { index: number }) => k.index)).toEqual([5]);
+    expect(last.output).toMatchObject({ total: 5, hasMore: false, nextOffset: null });
   });
 
   it("single keyframe -> 1 entry with correct interpolation", () => {
@@ -103,8 +126,8 @@ describe("ae_get_keyframes", () => {
     const parsed = JSON.parse(ae_get_keyframes(JSON.stringify(baseInput), ctx));
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output.keyframes).toHaveLength(1);
-    expect(parsed.output.keyframes[0]).toEqual({
+    expect(parsed.output.items).toHaveLength(1);
+    expect(parsed.output.items[0]).toEqual({
       index: 1,
       time: 1.5,
       value: [100, 200],
@@ -129,13 +152,13 @@ describe("ae_get_keyframes", () => {
     const parsed = JSON.parse(ae_get_keyframes(JSON.stringify(baseInput), ctx));
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output.keyframes).toHaveLength(3);
-    expect(parsed.output.keyframes[0].time).toBe(0);
-    expect(parsed.output.keyframes[1].time).toBe(1);
-    expect(parsed.output.keyframes[2].time).toBe(2.5);
-    expect(parsed.output.keyframes[0].index).toBe(1);
-    expect(parsed.output.keyframes[1].index).toBe(2);
-    expect(parsed.output.keyframes[2].index).toBe(3);
+    expect(parsed.output.items).toHaveLength(3);
+    expect(parsed.output.items[0].time).toBe(0);
+    expect(parsed.output.items[1].time).toBe(1);
+    expect(parsed.output.items[2].time).toBe(2.5);
+    expect(parsed.output.items[0].index).toBe(1);
+    expect(parsed.output.items[1].index).toBe(2);
+    expect(parsed.output.items[2].index).toBe(3);
   });
 
   it("interpolation int -> string mapping (LINEAR=6612 / BEZIER=6613 / HOLD=6614)", () => {
@@ -155,9 +178,9 @@ describe("ae_get_keyframes", () => {
     const parsed = JSON.parse(ae_get_keyframes(JSON.stringify(baseInput), ctx));
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output.keyframes[0].interpolation).toEqual({ in: "LINEAR", out: "HOLD" });
-    expect(parsed.output.keyframes[1].interpolation).toEqual({ in: "BEZIER", out: "LINEAR" });
-    expect(parsed.output.keyframes[2].interpolation).toEqual({ in: "HOLD", out: "BEZIER" });
+    expect(parsed.output.items[0].interpolation).toEqual({ in: "LINEAR", out: "HOLD" });
+    expect(parsed.output.items[1].interpolation).toEqual({ in: "BEZIER", out: "LINEAR" });
+    expect(parsed.output.items[2].interpolation).toEqual({ in: "HOLD", out: "BEZIER" });
   });
 
   it("unknown interp int -> falls back to BEZIER (AE default)", () => {
@@ -175,7 +198,7 @@ describe("ae_get_keyframes", () => {
     const parsed = JSON.parse(ae_get_keyframes(JSON.stringify(baseInput), ctx));
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output.keyframes[0].interpolation).toEqual({ in: "BEZIER", out: "BEZIER" });
+    expect(parsed.output.items[0].interpolation).toEqual({ in: "BEZIER", out: "BEZIER" });
   });
 
   it("value shape varies (number / array / object) -> passes through unchanged", () => {
@@ -197,9 +220,9 @@ describe("ae_get_keyframes", () => {
     );
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.output.keyframes[0].value).toBe(42);
-    expect(parsed.output.keyframes[1].value).toEqual([1, 2, 3, 4]);
-    expect(parsed.output.keyframes[2].value).toEqual({ custom: "shape data" });
+    expect(parsed.output.items[0].value).toBe(42);
+    expect(parsed.output.items[1].value).toEqual([1, 2, 3, 4]);
+    expect(parsed.output.items[2].value).toEqual({ custom: "shape data" });
   });
 
   // mistakes #17 regression guard -- mock receiver guard ensures detached

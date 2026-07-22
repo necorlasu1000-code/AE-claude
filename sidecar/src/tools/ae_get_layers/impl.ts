@@ -29,6 +29,8 @@ import {
 
 export interface AeGetLayersInput {
   compId?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export type AeLayerType =
@@ -51,7 +53,10 @@ export interface AeLayerEntry {
 }
 
 export interface AeGetLayersOutput {
-  layers: AeLayerEntry[];
+  items: AeLayerEntry[];
+  total: number;
+  hasMore: boolean;
+  nextOffset: number | null;
 }
 
 // Known Layer subclass names per types-for-adobe AE 22.0. Returned from
@@ -110,17 +115,28 @@ export const ae_get_layers = defineJsxTool<AeGetLayersInput, AeGetLayersOutput>(
       comp = resolved as JsxCompItem;
     }
 
-    // ---- Iterate layers --------------------------------------------------
-    var layers: AeLayerEntry[] = [];
-    var numLayers = comp.numLayers || 0;
+    // ---- Iterate layers (paginated, gate section 5) ----------------------
+    // Defensive clamp mirrors ae_list_comps: zod applies defaults on the
+    // validated path, but impl.test.ts calls this directly with raw input.
+    var limit = (input && typeof input.limit === "number" && input.limit > 0) ? input.limit : 50;
+    if (limit > 200) limit = 200;
+    var offset = (input && typeof input.offset === "number" && input.offset > 0) ? input.offset : 0;
 
-    for (var i = 1; i <= numLayers; i++) {
+    var items: AeLayerEntry[] = [];
+    var total = comp.numLayers || 0;
+    // Layers are an unfiltered 1-based sequence, so the window maps directly
+    // to indices [offset+1, offset+limit] -- no need to walk the whole comp.
+    var start = offset + 1;
+    var end = offset + limit;
+    if (end > total) end = total;
+
+    for (var i = start; i <= end; i++) {
       // Direct call (NOT var fn = comp.layer; fn(i)) -- mistakes #17.
       // ! asserts production AE populates the optional method.
       var layer: JsxLayerLike = comp.layer!(i);
       if (!layer) continue;
 
-      layers.push({
+      items.push({
         index: layer.index,
         name: layer.name,
         matchName: layer.matchName,
@@ -132,6 +148,13 @@ export const ae_get_layers = defineJsxTool<AeGetLayersInput, AeGetLayersOutput>(
       });
     }
 
-    return { layers: layers };
+    var nextIdx = offset + items.length;
+    var hasMore = nextIdx < total;
+    return {
+      items: items,
+      total: total,
+      hasMore: hasMore,
+      nextOffset: hasMore ? nextIdx : null,
+    };
   }
 );

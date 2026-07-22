@@ -1,8 +1,9 @@
 // Phase 5.1.8 -- zod schema for ae_get_keyframes (read-only, MVP 5/5
 // keyframe lane).
 //
-// Output shape: { keyframes: AeKeyframeEntry[] } -- collection wrapper key
-// per Phase 5.0 D-N lane convention. Each entry exposes the 1-based
+// Output shape: { items, total, hasMore, nextOffset } -- pagination gate
+// (CLAUDE.md section 5) envelope, same as ae_list_* / ae_get_layers (a
+// dense wiggle bake can easily hold thousands of keys). Each entry exposes the 1-based
 // keyframe index, time (in seconds), value (raw -- shape varies by
 // PropertyValueType: number / [n,n] / [n,n,n] / [n,n,n,n] for
 // OneD/TwoD/ThreeD/Color, or {} for TextDocument/Shape/MarkerValue),
@@ -28,6 +29,9 @@ export const aeGetKeyframesInputSchema = z.object({
   /** Composition id (Item.id). Omit to use app.project.activeItem. When
    *  omitted and no active comp exists, AENoActiveCompError is raised. */
   compId: z.number().optional(),
+  // Pagination gate (CLAUDE.md section 5).
+  limit: z.number().int().positive().max(200).default(50),
+  offset: z.number().int().nonnegative().default(0),
 });
 export type AeGetKeyframesInput = z.infer<typeof aeGetKeyframesInputSchema>;
 
@@ -58,6 +62,12 @@ export const aeKeyframeEntrySchema = z.object({
 export type AeKeyframeEntry = z.infer<typeof aeKeyframeEntrySchema>;
 
 export const aeGetKeyframesOutputSchema = z.object({
-  keyframes: z.array(aeKeyframeEntrySchema),
+  items: z.array(aeKeyframeEntrySchema),
+  /** Total keyframes on the property (before pagination). */
+  total: z.number().int().nonnegative(),
+  /** True when more keyframes exist past this page. */
+  hasMore: z.boolean(),
+  /** Offset to pass for the next page, or null when this is the last page. */
+  nextOffset: z.number().int().nonnegative().nullable(),
 });
 export type AeGetKeyframesOutput = z.infer<typeof aeGetKeyframesOutputSchema>;

@@ -274,6 +274,31 @@ describe("ToolDispatcher", () => {
     expect((await p3)).toMatchObject({ ok: true, data: "third-result", durationMs: 30 });
   });
 
+  // Fail-fast (audit item): panel not connected → sendToPrimary returns
+  // false → exec resolves AEPanelNotConnectedError immediately instead of
+  // burning the full 30s timeout on a message that went nowhere.
+  it("send returns false (no panel) → immediate AEPanelNotConnectedError, no timeout wait", async () => {
+    const ctx = makeDeps();
+    ctx.deps.send = () => false;   // bridge reports non-delivery
+    const dispatcher = createToolDispatcher(ctx.deps);
+
+    const result = await dispatcher.exec({ tool: "ae_get_active_comp", input: {} });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("AEPanelNotConnectedError");
+    expect(dispatcher.inflight).toBe(0);   // finalized synchronously, timer cleared
+  });
+
+  it("send returns undefined (legacy mock) → keeps pending, does NOT fail fast", () => {
+    const ctx = makeDeps();   // makeDeps' send records and returns undefined
+    const dispatcher = createToolDispatcher(ctx.deps);
+
+    void dispatcher.exec({ tool: "any", input: {} });
+    expect(dispatcher.inflight).toBe(1);   // still pending — void ≠ non-delivery
+    dispatcher.handleIncoming({ type: "result", requestId: "rid-1", data: 1 });
+    expect(dispatcher.inflight).toBe(0);
+  });
+
   it("default emit (deps.emit undefined) — no throw, no console output", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

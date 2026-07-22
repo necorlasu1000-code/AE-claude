@@ -21,13 +21,17 @@ import {
 export const ae_list_effects = defineAETool<AeListEffectsInput, AeListEffectsOutput>({
   name: "ae_list_effects",
   description:
-    "List effects applied to a layer (paginated: limit/offset). layerIndex required " +
-    "(1-based, AE convention). compId optional -- defaults to active composition. " +
-    "Returns { items, total, hasMore, nextOffset }; items[] hold effect metadata " +
-    "(matchName, displayName, enabled). matchName is locale-stable internal id " +
-    "(e.g., 'ADBE Gaussian Blur 2'); displayName is the user-facing label. " +
+    "List effects applied to a layer. layerIndex required (1-based, AE convention). " +
+    "compId optional -- defaults to active composition. " +
+    "Paginated: optional limit (1-200, default 50) and offset (0-based, default 0). " +
+    "Returns { items, total, hasMore, nextOffset } where items[] hold effect metadata " +
+    "(matchName, displayName, enabled). matchName is the locale-stable internal id " +
+    "(e.g., 'ADBE Gaussian Blur 2'); displayName is the user-facing label in AE Effect " +
+    "Controls. nextOffset is the offset for the next page (null on the last page). " +
     "Throws AENoActiveCompError when compId omitted and no active comp; " +
-    "AENotFoundError when compId is unknown or layerIndex is out of bounds.",
+    "AENotFoundError when compId is unknown or layerIndex is out of bounds. " +
+    "Layers that don't host effects (Camera/Light/Null) return " +
+    "{ items: [], total: 0, hasMore: false, nextOffset: null }.",
   input: aeListEffectsInputSchema,
   output: aeListEffectsOutputSchema,
   handler: async (input: AeListEffectsInput, ctx: ToolCtx): Promise<AeListEffectsOutput> => {

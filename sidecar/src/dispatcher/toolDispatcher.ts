@@ -50,9 +50,12 @@ export type DispatcherLogEvent =
 
 export interface ToolDispatcherDeps {
   /** Send to the primary panel client. Wired in index.ts to
-   *  `panelBridge.sendToPrimary`. No-op when no primary connected
-   *  (timeout will eventually fire). */
-  send(msg: ExecMsg | CancelMsg): void;
+   *  `panelBridge.sendToPrimary`. Return `false` when the message could
+   *  not be delivered (no primary panel / socket closed) — exec then
+   *  fails fast with AEPanelNotConnectedError instead of waiting out the
+   *  full timeout. A `void` return (legacy mocks) is treated as
+   *  delivered. */
+  send(msg: ExecMsg | CancelMsg): boolean | void;
   emit?: (e: DispatcherLogEvent) => void;
   now?: () => number;
   setTimeout?: (cb: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -146,13 +149,27 @@ export function createToolDispatcher(
 
         emit({ event: "dispatcher:enter", requestId, tool: req.tool });
 
-        deps.send({
+        const delivered = deps.send({
           type: "exec",
           requestId,
           tool: req.tool,
           input: req.input,
           timeoutMs,
         });
+        // Fail fast when the bridge reports non-delivery (panel not
+        // connected). Only an explicit `false` counts — void-returning
+        // test mocks keep the legacy "assume delivered" behavior.
+        if (delivered === false) {
+          finalize(requestId, {
+            ok: false,
+            code: "AEPanelNotConnectedError",
+            userMessage: "AE 패널이 연결되어 있지 않습니다 (CEP 패널을 여세요)",
+            developerHint:
+              `tool=${req.tool} — no primary panel WS client; the exec was never sent. ` +
+              `Open the AE-Claude CEP panel (it hosts the ExtendScript bridge), then retry.`,
+            durationMs: now() - startTs,
+          });
+        }
       });
     },
 

@@ -17,9 +17,12 @@ import {
 export const ae_list_comps = defineAETool<AeListCompsInput, AeListCompsOutput>({
   name: "ae_list_comps",
   description:
-    "List compositions in the active After Effects project (paginated: limit/offset). " +
-    "Returns { items, total, hasMore, nextOffset }; items[] hold comp metadata " +
-    "(id, name, dimensions, durationSec, frameRate, numLayers).",
+    "List compositions in the active After Effects project. " +
+    "Paginated: optional limit (1-200, default 50) and offset (0-based, default 0). " +
+    "Returns { items, total, hasMore, nextOffset } where items[] hold comp metadata " +
+    "(id, name, width, height, durationSec, frameRate, numLayers), total is the full " +
+    "comp count, and nextOffset is the offset for the next page (null on the last page). " +
+    "Empty project returns { items: [], total: 0, hasMore: false, nextOffset: null }.",
   input: aeListCompsInputSchema,
   output: aeListCompsOutputSchema,
   handler: async (input: AeListCompsInput, ctx: ToolCtx): Promise<AeListCompsOutput> => {

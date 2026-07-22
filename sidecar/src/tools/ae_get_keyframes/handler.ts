@@ -21,12 +21,18 @@ import {
 export const ae_get_keyframes = defineAETool<AeGetKeyframesInput, AeGetKeyframesOutput>({
   name: "ae_get_keyframes",
   description:
-    "Get keyframes on a property of a layer. propertyName is the display name " +
+    "Get keyframes on a property of a layer (paginated). propertyName is the display name " +
     "in the current locale (e.g., 'Position', 'Scale', 'Rotation', 'Anchor Point', " +
-    "'Opacity'). Returns keyframe array with index, time (seconds), value (raw, " +
-    "shape varies by propertyValueType), and interpolation (in/out separate). " +
+    "'Opacity'). Do NOT use internal matchNames like 'ADBE Position' -- " +
+    "layer.property() lookup uses display name only. " +
     "compId optional -- defaults to active composition. " +
-    "Returns { keyframes: [] } when no keyframes are set on the property. " +
+    "limit (max 200, default 50) / offset (default 0) window the result; " +
+    "output is { items, total, hasMore, nextOffset }. " +
+    "Each keyframe entry: { index (1-based, absolute), time (seconds), value (raw -- shape " +
+    "varies by propertyValueType: number / number[] / object), interpolation: " +
+    "{ in, out } where in/out are LINEAR | BEZIER | HOLD }. " +
+    "Returns { items: [], total: 0, hasMore: false, nextOffset: null } when no " +
+    "keyframes are set on the property. " +
     "Throws AENoActiveCompError when compId omitted and no active comp; " +
     "AENotFoundError when compId is unknown, layerIndex is out of bounds, " +
     "or propertyName is not present on the layer.",

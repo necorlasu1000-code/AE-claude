@@ -25,8 +25,20 @@ export const ae_add_solid_layer = defineAETool<AeAddSolidLayerInput, AeAddSolidL
   name: "ae_add_solid_layer",
   destructive: true,
   description:
-    "Add a new solid color layer to a composition. The jsx HOF wraps in " +
-    "an undo group named 'ae_add_solid_layer' so a single Ctrl+Z reverts.",
+    "Add a new solid color layer to a composition. Specify name and " +
+    "color (RGB array [r, g, b] in 0-1 range, NOT 0-255 -- remap if " +
+    "user gives hex/255). Optional: width and height (pixels, max " +
+    "30000, default = comp dimensions matching AE 'Make Solid' " +
+    "default), pixelAspect (default 1.0 square pixels), duration " +
+    "(SECONDS not frames, default = comp duration), compId (default " +
+    "= active composition). Returns { index (1-based, typically 1 " +
+    "since AE inserts solids as topmost layer), name, compId } -- " +
+    "use compId in follow-up tools to avoid re-resolving the active " +
+    "comp. DESTRUCTIVE: wraps in undo group named 'ae_add_solid_" +
+    "layer' so a single Ctrl+Z reverts. " +
+    "Throws AENoActiveCompError when compId omitted and no active " +
+    "comp; AENotFoundError when compId is unknown or resolves to a " +
+    "non-Composition item.",
   input: aeAddSolidLayerInputSchema,
   output: aeAddSolidLayerOutputSchema,
   handler: async (input: AeAddSolidLayerInput, ctx: ToolCtx): Promise<AeAddSolidLayerOutput> => {

@@ -20,8 +20,10 @@ import {
 export const ae_get_layers = defineAETool<AeGetLayersInput, AeGetLayersOutput>({
   name: "ae_get_layers",
   description:
-    "List layers in a composition. compId optional -- defaults to active composition. " +
-    "Returns array of layer metadata (index, name, matchName, type, enabled, locked, inPoint, outPoint). " +
+    "List layers in a composition (paginated). compId optional -- defaults to active composition. " +
+    "limit (max 200, default 50) / offset (default 0) window the result; " +
+    "output is { items, total, hasMore, nextOffset } where each item has " +
+    "index, name, matchName, type, enabled, locked, inPoint, outPoint. " +
     "matchName is locale-stable internal id (e.g. 'ADBE Vector Layer'); type discriminates Layer subclass " +
     "(AVLayer/CameraLayer/LightLayer/ShapeLayer/TextLayer). " +
     "Throws AENoActiveCompError when compId omitted and no active comp; AENotFoundError when compId is unknown.",

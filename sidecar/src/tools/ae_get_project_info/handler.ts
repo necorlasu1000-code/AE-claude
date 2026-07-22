@@ -19,11 +19,17 @@ import {
 export const ae_get_project_info = defineAETool<AeGetProjectInfoInput, AeGetProjectInfoOutput>({
   name: "ae_get_project_info",
   description:
-    "Get After Effects project metadata. Returns project file (path + name, " +
-    "or null when unsaved), total item count, color depth (bitsPerChannel: " +
-    "8/16/32), expression engine ('extendscript' or 'javascript-1.0'), display " +
-    "start frame, and AE host version (app.version). No active-comp dependency " +
-    "-- works on any project state including empty/unsaved.",
+    "Get After Effects project metadata. No active-comp dependency -- " +
+    "works on any project state including empty/unsaved. " +
+    "Returns: file ({ path, name } or null when project is unsaved), " +
+    "numItems (total items in Project panel), " +
+    "bitsPerChannel (color depth: 8 / 16 / 32), " +
+    "expressionEngine ('extendscript' for legacy or 'javascript-1.0' for modern -- " +
+    "claude expression-writing tools must match this engine), " +
+    "displayStartFrame (frame numbering display start), " +
+    "and hostVersion (AE host application version, e.g. '22.6.0' -- " +
+    "useful for compatibility checks before further tool calls). " +
+    "Input: no parameters (empty object).",
   input: aeGetProjectInfoInputSchema,
   output: aeGetProjectInfoOutputSchema,
   handler: async (input: AeGetProjectInfoInput, ctx: ToolCtx): Promise<AeGetProjectInfoOutput> => {

@@ -14,20 +14,12 @@
 // expands to 30 tools — each is a fresh `registerTool` call with its own
 // zod input schema. The server↔ws hop stays the same.
 
+import type { AnyZodObject } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { ResultMsg, ErrorMsg } from "../protocol.js";
 import { McpWsClient } from "./wsClient.js";
-import { aeGetActiveCompInputSchema } from "../tools/ae_get_active_comp/schema.js";
-import { aeListCompsInputSchema } from "../tools/ae_list_comps/schema.js";
-import { aeGetLayersInputSchema } from "../tools/ae_get_layers/schema.js";
-import { aeListEffectsInputSchema } from "../tools/ae_list_effects/schema.js";
-import { aeGetExpressionInputSchema } from "../tools/ae_get_expression/schema.js";
-import { aeGetKeyframesInputSchema } from "../tools/ae_get_keyframes/schema.js";
-import { aeGetProjectInfoInputSchema } from "../tools/ae_get_project_info/schema.js";
-import { aeCreateCompInputSchema } from "../tools/ae_create_comp/schema.js";
-import { aeSetActiveCompInputSchema } from "../tools/ae_set_active_comp/schema.js";
-import { aeAddSolidLayerInputSchema } from "../tools/ae_add_solid_layer/schema.js";
+import { tools } from "../tools/index.js";
 
 const SERVER_NAME = "ae-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -43,259 +35,32 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     { capabilities: { tools: {} } },
   );
 
-  // Phase 5.1.3 — inputSchema sourced from collocated zod schema (D8).
-  // The MCP SDK's registerTool accepts a ZodRawShape; aeGetActiveCompInputSchema
-  // is z.object({}) so .shape is `{}` — functionally equivalent to omitting
-  // the field, but explicit so the 30-tool growth pattern (5.2~) lands here
-  // with a single-line edit per tool (one named import + one shape ref).
+  // mistakes #19 root-cause fix (was: every registerTool block duplicated the
+  // handler.ts description and the two copies drifted). Single source of
+  // truth: each tool's handler.ts defineAETool def carries the production
+  // description claude reads; this loop registers all of them verbatim.
+  // Adding a Phase 5 tool = 1 registry entry in tools/index.ts, zero edits here.
   //
-  // Server.ts stays a dumb stdio↔ws relay: domain logic (defineAETool wrap,
-  // schema validation, AENoActiveCompError sentinel conversion) lives in
-  // sidecar main's tools/ae_get_active_comp/handler.ts, reached via the
-  // tools registry inside makeDispatcherExecHandler (D-K spirit — mcp =
-  // protocol relay, sidecar main = domain).
-  server.registerTool(
-    "ae_get_active_comp",
-    {
-      description:
-        "Get the currently active composition in After Effects. " +
-        "Returns the comp's id, name, dimensions, durationSec, frameRate, and numLayers. " +
-        "Throws AENoActiveCompError when no comp is selected.",
-      inputSchema: aeGetActiveCompInputSchema.shape,
-    },
-    async () => {
-      const out = await wsClient.exec("ae_get_active_comp", {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.1.4 — ae_list_comps (read-only, MVP 1/5, comp lane).
-  server.registerTool(
-    "ae_list_comps",
-    {
-      description:
-        "List compositions in the active After Effects project. " +
-        "Paginated: optional limit (1-200, default 50) and offset (0-based, default 0). " +
-        "Returns { items, total, hasMore, nextOffset } where items[] hold comp metadata " +
-        "(id, name, width, height, durationSec, frameRate, numLayers), total is the full " +
-        "comp count, and nextOffset is the offset for the next page (null on the last page). " +
-        "Empty project returns { items: [], total: 0, hasMore: false, nextOffset: null }.",
-      inputSchema: aeListCompsInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_list_comps", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.1.5 — ae_get_layers (read-only, MVP 2/5, layer lane).
-  server.registerTool(
-    "ae_get_layers",
-    {
-      description:
-        "List layers in a composition. compId optional -- defaults to active composition. " +
-        "Returns array of layer metadata (index, name, matchName, type, enabled, locked, inPoint, outPoint). " +
-        "matchName is locale-stable internal id (e.g. 'ADBE Vector Layer'); " +
-        "type discriminates Layer subclass (AVLayer/CameraLayer/LightLayer/ShapeLayer/TextLayer). " +
-        "Throws AENoActiveCompError when compId omitted and no active comp; AENotFoundError when compId is unknown.",
-      inputSchema: aeGetLayersInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_get_layers", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.1.6 — ae_list_effects (read-only, MVP 3/5, effect lane).
-  server.registerTool(
-    "ae_list_effects",
-    {
-      description:
-        "List effects applied to a layer. layerIndex required (1-based, AE convention). " +
-        "compId optional -- defaults to active composition. " +
-        "Paginated: optional limit (1-200, default 50) and offset (0-based, default 0). " +
-        "Returns { items, total, hasMore, nextOffset } where items[] hold effect metadata " +
-        "(matchName, displayName, enabled). matchName is the locale-stable internal id " +
-        "(e.g., 'ADBE Gaussian Blur 2'); displayName is the user-facing label in AE Effect " +
-        "Controls. nextOffset is the offset for the next page (null on the last page). " +
-        "Throws AENoActiveCompError when compId omitted and no active comp; " +
-        "AENotFoundError when compId is unknown or layerIndex is out of bounds. " +
-        "Layers that don't host effects (Camera/Light/Null) return " +
-        "{ items: [], total: 0, hasMore: false, nextOffset: null }.",
-      inputSchema: aeListEffectsInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_list_effects", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.1.7 — ae_get_expression (read-only, MVP 4/5, expression lane).
-  // Phase 5.1.7 fix-2 (mistakes #19) — description string here is the
-  // production source claude sees; the zod schema's description fields
-  // are dev annotations only. Keep this block in sync with handler.ts
-  // (currently a duplicate; root-cause fix to consolidate single source
-  // of truth is tracked separately for review before 5.2 entry).
-  server.registerTool(
-    "ae_get_expression",
-    {
-      description:
-        "Get expression on a property of a layer. propertyName is the property " +
-        "name as shown in the After Effects panel timeline (display name in current " +
-        "locale). Examples: 'Position', 'Scale', 'Rotation', 'Anchor Point', 'Opacity'. " +
-        "Do NOT use internal matchNames (e.g., 'ADBE Position') -- ExtendScript's " +
-        "layer.property() lookup uses display name only. " +
-        "Returns expression source string and enabled flag. " +
-        "compId optional -- defaults to active composition. " +
-        "Returns { expression: '', enabled: false } when no expression is set. " +
-        "Throws AENoActiveCompError when compId omitted and no active comp; " +
-        "AENotFoundError when compId is unknown, layerIndex is out of bounds, " +
-        "or propertyName is not present on the layer.",
-      inputSchema: aeGetExpressionInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_get_expression", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.1.8 -- ae_get_keyframes (read-only, MVP 5/5, keyframe lane).
-  // Production source description (mistakes #19 single source pattern --
-  // claude reads this string, NOT the zod schema's .describe fields).
-  server.registerTool(
-    "ae_get_keyframes",
-    {
-      description:
-        "Get keyframes on a property of a layer. propertyName is the display name " +
-        "in the current locale (e.g., 'Position', 'Scale', 'Rotation', 'Anchor Point', " +
-        "'Opacity'). Returns keyframe array with time, value, and interpolation type " +
-        "for in/out. Do NOT use internal matchNames like 'ADBE Position' -- " +
-        "layer.property() lookup uses display name only. " +
-        "compId optional -- defaults to active composition. " +
-        "Each keyframe entry: { index (1-based), time (seconds), value (raw -- shape " +
-        "varies by propertyValueType: number / number[] / object), interpolation: " +
-        "{ in, out } where in/out are LINEAR | BEZIER | HOLD }. " +
-        "Returns { keyframes: [] } when no keyframes are set on the property. " +
-        "Throws AENoActiveCompError when compId omitted and no active comp; " +
-        "AENotFoundError when compId is unknown, layerIndex is out of bounds, " +
-        "or propertyName is not present on the layer.",
-      inputSchema: aeGetKeyframesInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_get_keyframes", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.2.1 -- ae_get_project_info (read-only, 컴프 lane 1/3, 5.2 진입).
-  // Production source description (mistakes #19 single source pattern).
-  // No active-comp dependency -- works on empty/unsaved project too.
-  server.registerTool(
-    "ae_get_project_info",
-    {
-      description:
-        "Get After Effects project metadata. No active-comp dependency -- " +
-        "works on any project state including empty/unsaved. " +
-        "Returns: file ({ path, name } or null when project is unsaved), " +
-        "numItems (total items in Project panel), " +
-        "bitsPerChannel (color depth: 8 / 16 / 32), " +
-        "expressionEngine ('extendscript' for legacy or 'javascript-1.0' for modern -- " +
-        "claude expression-writing tools must match this engine), " +
-        "displayStartFrame (frame numbering display start), " +
-        "and hostVersion (AE host application version, e.g. '22.6.0' -- " +
-        "useful for compatibility checks before further tool calls). " +
-        "Input: no parameters (empty object).",
-      inputSchema: aeGetProjectInfoInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_get_project_info", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.2.3 -- ae_set_active_comp (write, comp lane 3/3 -- 5.2 comp
-  // lane completion). Production source description (mistakes #19 single
-  // source pattern). NOT destructive -- changing active comp is UI state
-  // in production AE, not undo-tracked. No undo group entry is created.
-  server.registerTool(
-    "ae_set_active_comp",
-    {
-      description:
-        "Set the active composition by opening it in the After Effects " +
-        "viewer panel. Either compId (numeric Item ID, unambiguous, takes " +
-        "precedence) or compName (display name, first matching Composition " +
-        "wins) must be provided -- supply at least one. Use compId when " +
-        "known (e.g., from ae_list_comps or ae_create_comp output) -- " +
-        "compName is ambiguous if duplicates exist. Returns the activated " +
-        "composition's id and name. NOT destructive: production AE does " +
-        "not register changing the active comp in the undo stack, so this " +
-        "tool also leaves Edit > Undo untouched. " +
-        "Throws AENotFoundError when compId is unknown, when compId " +
-        "resolves to a non-Composition item (Folder/Footage), or when " +
-        "no Composition matches compName.",
-      inputSchema: aeSetActiveCompInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_set_active_comp", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.3.1 -- ae_add_solid_layer (write, layer lane 1/9 -- 5.3 lane
-  // first sub-step, D4 HOF reuse first activation). Production source
-  // description (mistakes #19 single source pattern). DESTRUCTIVE: wraps
-  // in undo group named "ae_add_solid_layer" so a single Ctrl+Z reverts.
-  server.registerTool(
-    "ae_add_solid_layer",
-    {
-      description:
-        "Add a new solid color layer to a composition. Specify name and " +
-        "color (RGB array [r, g, b] in 0-1 range, NOT 0-255 -- remap if " +
-        "user gives hex/255). Optional: width and height (pixels, max " +
-        "30000, default = comp dimensions matching AE 'Make Solid' " +
-        "default), pixelAspect (default 1.0 square pixels), duration " +
-        "(SECONDS not frames, default = comp duration), compId (default " +
-        "= active composition). Returns { index (1-based, typically 1 " +
-        "since AE inserts solids as topmost layer), name, compId } -- " +
-        "use compId in follow-up tools to avoid re-resolving the active " +
-        "comp. DESTRUCTIVE: wraps in undo group named 'ae_add_solid_" +
-        "layer' so a single Ctrl+Z reverts. " +
-        "Throws AENoActiveCompError when compId omitted and no active " +
-        "comp; AENotFoundError when compId is unknown or resolves to a " +
-        "non-Composition item.",
-      inputSchema: aeAddSolidLayerInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_add_solid_layer", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
-
-  // Phase 5.2.2 -- ae_create_comp (write, comp lane 2/3 -- D4 destructive
-  // flag + undoGroup wiring first reference). Production source description
-  // (mistakes #19 single source pattern). DESTRUCTIVE: wraps in undo group
-  // named "ae_create_comp" so a single Ctrl+Z reverts the creation.
-  server.registerTool(
-    "ae_create_comp",
-    {
-      description:
-        "Create a new composition in the project. Specify name (Project " +
-        "panel label), width (pixels, max 30000), height (pixels, max " +
-        "30000), frameRate (fps, max 999), duration (SECONDS, not frames). " +
-        "Optional bgColor [r, g, b] each in 0-1 range (NOT 0-255 -- remap " +
-        "if user gives hex/255). Optional pixelAspect (default 1.0 square " +
-        "pixels; 2.0 widescreen anamorphic, 1.21 DV anamorphic). Returns " +
-        "the created composition's id (use as compId in subsequent layer/" +
-        "effect calls), plus echo of name/width/height/frameRate/duration. " +
-        "DESTRUCTIVE: registered to AE undo history as a single 'ae_create_" +
-        "comp' undo group -- one Ctrl+Z reverts. No active-comp dependency.",
-      inputSchema: aeCreateCompInputSchema.shape,
-    },
-    async (rawInput) => {
-      const out = await wsClient.exec("ae_create_comp", rawInput ?? {});
-      return toCallToolResult(out);
-    },
-  );
+  // Server.ts stays a dumb stdio<->ws relay: domain logic (defineAETool wrap,
+  // schema validation, AEError sentinel conversion) lives in sidecar main's
+  // tools/<name>/handler.ts, reached via makeDispatcherExecHandler (D-K
+  // spirit -- mcp = protocol relay, sidecar main = domain). The MCP SDK
+  // wants a ZodRawShape, and every tool input is a z.object, so .shape is
+  // safe; rawInput is forwarded verbatim (46aad83 regression guard: a {}
+  // hardcode here silently drops limit/offset).
+  for (const t of Object.values(tools)) {
+    server.registerTool(
+      t.name,
+      {
+        description: t.description,
+        inputSchema: (t.inputSchema as AnyZodObject).shape,
+      },
+      async (rawInput: unknown) => {
+        const out = await wsClient.exec(t.name, rawInput ?? {});
+        return toCallToolResult(out);
+      },
+    );
+  }
 
   return server;
 }

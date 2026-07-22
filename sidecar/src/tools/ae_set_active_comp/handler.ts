@@ -29,9 +29,18 @@ export const ae_set_active_comp = defineAETool<AeSetActiveCompInput, AeSetActive
   name: "ae_set_active_comp",
   // destructive: false -- viewer state is not undo-tracked in production AE.
   description:
-    "Set the active composition (open it in the AE viewer). Either compId " +
-    "or compName must be provided; compId takes precedence. Returns the " +
-    "activated comp's id and name. NOT destructive (not undo-tracked).",
+    "Set the active composition by opening it in the After Effects " +
+    "viewer panel. Either compId (numeric Item ID, unambiguous, takes " +
+    "precedence) or compName (display name, first matching Composition " +
+    "wins) must be provided -- supply at least one. Use compId when " +
+    "known (e.g., from ae_list_comps or ae_create_comp output) -- " +
+    "compName is ambiguous if duplicates exist. Returns the activated " +
+    "composition's id and name. NOT destructive: production AE does " +
+    "not register changing the active comp in the undo stack, so this " +
+    "tool also leaves Edit > Undo untouched. " +
+    "Throws AENotFoundError when compId is unknown, when compId " +
+    "resolves to a non-Composition item (Folder/Footage), or when " +
+    "no Composition matches compName.",
   input: aeSetActiveCompInputSchema,
   output: aeSetActiveCompOutputSchema,
   handler: async (input: AeSetActiveCompInput, ctx: ToolCtx): Promise<AeSetActiveCompOutput> => {

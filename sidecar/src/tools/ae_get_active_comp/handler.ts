@@ -31,10 +31,12 @@ import {
 
 export const ae_get_active_comp = defineAETool<AeGetActiveCompInput, AeGetActiveCompOutput>({
   name: "ae_get_active_comp",
+  // Production-source description (mistakes #19 single source): mcp/server.ts
+  // registers every tool from this def, so THIS string is what claude reads.
   description:
     "Get the currently active composition in After Effects. " +
     "Returns the comp's id, name, dimensions, durationSec, frameRate, and numLayers. " +
-    "Throws AENoActiveCompError when no comp is selected (typeName !== 'Composition').",
+    "Throws AENoActiveCompError when no comp is selected.",
   input: aeGetActiveCompInputSchema,
   output: aeGetActiveCompOutputSchema,
   handler: async (input: AeGetActiveCompInput, ctx: ToolCtx): Promise<AeGetActiveCompOutput> => {
