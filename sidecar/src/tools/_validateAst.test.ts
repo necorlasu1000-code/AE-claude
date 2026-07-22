@@ -50,6 +50,15 @@ describe("D7 validator — indirection bypass attempts", () => {
     ["setTimeout with string", `setTimeout("File('x')", 0);`],
     ["setInterval with string", `setInterval("File('x')", 1000);`],
     ["__proto__ constructor escape", `({}).__proto__.constructor("alert(1)")();`],
+    // Allow-list enforcement (previously ALLOWED_GLOBALS was never consulted,
+    // so any global not on the deny-list slipped through).
+    ["this.File global-object escape", `this.File("x");`],
+    ["this.system escape", `this.system.callSystem("rm -rf ~");`],
+    ["this.eval escape", `this.eval("alert(1)");`],
+    ["$ debug global evalFile", `$.evalFile("/evil.jsx");`],
+    ["$ debug global write", `$.write("leak");`],
+    ["unknown global reference", `foobarBaz.doEvil();`],
+    ["with(this) global reach", `with (this) { doThing(); }`],
   ];
 
   for (const [label, code] of cases) {

@@ -3,8 +3,13 @@
 // _validateAst.test.ts. Coverage grows per-tool — every new jsx pattern
 // added under src/jsx/aeft/tools/ adds at least one matching positive
 // case (Phase 5 sub-step rule).
-// Strategy: default-deny with conservative allow-list + indirection
-// blocking + #include preprocess.
+// Strategy: default-deny — every bare identifier reference must be either
+// locally declared or on ALLOWED_GLOBALS (enforced in the ancestor walk),
+// PLUS absolute DENY_LIST, `this`/`with`/computed-access blocking, and
+// #include preprocess. An identifier that is neither declared nor allowed
+// is rejected even if it is not on the deny-list (closes the "unknown
+// global slips through" hole where ALLOWED_GLOBALS was defined but never
+// consulted).
 //
 // Scope of validation = per-tool source patterns ONLY, NOT the bolt-cep
 // production bundle (dist/cep/jsx/index.js). Reason: the bundle inlines
@@ -15,7 +20,7 @@
 // rewriting. If a future ES5+ host removes the polyfill need, revisit.
 
 import { Parser } from "acorn";
-import { simple as walk } from "acorn-walk";
+import { simple as walk, ancestor } from "acorn-walk";
 import type { Node } from "acorn";
 
 // Identifiers that MUST NOT appear anywhere in user-supplied ExtendScript.
@@ -70,8 +75,12 @@ const ALLOWED_GLOBALS = new Set([
   "RegExp", "Error", "TypeError", "RangeError", "SyntaxError",
   // Loop / control
   "undefined", "null", "true", "false", "NaN", "Infinity",
-  // ExtendScript-specific
-  "$",  // ExtendScript debug global — consider blocking in stricter mode
+  // Pure global functions safe in ExtendScript
+  "parseInt", "parseFloat", "isNaN", "isFinite",
+  // NOTE: `$` (ExtendScript debug global) is intentionally NOT allowed —
+  // it exposes $.evalFile / $.global / $.write (FS + arbitrary eval).
+  // NOTE: `this` is blocked via the ThisExpression visitor (top-level
+  // `this` is the global object → this.File / this.system escape).
 ]);
 
 export interface AstFinding {
@@ -136,9 +145,34 @@ export function validateExtendScript(rawSource: string): ValidateResult {
     return { ok: false, findings };
   }
 
-  // Step 3: walk and collect violations
+  // Step 3a: collect all locally-declared binding names (over-approximated
+  // as one flat scope — safe for an allow-list: a locally-bound name is
+  // treated as allowed everywhere, which at worst permits a reference to an
+  // out-of-scope local (a runtime ReferenceError, NOT a capability escape).
+  // DENY_LIST stays absolute and overrides local binding regardless.
+  const declared = new Set<string>();
   walk(ast, {
-    Identifier(node: any) {
+    VariableDeclarator(node: any) {
+      if (node.id?.type === "Identifier") declared.add(node.id.name);
+    },
+    FunctionDeclaration(node: any) {
+      if (node.id?.type === "Identifier") declared.add(node.id.name);
+      for (const p of node.params ?? []) if (p.type === "Identifier") declared.add(p.name);
+    },
+    FunctionExpression(node: any) {
+      if (node.id?.type === "Identifier") declared.add(node.id.name);
+      for (const p of node.params ?? []) if (p.type === "Identifier") declared.add(p.name);
+    },
+    CatchClause(node: any) {
+      if (node.param?.type === "Identifier") declared.add(node.param.name);
+    },
+  });
+
+  // Step 3b: walk with ancestor context. Every Identifier in *reference*
+  // position must be either locally declared or on ALLOWED_GLOBALS —
+  // default-deny. DENY_LIST is checked first and always wins.
+  ancestor(ast, {
+    Identifier(node: any, _state: unknown, ancestors: any[]) {
       const name = node.name as string;
       if (DENY_LIST.has(name)) {
         findings.push({
@@ -147,14 +181,36 @@ export function validateExtendScript(rawSource: string): ValidateResult {
           reason: `Use of '${name}' is forbidden (FS/network/eval surface)`,
           identifier: name,
         });
+        return;
       }
+      // ancestors includes the node itself as the last element.
+      const parent = ancestors[ancestors.length - 2];
+      if (parent && isNonReferencePosition(node, parent)) return;
+      if (declared.has(name) || ALLOWED_GLOBALS.has(name)) return;
+      findings.push({
+        line: node.loc?.start.line ?? 0,
+        col: node.loc?.start.column ?? 0,
+        reason: `Reference to '${name}' is not on the AE API allow-list (default-deny)`,
+        identifier: name,
+      });
+    },
+
+    // Block `this` — top-level `this` is the global object, so this.File /
+    // this.system / this.eval reach the full deny-list surface via a
+    // non-computed member access that the property rules don't cover.
+    ThisExpression(node: any) {
+      findings.push({
+        line: node.loc?.start.line ?? 0,
+        col: node.loc?.start.column ?? 0,
+        reason: "'this' is not allowed (global-object escape: this.File / this.system)",
+      });
     },
 
     // MemberExpression: two distinct risks handled here.
     //   1. Computed access (obj[expr]) — bypasses static identifier check
     //   2. Non-computed access to dangerous property names (obj.constructor)
     //      — acorn-walk's Identifier visitor doesn't visit non-computed property
-    //        nodes as Identifiers, so the deny-list misses them. See DANGEROUS_PROPS.
+    //        nodes as Identifiers, so the allow/deny checks miss them. See DANGEROUS_PROPS.
     MemberExpression(node: any) {
       const prop = node.property;
       if (node.computed) {
@@ -174,17 +230,6 @@ export function validateExtendScript(rawSource: string): ValidateResult {
           reason: `Access to '.${prop.name}' is forbidden (Function constructor / prototype escape)`,
           identifier: prop.name,
         });
-      }
-    },
-
-    // Block string concat in property names: app["pr" + "oject"]
-    BinaryExpression(node: any) {
-      if (node.operator === "+" && hasStringInvolved(node)) {
-        // Walk up: only flag if used as MemberExpression property
-        // acorn-walk doesn't give parent; we approximate by checking
-        // common pattern. Conservative: any string concat near member is suspicious.
-        // For tighter check, custom traversal needed; this is a reasonable heuristic.
-        // Will be caught by computed MemberExpression rule above in practice.
       }
     },
 
@@ -216,12 +261,30 @@ export function validateExtendScript(rawSource: string): ValidateResult {
   return { ok: findings.length === 0, findings };
 }
 
-function hasStringInvolved(node: any): boolean {
-  if (node.type === "Literal" && typeof node.value === "string") return true;
-  if (node.type === "BinaryExpression") {
-    return hasStringInvolved(node.left) || hasStringInvolved(node.right);
+// True when `node` (an Identifier) is a binding/label/property name rather
+// than a value reference — those positions are exempt from the allow-list.
+function isNonReferencePosition(node: any, parent: any): boolean {
+  switch (parent.type) {
+    case "MemberExpression":
+      // non-computed property name (obj.foo) — not a reference to `foo`
+      return parent.property === node && !parent.computed;
+    case "Property":
+      // object-literal key ({ foo: 1 }) when not computed
+      return parent.key === node && !parent.computed;
+    case "VariableDeclarator":
+      return parent.id === node;
+    case "FunctionDeclaration":
+    case "FunctionExpression":
+      return parent.id === node || (parent.params ?? []).includes(node);
+    case "CatchClause":
+      return parent.param === node;
+    case "LabeledStatement":
+    case "BreakStatement":
+    case "ContinueStatement":
+      return parent.label === node;
+    default:
+      return false;
   }
-  return false;
 }
 
 // ─── Helper: format findings for ApprovalRequestMsg ─────────────────

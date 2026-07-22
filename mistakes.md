@@ -1494,3 +1494,32 @@ clearSelection은 xtermSel side에만 / removeAllRanges는 nativeSel side에만 
 **검증**: `panelBridge.test.ts` scenario 17 (mcp connect mid-grace → shutdown 발동) + 17b (panel reconnect mid-grace → 발동 X). pre-fix에서 17은 fail (타이머 취소로 shutdown 미발동), post-fix 26 tests 그린.
 
 **메타 family**: #16 direct lineage — "통합 조건이 새 차원(role)을 합산"의 arm 방향이 #16, cancel 방향이 #21. 정책 게이트는 상태 lifecycle 전체 (arm/cancel/re-arm)에 일관 적용해야 완결.
+
+## 2026-07-22 AST validator allow-list 미강제 → deny-list 전용 (#22)
+
+**문제**: 심층 리뷰에서 발견. `_validateAst.ts`가 헤더 주석에 "default-deny + allow-list"를 표방하지만, `ALLOWED_GLOBALS` Set이 **정의만 되고 참조 0회** (grep 확인). Identifier 비지터가 `DENY_LIST.has(name)`일 때만 finding을 추가 → deny-list에 없는 임의 전역이 전부 통과. 설계 의도(기본 거부)와 실제 동작(기본 허용)이 정반대.
+
+**우회 구멍** (모두 pre-fix 통과):
+- `this.File("x")` / `this.system.callSystem(...)` — `this`는 DENY_LIST에 없고 `ThisExpression`은 Identifier 노드가 아님. 비계산 dot 접근이라 computed 규칙에도 안 걸림. 최상위 `this` = 전역 객체 → 전체 deny 표면 도달.
+- `$.evalFile("/evil.jsx")` / `$.write(...)` — `$` (ExtendScript 디버그 전역)가 ALLOWED_GLOBALS에 있고 deny에 없어 통과. `$.evalFile`은 임의 파일 eval.
+- `foobarBaz.doEvil()` — deny에 없는 임의 전역 전부 통과.
+
+**영향 범위**: 현재 `ae_run_extendscript`가 레지스트리에 없어 즉시 도달 불가(잠재). 단 이 validator가 D3/D7의 **유일한 보안 게이트**이므로 5.8 escape hatch 도입 시 그대로 뚫림. 5.8 진입 전 필수 수정.
+
+**Fix**:
+1. **allow-list 강제** (scope-aware): pass 1에서 지역 선언 이름(var/function/param/catch) 수집 → pass 2 `ancestor` walk에서 참조 위치 Identifier가 지역 선언도 ALLOWED_GLOBALS도 아니면 거부. 선언/프로퍼티/레이블 위치는 `isNonReferencePosition`으로 제외. DENY_LIST는 절대 우선(지역 shadow 무시).
+2. **`this` 차단**: `ThisExpression` 비지터 추가.
+3. **`$` 제거**: ALLOWED_GLOBALS에서 삭제 ($.evalFile/$.global/$.write 표면).
+4. `acorn-walk`의 `simple` → 선언 수집만 simple, 참조 검사는 `ancestor` (parent 컨텍스트로 참조 vs 선언 구분).
+5. 죽은 코드 제거: 빈 `BinaryExpression` 비지터 + `hasStringInvolved` 헬퍼 (주석 스스로 "computed 규칙이 잡는다"고 인정).
+
+**scope 근사의 안전성**: 지역 선언을 단일 flat scope로 over-approximate — out-of-scope 지역 참조를 허용할 수 있으나 이는 런타임 ReferenceError일 뿐 **capability escape 아님** (안전한 방향의 근사). deny-list globals와 unknown globals는 절대 통과 못 함.
+
+**예방**:
+1. **"정의된 allow-list는 반드시 소비되는지" 게이트**: 보안 목록(allow/deny)을 선언하면 참조 지점을 grep로 확인. 정의만 하고 미참조 = 게이트 무력화.
+2. **allow-list validator는 scope-aware 필수**: 단순 deny-list는 열거된 것만 막지만, allow-list는 "선언 vs 참조" 위치 구분(ancestor/parent) 없이는 false positive(프로퍼티명/파라미터를 unknown global로 오탐) 폭발. `simple` walk로는 부족.
+3. **골든셋에 allow-list 케이스**: deny 우회(this/$/unknown global) + 정상 통과(app/Math/지역변수) 양쪽 누적. 5.8 진입 시 확장.
+
+**검증**: `_validateAst.test.ts` 42 → 50 cases (+8: this.File / this.system / this.eval / $.evalFile / $.write / unknown global / with(this)). positive 케이스(app.project / comp.layer / KeyframeInterpolationType / ae_create_comp 패턴) 전부 그린 유지. 사이드카 225 tests green + tsc build clean.
+
+**메타 family**: "선언했으나 배선 안 된 방어" — #19(description single source가 dead code만 정정)와 유사하게, 코드가 있다고 방어가 작동하는 게 아님. allow-list Set 존재 ≠ allow-list 강제.
