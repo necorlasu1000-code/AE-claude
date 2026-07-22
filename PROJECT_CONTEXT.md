@@ -312,6 +312,24 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 ---
 
+## G-0. 심층 코드 리뷰 fix 패스 (2026-07-22, Phase 5.3.1 이후)
+
+외부 감사(4-영역 심층 리뷰: 코어/MCP/툴/패널) 결과를 반영한 fix 패스. Phase 5.3.1(`a2692a8`)에서 진행 중이던 시점에 리뷰 → 7개 commit으로 HIGH/게이트 위반 처리. **모든 phase-exit 게이트 재통과**: sidecar 230 tests / panel 45 tests / 양쪽 build green / jsx dist `__proto__`=0, non-ASCII=0, alert=0, 10 tool 등록.
+
+| Fix | commit | 내용 | mistakes |
+|---|---|---|---|
+| 1 | `3f76c01` | grace 타이머 취소 panel-only (connect 방향) — mcp 재접속이 좀비 유발 | **#21** (#16 재발) |
+| 2 | `92f0ad1` | AST validator allow-list 실제 강제 + `this`/`$`/dot 우회 차단 (골든셋 42→50) | **#22** |
+| 3 | `296f2a6` | 패널 브리지 방어 타임아웃 + tool 이름 화이트리스트 + U+2028/9 escape (panel 42→45) | — |
+| 4 | `35e7aa9` | 부팅 배선 순서 재구성 + registerMcp stdin ignore+타임아웃 + late pty.onExit 버퍼 + await kill + unhandledRejection + localhost gate + routeMessage try/catch | **#23** (4 aspect) |
+| 5 | `46aad83` | ae_list_* 페이지네이션 게이트 §5 (limit/offset/{items,total,hasMore,nextOffset}) + server.ts rawInput 포워딩 버그 + PtyHost.killImmediate abort 경로 | — |
+| 6 | `09cdb90` | 죽은 코드 청소 (helloWorld/alert, hello* 6, samples.ts, getAppNameSafely, 템플릿 에셋 12, lib/utils ppro/aeft) + jsx 주석 ASCII화 (§/em-dash, __proto__ 토큰) + @types/which devDeps | — (F6 해소) |
+| 7 | `55f75c4` | Mutex gate §7 문구를 D-D와 정합화 (직렬화=panel FIFO, dispatcher는 동시 in-flight 허용) | — |
+
+**핵심 발견 3건 (Critical)**: (a) mcp 접속이 grace 타이머 role-blind 취소 → #16 재발 (#21). (b) `ALLOWED_GLOBALS` 정의만 되고 미참조 → validator가 deny-list 전용으로 동작, `this.File`/`$.evalFile`/임의 unknown global 통과 (#22, 5.8 escape hatch 전 필수였음). (c) 패널 브리지 큐가 evalScript 콜백 미발화 시 영구 스톨 + jsx에 `alert()` 포함 `helloWorld` 잔재가 트리거 → 방어 타임아웃 + alert 제거.
+
+**미처리(의도적 보류, 개별 검증 필요)**: 패널 package.json 추측성 미사용 devDeps 9종 (rollup-plugin-*/babel-preset-env 등 — 각각 build 확인 후 제거 권장, 추측 fix 회피). Phase 7 ZXP 프로덕션 사이드카 패키징(절대경로 박힘/Node·node_modules 미동봉 — D5/D9 설계 확정 필요), cep.config 인증서 플레이스홀더, requiredRuntimeVersion 9.0→11.0, vite.es.config watchRollup 즉시 close — 모두 Phase 7 진입 시 처리 대상으로 문서화.
+
 ## G. 통계 (Phase 5.2.1 complete 시점, 2026-05-10)
 
 | 항목 | 수치 |
