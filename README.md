@@ -262,10 +262,10 @@ export const myFuncObj = (obj: { height: number, width: number }) => {
 };
 ```
 
-For any existing Bolt CEP projects, rest assured that the legacy `evalES()` function remains in place as usual as demonstrated in `main.tsx`.
+For any existing Bolt CEP projects, rest assured that the legacy `evalES()` function remains in place as usual. (Note: this project's jsx layer no longer ships the template's `helloWorld` sample — AE tool entry points are registered under `$["<ns>"].tools.*` via `defineJsxTool`; see `src/jsx/aeft/tools/`.)
 
 ```js
-evalES(`helloWorld("${csi.getApplicationID()}")`);
+evalES(`myJsxFunction("${csi.getApplicationID()}")`);
 ```
 
 You will also want to use this function for calling ExtendScript functions in the global scope directly, by passing `true` to the second parameter:

@@ -4,7 +4,7 @@
 // ItemCollection convention), filters CompItem via typeName check (NOT
 // instanceof -- vitest mock env lacks AE class globals so instanceof
 // CompItem ReferenceErrors; same constraint Phase 3.3 ae_get_active_comp
-// codified). Empty project returns { comps: [] } with no error.
+// codified). Empty project returns the empty page envelope with no error.
 //
 // AST validator (D7) compliance: dot-notation only, no computed member
 // access, no system.callSystem/File/Folder/Socket/eval/Function/include.

@@ -330,6 +330,23 @@ C:\Users\user\Desktop\성윤\에펙 클로드\
 
 **미처리(의도적 보류, 개별 검증 필요)**: 패널 package.json 추측성 미사용 devDeps 9종 (rollup-plugin-*/babel-preset-env 등 — 각각 build 확인 후 제거 권장, 추측 fix 회피). Phase 7 ZXP 프로덕션 사이드카 패키징(절대경로 박힘/Node·node_modules 미동봉 — D5/D9 설계 확정 필요), cep.config 인증서 플레이스홀더, requiredRuntimeVersion 9.0→11.0, vite.es.config watchRollup 즉시 close — 모두 Phase 7 진입 시 처리 대상으로 문서화.
 
+### G-0-b. 2차 더블체크 + 잔여 전량 처리 패스 (2026-07-22 저녁)
+
+G-0 fix 패스 자체를 더블체크한 결과 **fix 커밋 2개에서 실동작 안 하는 버그 3건 발견 → 수정**, 이어서 G-0의 잔여/보류 항목을 전량 처리.
+
+| commit | 내용 | mistakes |
+|---|---|---|
+| `4f94928` | 296f2a6의 U+2028/9 escape가 런타임 no-op(단일 백슬래시=원시 문자)이었음 → `\\u2028` 정정 + undefined input 가드 + 회귀 테스트 2 | **#24** |
+| `6853741` | 46aad83의 killImmediate taskkill이 detached:false라 process.exit(2)와 동반 사망(실기기 재현) → detached+unref + spawn 옵션 단언 테스트 + PtyLike mock 3곳 갱신 | **#25** |
+| `0d2abf0` | 부팅 좀비 윈도우 완전 폐쇄: 안전망 배선을 PTY spawn 직후로, buffered-exit 가드 4곳, main().catch에서 bootPty.killImmediate(bridge.start 실패 누수), 크래시 exit code 1 구분, registerMcp tree-kill + `code ?? 0` 마스킹 제거 + timeout reason | #23 마무리 |
+| `b813d0e` | sendToPrimary fail-fast(AEPanelNotConnectedError, 30s 낭비 제거), ae_get_layers/ae_get_keyframes §5 페이지네이션(게이트 문구도 collection 전체로 확장), **server.ts 10개 registerTool 블록 → tools registry 루프** (#19 root fix — description 정본은 handler.ts로 단일화, 신규 툴 시 server.ts 수정 0줄) | #19 root |
+| `d9ea412` | WS Origin 게이트(브라우저 발 접속 1008 거부 — loopback만으론 못 막던 표면), lockfile stale 정리 TOCTOU(rename 원자 claim), McpWsClient 자동 재연결(backoff), server.ts stdin end/close 훅, pty.out panel-only, launcher start-실패 crash 덮어쓰기, main.tsx 텔레메트리 Map 누수 | — |
+| (청소) | 미사용 devDeps 19종 제거(빌드 검증 완료 — G-0의 "9종 추측" 항목 해소), stale 주석 4곳(ptyHost killHardCapMs "미사용" 거짓 주석 포함), jsx utils/utils.ts(dispatchTS) 삭제, README helloWorld 예제 정정, vite.es.config watchRollup 즉시 close 버그 fix | — |
+
+**검증**: sidecar **238** tests / panel **47** tests / 양쪽 tsc + build 그린 / jsx dist 게이트(proto=0, alert=0, non-ASCII=0, 10툴 전부 번들 확인).
+
+**남은 알려진 항목 (Phase 7 진입 시)**: ZXP 사이드카 패키징(D5/D9), cep.config 인증서, requiredRuntimeVersion 9.0→11.0. **설계 리마인더**: wsClient result.chunk 소비자는 여전히 의도적 미구현 (large-output 툴 도입 시 + 테스트와 함께).
+
 ## G. 통계 (Phase 5.2.1 complete 시점, 2026-05-10)
 
 | 항목 | 수치 |

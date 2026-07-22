@@ -1,7 +1,7 @@
 // Phase 5.1.6 -- zod schema for ae_list_effects (read-only, MVP 3/5 effect lane).
 //
-// Output shape: { effects: AeEffectEntry[] } -- collection wrapper key
-// per Phase 5.0 (D-N) lane convention. Each entry exposes locale-stable
+// Output shape: { items, total, hasMore, nextOffset } -- pagination gate
+// (CLAUDE.md section 5) envelope. Each item exposes locale-stable
 // matchName (e.g., "ADBE Gaussian Blur 2") + locale-dependent displayName
 // (PropertyBase.name; user-renameable) + enabled flag.
 //

@@ -94,7 +94,10 @@ export const extendscriptConfig = (
         result.close();
       }
     });
-    watcher.close();
+    // NOTE: no watcher.close() here — the template shipped one immediately
+    // after subscribing, which tore the watcher down before the first change
+    // event and silently killed dev-mode jsx rebuild/HMR (audit item).
+    // The watcher lives for the duration of the dev process.
   };
 
   if (isProduction) {

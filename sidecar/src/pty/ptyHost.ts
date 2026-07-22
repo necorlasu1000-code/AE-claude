@@ -24,10 +24,9 @@ export interface PtyHostOptions {
   cwd?: string;
   env?: Record<string, string>;
   /**
-   * Hard cap (ms) on kill() resolution. Reserved for Phase 2.5.4 — when set,
-   * kill() resolves no later than killHardCapMs even if SIGTERM/SIGKILL fail
-   * to terminate the underlying ConPTY process. Default: undefined (graceful
-   * SIGTERM → SIGKILL after 5s only).
+   * Hard cap (ms) on kill() resolution: kill() resolves no later than this
+   * even if SIGTERM and the taskkill escalation both fail to terminate the
+   * underlying ConPTY process. Default: 8000 (see kill() step 3).
    */
   killHardCapMs?: number;
 }
@@ -54,8 +53,7 @@ export class PtyHost {
   // is delivered this immediately, instead of hanging on an exit that already
   // fired to an empty subscriber set (mistakes #23).
   private exited: { code: number; signal?: number } | undefined;
-  // Reserved for Phase 2.5.4 kill semantics. Stored at construction; not
-  // consumed yet. Tests must not regress when this is set.
+  // Consumed by kill() step 3 (hard cap on Promise resolution — default 8s).
   private readonly killHardCapMs: number | undefined;
 
   // Ring buffer + carry-over for incomplete trailing fragment.

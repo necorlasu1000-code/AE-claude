@@ -1,11 +1,10 @@
 // Phase 5.1.4 — zod schema for ae_list_comps (read-only, MVP 1/5).
 //
-// Output shape: { comps: AeCompEntry[] } — array wrapping under `comps` key
-// per Phase 5.0 (D-N) lane convention (single object → top-level fields,
-// collection → wrapper key). Each entry mirrors ae_get_active_comp's output
-// (id/name/dimensions/durationSec/frameRate/numLayers) so claude can re-use
-// the same comp shape across single-active and list flows without learning
-// a second schema.
+// Output shape: { items, total, hasMore, nextOffset } — pagination gate
+// (CLAUDE.md section 5) envelope. Each item mirrors ae_get_active_comp's
+// output (id/name/dimensions/durationSec/frameRate/numLayers) so claude can
+// re-use the same comp shape across single-active and list flows without
+// learning a second schema.
 
 import { z } from "zod";
 
