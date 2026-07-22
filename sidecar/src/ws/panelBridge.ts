@@ -60,6 +60,8 @@ export interface PtyLike {
   /** Phase 4.3 hotfix (mistakes #13 Trap A) — PtyHost.kill always existed
    *  but PtyLike omitted it. Sidecar shutdown calls this; dummy is a noop. */
   kill(): Promise<void>;
+  /** Immediate non-awaiting tree-kill for abort paths (lock-held). Dummy noop. */
+  killImmediate(): void;
   getRecentOutput(maxLines?: number): string[];
 }
 

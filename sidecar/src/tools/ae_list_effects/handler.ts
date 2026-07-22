@@ -21,14 +21,13 @@ import {
 export const ae_list_effects = defineAETool<AeListEffectsInput, AeListEffectsOutput>({
   name: "ae_list_effects",
   description:
-    "List effects applied to a layer. layerIndex required (1-based, AE convention). " +
-    "compId optional -- defaults to active composition. " +
-    "Returns array of effect metadata (matchName, displayName, enabled). " +
-    "matchName is locale-stable internal id (e.g., 'ADBE Gaussian Blur 2'); " +
-    "displayName is the user-facing label in AE Effect Controls. " +
+    "List effects applied to a layer (paginated: limit/offset). layerIndex required " +
+    "(1-based, AE convention). compId optional -- defaults to active composition. " +
+    "Returns { items, total, hasMore, nextOffset }; items[] hold effect metadata " +
+    "(matchName, displayName, enabled). matchName is locale-stable internal id " +
+    "(e.g., 'ADBE Gaussian Blur 2'); displayName is the user-facing label. " +
     "Throws AENoActiveCompError when compId omitted and no active comp; " +
-    "AENotFoundError when compId is unknown or layerIndex is out of bounds. " +
-    "Layers that don't host effects (Camera/Light/Null) return { effects: [] }.",
+    "AENotFoundError when compId is unknown or layerIndex is out of bounds.",
   input: aeListEffectsInputSchema,
   output: aeListEffectsOutputSchema,
   handler: async (input: AeListEffectsInput, ctx: ToolCtx): Promise<AeListEffectsOutput> => {

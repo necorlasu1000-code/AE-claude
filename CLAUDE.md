@@ -113,8 +113,10 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
 4. **Schema gate** — input/output 양쪽 zod schema 필수 (C2).
    handler가 throw하면 `AEError` 서브클래스로만 — `code/userMessage/developerHint` 트리플.
 
-5. **Pagination gate** — 모든 `ae_list_*`: `limit: max(200).default(50)` + `{items, total, hasMore, nextOffset}` (P2).
-   list 결과 무제한 반환 금지 — Claude context 폭발 방지.
+5. **Pagination gate** — 모든 `ae_list_*`: input에 `limit: z.number().int().positive().max(200).default(50)` + `offset: z.number().int().nonnegative().default(0)`, output `{items, total, hasMore, nextOffset}` (P2).
+   list 결과 무제한 반환 금지 — Claude context 폭발 방지. impl에서 defaults 재적용 (defensive) + total은 전체 카운트, items는 `[offset, offset+limit)` window만 push. `nextOffset` = hasMore일 때 `offset+items.length`, else null.
+   **`.default()` + `defineAETool<I,O>` 주의**: zod `.default()`는 input type을 optional로 만들어 `z.ZodSchema<I>`(=`ZodType<I,_,I>`)에 안 맞음. `ToolDef.input`은 `z.ZodType<I, z.ZodTypeDef, unknown>`로 input-side를 넓혀둠 (2026-07-22). 신규 list tool은 이 패턴 상속.
+   **server.ts 핸들러가 rawInput 포워딩 필수**: `async (rawInput) => wsClient.exec(name, rawInput ?? {})` — `{}` 하드코딩 시 claude의 limit/offset 유실.
 
 6. **Localhost gate** — WebSocket binding은 `127.0.0.1` only.
    `0.0.0.0` 사용 시 LAN 공격면. 미래 원격 접속은 인증 모듈 추가 후에만.

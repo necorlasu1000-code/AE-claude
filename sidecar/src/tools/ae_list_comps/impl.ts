@@ -20,7 +20,10 @@
 
 import { defineJsxTool, JsxCompItem } from "../../../../src/jsx/aeft/tools/_define";
 
-export type AeListCompsInput = Record<string, never>;
+export interface AeListCompsInput {
+  limit?: number;
+  offset?: number;
+}
 
 export interface AeCompEntry {
   id: number;
@@ -33,14 +36,26 @@ export interface AeCompEntry {
 }
 
 export interface AeListCompsOutput {
-  comps: AeCompEntry[];
+  items: AeCompEntry[];
+  total: number;
+  hasMore: boolean;
+  nextOffset: number | null;
 }
 
 export const ae_list_comps = defineJsxTool<AeListCompsInput, AeListCompsOutput>(
-  function (_input, ctx, _h) {
-    var comps: AeCompEntry[] = [];
+  function (input, ctx, _h) {
+    // Pagination (gate §5). Defaults are normally applied by the sidecar zod
+    // schema, but re-apply here defensively (impl.test.ts calls this directly
+    // with raw input, and a future non-validated caller must stay bounded).
+    var limit = (input && typeof input.limit === "number" && input.limit > 0) ? input.limit : 50;
+    if (limit > 200) limit = 200;
+    var offset = (input && typeof input.offset === "number" && input.offset > 0) ? input.offset : 0;
+    var windowEnd = offset + limit;
+
+    var items: AeCompEntry[] = [];
     var project = ctx.app.project;
     var numItems = project.numItems || 0;
+    var total = 0;
 
     for (var i = 1; i <= numItems; i++) {
       // Direct call (NOT var fn = project.item; fn(i)) -- see file header
@@ -48,19 +63,32 @@ export const ae_list_comps = defineJsxTool<AeListCompsInput, AeListCompsOutput>(
       // is optional but production AE always populates it.
       var item = project.item!(i);
       if (item && item.typeName === "Composition") {
-        var comp = item as JsxCompItem;
-        comps.push({
-          id: comp.id,
-          name: comp.name,
-          width: comp.width,
-          height: comp.height,
-          durationSec: comp.duration,
-          frameRate: comp.frameRate,
-          numLayers: comp.numLayers,
-        });
+        // total counts ALL comps; only push the ones inside [offset, windowEnd)
+        // so the returned payload is bounded regardless of project size.
+        var matchIndex = total;
+        total++;
+        if (matchIndex >= offset && matchIndex < windowEnd) {
+          var comp = item as JsxCompItem;
+          items.push({
+            id: comp.id,
+            name: comp.name,
+            width: comp.width,
+            height: comp.height,
+            durationSec: comp.duration,
+            frameRate: comp.frameRate,
+            numLayers: comp.numLayers,
+          });
+        }
       }
     }
 
-    return { comps: comps };
+    var nextIdx = offset + items.length;
+    var hasMore = nextIdx < total;
+    return {
+      items: items,
+      total: total,
+      hasMore: hasMore,
+      nextOffset: hasMore ? nextIdx : null,
+    };
   }
 );

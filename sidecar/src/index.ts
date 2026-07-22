@@ -136,6 +136,7 @@ function makeDummyPty(): PtyLike {
     onData() { return () => { /* nothing to unsubscribe */ }; },
     onExit() { return () => { /* dummy never exits */ }; },
     kill() { return Promise.resolve(); },
+    killImmediate() { /* dummy has no child */ },
     getRecentOutput() { return []; },
   };
 }
@@ -285,10 +286,12 @@ async function main(): Promise<void> {
         message: e instanceof Error ? e.message : String(e),
       }));
       await bridge.stop();
-      // AWAIT so the just-spawned claude PTY (and its ConPTY descendants) are
-      // actually tree-killed before exit — otherwise a second sidecar losing
-      // the lock race leaks the claude process it already spawned (mistakes #23).
-      await pty.kill().catch(() => { /* best-effort */ });
+      // Immediate tree-kill (not the awaited graceful escalation): the loser
+      // of the lock race must exit(2) FAST so the launcher gets a prompt
+      // refusal, but must still reap the claude PTY it already spawned so it
+      // doesn't leak (mistakes #23). killImmediate issues taskkill /F /T right
+      // away and returns; the spawned taskkill outlives this process's exit.
+      pty.killImmediate();
       process.exit(2);
     }
   }

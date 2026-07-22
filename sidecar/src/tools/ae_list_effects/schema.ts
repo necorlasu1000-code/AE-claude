@@ -17,6 +17,10 @@ export const aeListEffectsInputSchema = z.object({
   /** Composition id (Item.id). Omit to use app.project.activeItem. When
    *  omitted and no active comp exists, AENoActiveCompError is raised. */
   compId: z.number().optional(),
+  // Pagination gate (CLAUDE.md §5) — a heavily-stacked layer can carry many
+  // effects; cap the page so Claude's context stays bounded.
+  limit: z.number().int().positive().max(200).default(50),
+  offset: z.number().int().nonnegative().default(0),
 });
 export type AeListEffectsInput = z.infer<typeof aeListEffectsInputSchema>;
 
@@ -28,6 +32,12 @@ export const aeEffectEntrySchema = z.object({
 export type AeEffectEntry = z.infer<typeof aeEffectEntrySchema>;
 
 export const aeListEffectsOutputSchema = z.object({
-  effects: z.array(aeEffectEntrySchema),
+  items: z.array(aeEffectEntrySchema),
+  /** Total effects on the layer (before pagination). */
+  total: z.number().int().nonnegative(),
+  /** True when more effects exist past this page. */
+  hasMore: z.boolean(),
+  /** Offset to pass for the next page, or null when this is the last page. */
+  nextOffset: z.number().int().nonnegative().nullable(),
 });
 export type AeListEffectsOutput = z.infer<typeof aeListEffectsOutputSchema>;

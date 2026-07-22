@@ -33,7 +33,11 @@ export interface ToolCtx {
 export interface ToolDef<I, O> {
   name: string;
   description: string;
-  input: z.ZodSchema<I>;
+  // Input-side type is `unknown` (not `I`) so schemas using `.default()` are
+  // accepted: `.default()` makes zod's *input* type optional while its *output*
+  // (parsed) type — the `I` the handler receives — stays required. Constraining
+  // both to `I` (z.ZodSchema<I>) would reject any paginated ae_list_* schema.
+  input: z.ZodType<I, z.ZodTypeDef, unknown>;
   output: z.ZodSchema<O>;
   handler: (input: I, ctx: ToolCtx) => Promise<O>;
   /** D4: wrap in app.beginUndoGroup/endUndoGroup. Default false (read-only tools). */

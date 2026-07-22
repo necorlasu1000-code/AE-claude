@@ -38,6 +38,8 @@ import {
 export interface AeListEffectsInput {
   layerIndex: number;
   compId?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export interface AeEffectEntry {
@@ -47,7 +49,16 @@ export interface AeEffectEntry {
 }
 
 export interface AeListEffectsOutput {
-  effects: AeEffectEntry[];
+  items: AeEffectEntry[];
+  total: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+}
+
+// Empty result with pagination meta — shared by the "no effect host" and
+// "no parade" early returns (Camera/Light/Null layers).
+function emptyEffects(): AeListEffectsOutput {
+  return { items: [], total: 0, hasMore: false, nextOffset: null };
 }
 
 export const ae_list_effects = defineJsxTool<AeListEffectsInput, AeListEffectsOutput>(
@@ -111,12 +122,21 @@ export const ae_list_effects = defineJsxTool<AeListEffectsInput, AeListEffectsOu
       // Direct call (NOT var fn = layer.property; fn(...)) -- mistakes #17.
       effectsParade = layer.property!("ADBE Effect Parade");
     } catch (paradeErr) {
-      return { effects: [] };
+      return emptyEffects();
     }
-    if (!effectsParade) return { effects: [] };
+    if (!effectsParade) return emptyEffects();
+
+    // ---- Pagination (gate §5) --------------------------------------------
+    // Defaults normally applied by the sidecar zod schema; re-applied here
+    // defensively (impl.test.ts calls this directly with raw input).
+    var limit = (input && typeof input.limit === "number" && input.limit > 0) ? input.limit : 50;
+    if (limit > 200) limit = 200;
+    var offset = (input && typeof input.offset === "number" && input.offset > 0) ? input.offset : 0;
+    var windowEnd = offset + limit;
 
     // ---- Iterate effects -------------------------------------------------
     var effects: AeEffectEntry[] = [];
+    var total = 0;
     var n = effectsParade.numProperties || 0;
 
     for (var i = 1; i <= n; i++) {
@@ -124,13 +144,24 @@ export const ae_list_effects = defineJsxTool<AeListEffectsInput, AeListEffectsOu
       var eff: JsxPropertyLike = effectsParade.property!(i);
       if (!eff) continue;
 
-      effects.push({
-        matchName: eff.matchName,
-        displayName: eff.name,   // PropertyBase.name surfaces as displayName
-        enabled: eff.enabled,
-      });
+      var matchIndex = total;
+      total++;
+      if (matchIndex >= offset && matchIndex < windowEnd) {
+        effects.push({
+          matchName: eff.matchName,
+          displayName: eff.name,   // PropertyBase.name surfaces as displayName
+          enabled: eff.enabled,
+        });
+      }
     }
 
-    return { effects: effects };
+    var nextIdx = offset + effects.length;
+    var hasMore = nextIdx < total;
+    return {
+      items: effects,
+      total: total,
+      hasMore: hasMore,
+      nextOffset: hasMore ? nextIdx : null,
+    };
   }
 );

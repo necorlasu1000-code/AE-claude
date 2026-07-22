@@ -74,13 +74,16 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
     "ae_list_comps",
     {
       description:
-        "List all compositions in the active After Effects project. " +
-        "Returns array of comp metadata (id, name, dimensions, durationSec, frameRate, numLayers). " +
-        "Empty project returns { comps: [] } with no error.",
+        "List compositions in the active After Effects project. " +
+        "Paginated: optional limit (1-200, default 50) and offset (0-based, default 0). " +
+        "Returns { items, total, hasMore, nextOffset } where items[] hold comp metadata " +
+        "(id, name, width, height, durationSec, frameRate, numLayers), total is the full " +
+        "comp count, and nextOffset is the offset for the next page (null on the last page). " +
+        "Empty project returns { items: [], total: 0, hasMore: false, nextOffset: null }.",
       inputSchema: aeListCompsInputSchema.shape,
     },
-    async () => {
-      const out = await wsClient.exec("ae_list_comps", {});
+    async (rawInput) => {
+      const out = await wsClient.exec("ae_list_comps", rawInput ?? {});
       return toCallToolResult(out);
     },
   );
@@ -110,12 +113,15 @@ export function setupMcpServer(wsClient: Pick<McpWsClient, "exec">): McpServer {
       description:
         "List effects applied to a layer. layerIndex required (1-based, AE convention). " +
         "compId optional -- defaults to active composition. " +
-        "Returns array of effect metadata (matchName, displayName, enabled). " +
-        "matchName is locale-stable internal id (e.g., 'ADBE Gaussian Blur 2'); " +
-        "displayName is the user-facing label in AE Effect Controls. " +
+        "Paginated: optional limit (1-200, default 50) and offset (0-based, default 0). " +
+        "Returns { items, total, hasMore, nextOffset } where items[] hold effect metadata " +
+        "(matchName, displayName, enabled). matchName is the locale-stable internal id " +
+        "(e.g., 'ADBE Gaussian Blur 2'); displayName is the user-facing label in AE Effect " +
+        "Controls. nextOffset is the offset for the next page (null on the last page). " +
         "Throws AENoActiveCompError when compId omitted and no active comp; " +
         "AENotFoundError when compId is unknown or layerIndex is out of bounds. " +
-        "Layers that don't host effects (Camera/Light/Null) return { effects: [] }.",
+        "Layers that don't host effects (Camera/Light/Null) return " +
+        "{ items: [], total: 0, hasMore: false, nextOffset: null }.",
       inputSchema: aeListEffectsInputSchema.shape,
     },
     async (rawInput) => {

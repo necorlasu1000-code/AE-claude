@@ -9,7 +9,13 @@
 
 import { z } from "zod";
 
-export const aeListCompsInputSchema = z.object({});
+// Pagination gate (CLAUDE.md §5): every ae_list_* tool caps its output so a
+// large project can't blow up Claude's context. limit max 200 / default 50,
+// offset 0-based, output = { items, total, hasMore, nextOffset }.
+export const aeListCompsInputSchema = z.object({
+  limit: z.number().int().positive().max(200).default(50),
+  offset: z.number().int().nonnegative().default(0),
+});
 export type AeListCompsInput = z.infer<typeof aeListCompsInputSchema>;
 
 export const aeCompEntrySchema = z.object({
@@ -24,6 +30,12 @@ export const aeCompEntrySchema = z.object({
 export type AeCompEntry = z.infer<typeof aeCompEntrySchema>;
 
 export const aeListCompsOutputSchema = z.object({
-  comps: z.array(aeCompEntrySchema),
+  items: z.array(aeCompEntrySchema),
+  /** Total comps in the project (before pagination). */
+  total: z.number().int().nonnegative(),
+  /** True when more comps exist past this page. */
+  hasMore: z.boolean(),
+  /** Offset to pass for the next page, or null when this is the last page. */
+  nextOffset: z.number().int().nonnegative().nullable(),
 });
 export type AeListCompsOutput = z.infer<typeof aeListCompsOutputSchema>;

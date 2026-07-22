@@ -191,6 +191,22 @@ export class PtyHost {
     });
   }
 
+  /** Immediate, non-awaiting OS tree-kill. For abort paths that are about to
+   *  process.exit and just need the child's process tree reaped NOW, without
+   *  waiting out kill()'s graceful SIGTERM→1s→taskkill escalation. The spawned
+   *  taskkill runs independently and survives this process's exit. Used by the
+   *  sidecar's lock-held abort so the refusal exits fast (the escalation delay
+   *  was flaky under load) while still not leaking the just-spawned child. */
+  killImmediate(): void {
+    if (!this._alive || !this.pty) return;
+    const pid = this.pty.pid;
+    const p = this.pty;
+    this._alive = false;
+    this.pty = undefined;
+    if (pid !== undefined) this.osTreeKill(pid);
+    try { p.kill(); } catch { /* best-effort */ }
+  }
+
   /** OS-level tree kill. Best-effort: errors are swallowed — hard cap covers
    *  the worst case. Spawned helper processes (taskkill) get their own 3s
    *  timeout so they can't hang either. */
