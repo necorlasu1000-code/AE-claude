@@ -1549,3 +1549,29 @@ clearSelection은 xtermSel side에만 / removeAllRanges는 nativeSel side에만 
 - 사이드카 227 tests + tsc build green. 패널 45 + vite build green.
 
 **메타 family**: #16/#21(정책 게이트 lifecycle 일관성)과 인접하나 다름 — 여기는 **부팅 시퀀스의 시간적 순서**가 함정. "트리거를 arm하기 전에 트리거를 유발할 수 있는 긴 작업을 await하지 말 것". #14(dev/prod 분기 family)처럼 aspect 다발로 발현하나, 공통 root는 "async 부팅에서 hazard 작업과 안전망 배선의 순서 역전". 예방: main() 부팅 시퀀스는 (1) 자원 확보 (2) **안전망 배선(핸들러/워치독/exit 구독)** (3) 긴/실패가능 작업 순서 고정. 안전망은 항상 hazard보다 먼저.
+
+## 2026-07-22 escape를 만드는 코드가 스스로 escape 대상 — U+2028 fix가 no-op으로 출하 (#24)
+
+**문제**: fix 패스 리뷰(더블체크)에서 발견. `useExtendScriptBridge.ts`의 U+2028/9 escape가 `.split(String.fromCharCode(0x2028)).join("\u2028")` — join 인자의 단일 백슬래시는 TS 소스에서 **escape sequence**라 런타임엔 원시 U+2028 문자 그 자체. 즉 `split(X).join(X)` 항등 연산 = 죽은 코드. 의도한 것은 6글자 리터럴 텍스트(백슬래시+u+2028)였고, 소스에는 `"\\u2028"`(이중 백슬래시)로 써야 했음.
+
+**같은 커밋의 2차 버그**: `JSON.stringify(req.input)`은 input이 undefined면 문자열이 아닌 undefined를 반환 → 후속 `.split` 체인이 TypeError → `.catch` 없는 exec promise가 unhandled rejection + 큐가 35s watchdog까지 스톨. `req.input ?? null`로 가드.
+
+**왜 테스트를 통과했나**: 추가된 3개 테스트(화이트리스트/watchdog/late-callback)가 정작 **fix의 대상인 U+2028 입력 케이스를 안 다룸**. 그린 = 검증 아님; fix가 고치려는 바로 그 입력이 테스트에 없으면 no-op fix도 그린.
+
+**Fix**: `.join("\\u2028")` / `.join("\\u2029")` + `req.input ?? null`. 회귀 테스트 2건: 원시 U+2028/9 입력 → script에 원시 문자 부재 + acorn 파싱 성공 + 라운드트립; undefined input → no throw + `("null")` 직렬화.
+
+**예방**:
+1. **escape/인코딩 fix는 반드시 "문제 문자를 실제로 담은 입력" 테스트와 함께 커밋** — fix 대상 입력이 테스트에 없으면 커밋 거부 수준으로.
+2. **escape 문자열을 만드는 코드는 소스 이스케이프를 한 겹 더 생각**: 소스의 `"\uXXXX"`는 그 문자 자체, 텍스트를 원하면 `"\\uXXXX"`. 헷갈리면 `String.fromCharCode`/명시 문자열 결합으로 의도를 강제.
+
+## 2026-07-22 detached:false 자식 + 즉시 process.exit = 자식도 동반 사망 — killImmediate의 taskkill이 실행 못 되고 좀비 재발 (#25)
+
+**문제**: fix 패스 리뷰(더블체크)에서 발견 + 실기기 재현. `osTreeKill`이 taskkill을 `detached: false`로 spawn하는데, killImmediate의 유일한 호출처(lock-held abort)는 spawn 직후 동기적으로 `process.exit(2)`. Windows에서 non-detached 자식은 libuv의 kill-on-job-close job object에 들어가 **부모 종료와 함께 죽음** → taskkill이 claude 트리를 reap하기 전에 소멸 → 이 경로가 막으려던 바로 그 #23 좀비가 그대로 남음. 코드 주석("spawned taskkill survives this process's exit")은 사실이 아니었음. Win11/Node20에서 시뮬레이션 재현: 부모 exit 2초 후에도 victim 생존.
+
+**Fix**: `detached: true` + `tk.unref()`. graceful kill() 경로(부모 생존 중)에는 무해. 회귀 테스트: `ptyHost.killImmediate.test.ts` — child_process.spawn 모킹으로 detached:true + unref 호출 단언 (옵션을 단언하는 테스트가 없어서 no-op으로 출하됐던 것).
+
+**예방**:
+1. **"자식을 남기고 즉시 exit"하는 모든 경로는 detached+unref 필수**: spawn 후 부모가 살아서 기다리는지, 바로 죽는지를 코드 리뷰 체크포인트로. 부모가 바로 죽으면 non-detached 자식은 Windows에서 실행 보장이 없다.
+2. **#24와 같은 메타**: "동작 주장을 담은 주석"(survives exit)은 그 주장을 단언하는 테스트가 있어야 신뢰 가능. 없으면 주석이 아니라 희망사항.
+
+**메타 family**: #23의 직계 — #23 fix 커밋(46aad83)이 만든 새 경로가 #23의 목표(자식 미누수)를 스스로 위반. fix 패스의 fix도 리뷰/재현 검증 대상.

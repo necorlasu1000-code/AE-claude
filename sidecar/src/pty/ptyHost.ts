@@ -216,8 +216,13 @@ export class PtyHost {
         const tk = cpSpawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
           windowsHide: true,
           stdio: "ignore",
-          detached: false,
+          // detached + unref — REQUIRED for the killImmediate abort path,
+          // which calls process.exit() right after this spawn. A non-detached
+          // child sits in libuv's kill-on-job-close job object and dies WITH
+          // this process, before it can reap the claude tree (mistakes #25).
+          detached: true,
         });
+        tk.unref();
         const tkSelfTimer = setTimeout(() => {
           try { tk.kill("SIGKILL"); } catch { /* */ }
         }, 3_000);
