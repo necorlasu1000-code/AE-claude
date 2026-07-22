@@ -48,8 +48,9 @@ interface Config {
   debug: boolean;
   disableWatchdog: boolean;
   watchdogIntervalMs: number;
-  // Reserved for Phase 2.5.4 — currently passed to PtyHost.killHardCapMs
-  // for storage only. Not consumed in PtyHost.kill yet.
+  // Passed to PtyHost.killHardCapMs — the ceiling on kill() resolution so a
+  // ConPTY that ignores SIGTERM/SIGKILL can't hang shutdown. Consumed in
+  // PtyHost.kill (default 8s when undefined).
   killHardCapMs: number | undefined;
 }
 
@@ -81,11 +82,20 @@ function parseConfig(): Config {
   const defaultShell = "claude";
   const defaultShellArgs = ["--model", "claude-opus-4-7"];
 
-  const isWin = process.platform === "win32";
-  void isWin;  // reserved for future per-OS branches; currently unified.
-
   const port = Number(argMap.get("port") ?? env.AE_CLAUDE_PORT ?? 0);
-  const host = argMap.get("host") ?? env.AE_CLAUDE_HOST ?? "127.0.0.1";
+  const hostRaw = argMap.get("host") ?? env.AE_CLAUDE_HOST ?? "127.0.0.1";
+  // Localhost gate (CLAUDE.md §6): the WS server binds loopback only. A
+  // non-loopback host would open a LAN attack surface (no auth layer yet), so
+  // reject anything but 127.0.0.1 / ::1 / localhost instead of binding it.
+  const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
+  if (!LOOPBACK.has(hostRaw)) {
+    throw new Error(
+      `AE_CLAUDE_HOST='${hostRaw}' is not a loopback address. ` +
+      `The sidecar binds 127.0.0.1 only (no auth layer for remote access). ` +
+      `Remove the override or use 127.0.0.1.`,
+    );
+  }
+  const host = hostRaw;
   const shellOverride = argMap.get("shell") ?? env.AE_CLAUDE_SHELL;
   const aePidRaw = argMap.get("ae-pid") ?? env.AE_CLAUDE_AE_PID;
   const aePid = aePidRaw && aePidRaw !== "true" ? Number(aePidRaw) : undefined;
@@ -275,7 +285,10 @@ async function main(): Promise<void> {
         message: e instanceof Error ? e.message : String(e),
       }));
       await bridge.stop();
-      pty.kill().catch(() => { /* best-effort */ });
+      // AWAIT so the just-spawned claude PTY (and its ConPTY descendants) are
+      // actually tree-killed before exit — otherwise a second sidecar losing
+      // the lock race leaks the claude process it already spawned (mistakes #23).
+      await pty.kill().catch(() => { /* best-effort */ });
       process.exit(2);
     }
   }
@@ -306,11 +319,96 @@ async function main(): Promise<void> {
     }
   }
 
+  // ── Shutdown wiring (BEFORE mcp registration) ────────────────────
+  // Every shutdown trigger — signals, uncaught errors, PTY exit, AE-death
+  // watchdog, panel sys.shutdown — must be armed BEFORE the boot-time
+  // `await registerMcpWithClaude(...)` below. That await spawns claude twice
+  // (mcp remove + add) and can take seconds; if a shutdown trigger fired
+  // during that window while these handlers were still unwired (the old
+  // order), the request was silently lost and the sidecar leaked until the
+  // AE watchdog eventually noticed (mistakes #23). registerMcp now also has
+  // its own timeout, but arming first is the structural guarantee.
+  let watchdog: PidWatchdog | undefined;
+  let shuttingDown = false;
+  const shutdown = (reason: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logDebug(cfg, "shutdown:", reason);
+
+    const forceTimer = setTimeout(() => {
+      logDebug(cfg, "shutdown timeout — force exit");
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS);
+    forceTimer.unref();  // don't keep event loop alive solely for this timer
+
+    (async () => {
+      watchdog?.stop();
+      await bridge.stop().catch((e) => logDebug(cfg, "bridge.stop err:", e));
+      // AWAIT the kill: PtyHost.kill() escalates to taskkill /F /T on a 1s
+      // timer (ConPTY ignores SIGTERM/SIGKILL, mistakes #4). Fire-and-forget
+      // + immediate process.exit(0) would exit before that timer runs, so the
+      // OS tree-kill of claude's descendants never happened. forceTimer is the
+      // 10s backstop if kill itself hangs.
+      await pty.kill().catch(() => { /* best-effort, ConPTY can hang */ });
+      if (lockHeld && cfg.aePid !== undefined) {
+        await releaseLock(cfg.aePid).catch(() => { /* best-effort */ });
+        await deleteReadyFile(cfg.aePid).catch(() => { /* best-effort */ });
+      }
+      clearTimeout(forceTimer);
+      process.exit(0);
+    })();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("uncaughtException", (e) => {
+    console.error(JSON.stringify({ type: "uncaught", message: e.message, stack: e.stack }));
+    shutdown("uncaughtException");
+  });
+  process.on("unhandledRejection", (reason) => {
+    // Without this, an unhandled rejection anywhere would crash Node with the
+    // default handler — leaving the lock held, the ready file stale, and
+    // claude's PTY tree un-killed. Route it through graceful shutdown instead.
+    console.error(JSON.stringify({
+      type: "unhandledRejection",
+      message: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+    }));
+    shutdown("unhandledRejection");
+  });
+
+  // Wire panelBridge.onShutdownRequest → real shutdown function. The ref-cell
+  // held a no-op until now; the only unwired window is between bridge.start()
+  // and this line (both synchronous-adjacent, no await between them).
+  shutdownRef.fn = shutdown;
+
+  // PTY exit triggers shutdown — claude process died. Wired here (before the
+  // mcp-register await) so a claude that dies during boot — bad --model arg,
+  // auth failure — is still caught (mistakes #23). PtyHost buffers its exit
+  // and replays to a late subscriber, so even an exit that already fired is
+  // delivered.
+  pty.onExit((code, signal) => {
+    logDebug(cfg, "pty exited:", { code, signal });
+    shutdown(`pty-exit-${code}`);
+  });
+
+  // ── AE PID watchdog ──────────────────────────────────────────────
+  if (cfg.aePid !== undefined && !cfg.disableWatchdog) {
+    watchdog = new PidWatchdog({
+      pid: cfg.aePid,
+      intervalMs: cfg.watchdogIntervalMs,
+      onDeath: () => shutdown("ae-process-dead"),
+    });
+    watchdog.start();
+    logDebug(cfg, "watchdog started for AE pid", cfg.aePid, "interval", cfg.watchdogIntervalMs);
+  }
+
   // ── Phase 4.2 — claude mcp add (idempotent via remove + add) ──────
   // Register the ae-mcp stdio server entry so claude CLI auto-spawns it
   // on every claude invocation in this cwd. Failures (claude not found,
   // add error) are non-fatal: the sidecar boots normally and Phase 4.3
-  // surfaces a clearer error when claude PTY actually starts.
+  // surfaces a clearer error when claude PTY actually starts. Runs LAST in
+  // boot so a slow/blocked claude here can't delay the shutdown wiring above.
   //
   // Phase 4.4 fix-2 (mistakes #14 Aspect B): dev/prod entry resolution.
   // This file is `<sidecar>/dist/index.js` after `npm run build`, or
@@ -342,63 +440,6 @@ async function main(): Promise<void> {
     // ensures the sidecar always boots even on a contract violation.
     logDebug(cfg, `mcp register: unexpected throw — sidecar boot continues`, e);
   }
-
-  // ── Shutdown ─────────────────────────────────────────────────────
-  let shuttingDown = false;
-  const shutdown = (reason: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logDebug(cfg, "shutdown:", reason);
-
-    const forceTimer = setTimeout(() => {
-      logDebug(cfg, "shutdown timeout — force exit");
-      process.exit(1);
-    }, SHUTDOWN_TIMEOUT_MS);
-    forceTimer.unref();  // don't keep event loop alive solely for this timer
-
-    (async () => {
-      watchdog?.stop();
-      await bridge.stop().catch((e) => logDebug(cfg, "bridge.stop err:", e));
-      pty.kill().catch(() => { /* best-effort, ConPTY can hang */ });
-      if (lockHeld && cfg.aePid !== undefined) {
-        await releaseLock(cfg.aePid).catch(() => { /* best-effort */ });
-        await deleteReadyFile(cfg.aePid).catch(() => { /* best-effort */ });
-      }
-      clearTimeout(forceTimer);
-      process.exit(0);
-    })();
-  };
-
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("uncaughtException", (e) => {
-    console.error(JSON.stringify({ type: "uncaught", message: e.message, stack: e.stack }));
-    shutdown("uncaughtException");
-  });
-
-  // Wire panelBridge.onShutdownRequest → real shutdown function. Until this
-  // line, the ref-cell holds a no-op placeholder, so a sys.shutdown received
-  // before this point would silently do nothing — but bridge.start() is
-  // already complete, the only window is between bridge.start and here.
-  shutdownRef.fn = shutdown;
-
-  // ── AE PID watchdog ──────────────────────────────────────────────
-  let watchdog: PidWatchdog | undefined;
-  if (cfg.aePid !== undefined && !cfg.disableWatchdog) {
-    watchdog = new PidWatchdog({
-      pid: cfg.aePid,
-      intervalMs: cfg.watchdogIntervalMs,
-      onDeath: () => shutdown("ae-process-dead"),
-    });
-    watchdog.start();
-    logDebug(cfg, "watchdog started for AE pid", cfg.aePid, "interval", cfg.watchdogIntervalMs);
-  }
-
-  // PTY exit also triggers shutdown — claude process died.
-  pty.onExit((code, signal) => {
-    logDebug(cfg, "pty exited:", { code, signal });
-    shutdown(`pty-exit-${code}`);
-  });
 }
 
 main().catch((e) => {

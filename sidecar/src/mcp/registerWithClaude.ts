@@ -135,18 +135,50 @@ export async function registerMcpWithClaude(
 function isEnoent(e: unknown): boolean {
   if (typeof e !== "object" || e === null) return false;
   const code = (e as { code?: unknown }).code;
-  return code === "ENOENT";
+  // ENOENT = binary missing. EINVAL = Node 20.12+ refuses to spawn a `.cmd`
+  // shim without shell:true (CVE-2024-27980); an npm-installed `claude.cmd`
+  // hits this. Both mean "claude not runnable as spawned" → surface the same
+  // install/setup UX rather than an opaque "unexpected".
+  return code === "ENOENT" || code === "EINVAL";
 }
+
+// Hard cap for a single `claude mcp` invocation. Without this, a claude that
+// blocks on stdin (first-run trust prompt, config lock, auth wait) would hang
+// the boot-time `await registerMcpWithClaude(...)` forever — and because the
+// sidecar wires its signal handlers / watchdog / pty.onExit AFTER that await,
+// a hang there would leave the whole sidecar unshutdownable. stdin is set to
+// "ignore" so any prompt reads EOF immediately instead of waiting.
+const RUN_COMMAND_TIMEOUT_MS = 15_000;
 
 const defaultRunCommand: RunCommand = (cmd, args, { cwd }) => {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, shell: false });
+    const child = spawn(cmd, args, {
+      cwd,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],   // stdin ignored → no prompt hang
+    });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill("SIGKILL"); } catch { /* best-effort */ }
+      resolve({ exitCode: -1, stdout, stderr: stderr + "\n[timed out after " + RUN_COMMAND_TIMEOUT_MS + "ms]" });
+    }, RUN_COMMAND_TIMEOUT_MS);
+    timer.unref?.();
     child.stdout?.on("data", (d) => { stdout += d.toString(); });
     child.stderr?.on("data", (d) => { stderr += d.toString(); });
-    child.on("error", (e) => reject(e));   // ENOENT lands here
+    child.on("error", (e) => {   // ENOENT / EINVAL land here
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(e);
+    });
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       resolve({ exitCode: code ?? 0, stdout, stderr });
     });
   });

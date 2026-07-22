@@ -341,7 +341,22 @@ export class PanelBridge {
         });
         return;
       }
-      this.routeMessage(ws, msg);
+      // decode() only validates that `type` is a string — it does NOT check
+      // per-type required fields. A well-typed-but-incomplete message (e.g.
+      // {type:"pty.resize"} with no cols/rows → node-pty throws on
+      // resize(undefined,undefined)) would otherwise escape this listener as
+      // an uncaughtException and take the whole sidecar down. Contain it to a
+      // single client-facing error instead (mistakes #23).
+      try {
+        this.routeMessage(ws, msg);
+      } catch (e) {
+        this.sendTo(ws, {
+          type: "server.error",
+          code: "AERouteError",
+          userMessage: "Message could not be processed",
+          developerHint: `routeMessage(${msg.type}): ${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
     });
 
     ws.on("close", () => {

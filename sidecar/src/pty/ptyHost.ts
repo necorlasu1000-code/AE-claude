@@ -48,6 +48,12 @@ export class PtyHost {
   private pty: IPty | undefined;
   private dataCbs = new Set<DataCb>();
   private exitCbs = new Set<ExitCb>();
+  // Buffered exit — set once the child exits. A subscriber that calls onExit()
+  // AFTER the child already died (e.g. the sidecar wires pty.onExit only after
+  // a boot-time await, during which claude died on a bad --model / auth fail)
+  // is delivered this immediately, instead of hanging on an exit that already
+  // fired to an empty subscriber set (mistakes #23).
+  private exited: { code: number; signal?: number } | undefined;
   // Reserved for Phase 2.5.4 kill semantics. Stored at construction; not
   // consumed yet. Tests must not regress when this is set.
   private readonly killHardCapMs: number | undefined;
@@ -85,6 +91,7 @@ export class PtyHost {
     this.pty.onExit(({ exitCode, signal }) => {
       this._alive = false;
       this.pty = undefined;
+      this.exited = { code: exitCode, signal };
       for (const cb of this.exitCbs) {
         try { cb(exitCode, signal); } catch { /* same */ }
       }
@@ -105,6 +112,13 @@ export class PtyHost {
   }
 
   onExit(cb: ExitCb): () => void {
+    // Late subscriber after the child already exited — deliver the buffered
+    // exit synchronously so callers that wire onExit post-boot don't miss it.
+    if (this.exited) {
+      const { code, signal } = this.exited;
+      try { cb(code, signal); } catch { /* subscriber error must not throw here */ }
+      return () => { /* nothing to unsubscribe */ };
+    }
     this.exitCbs.add(cb);
     return () => { this.exitCbs.delete(cb); };
   }

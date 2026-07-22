@@ -46,4 +46,26 @@ describe("PtyHost — spawn + I/O roundtrip", () => {
     // verification is the I/O roundtrip, not the kill mechanics.
     pty.kill().catch(() => { /* best-effort cleanup */ });
   }, 30_000);
+
+  // mistakes #23 — a subscriber that calls onExit() AFTER the child already
+  // exited must still receive the exit (the sidecar wires pty.onExit only
+  // after boot-time awaits, during which claude could die). Pre-fix the late
+  // callback was added to an empty-at-exit set and never fired.
+  it("delivers buffered exit to a late onExit subscriber", async () => {
+    const cmd = isWin ? "cmd.exe" : "bash";
+    const args = isWin ? ["/c", "exit", "0"] : ["-c", "exit 0"];
+    const pty = new PtyHost({ cmd, args, cols: 80, rows: 24 });
+
+    // Wait for the process to actually exit (first subscriber).
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("child did not exit in time")), 15_000);
+      pty.onExit(() => { clearTimeout(t); resolve(); });
+    });
+    expect(pty.alive).toBe(false);
+
+    // Late subscriber — must be invoked synchronously with the buffered exit.
+    let lateFired = false;
+    pty.onExit(() => { lateFired = true; });
+    expect(lateFired).toBe(true);
+  }, 30_000);
 });

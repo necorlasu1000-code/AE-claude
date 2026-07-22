@@ -128,6 +128,22 @@ describe("registerMcpWithClaude", () => {
     expect(events).not.toContain("mcp:register:success");
   });
 
+  it("claude as .cmd shim (EINVAL throw, Node 20.12+ CVE-2024-27980) → claude-not-found", async () => {
+    // npm-installed `claude.cmd` refuses to spawn without shell:true and throws
+    // EINVAL (not ENOENT). Must map to the same install-hint UX, not "unexpected".
+    const einval = Object.assign(new Error("spawn claude EINVAL"), { code: "EINVAL" });
+    const { run } = makeRunner(() => einval);
+    const log = vi.fn<(e: LogEvent) => void>();
+
+    const result = await registerMcpWithClaude({
+      port: 7000, ...PROD_SPAWN, cwd: CWD, runCommand: run, logger: log,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "claude-not-found" });
+    const events = log.mock.calls.map((c) => c[0].event);
+    expect(events).toContain("mcp:register:claude-not-found");
+  });
+
   it("add fail (exit 1) → ok=false add-failed + stderr surfaced in log", async () => {
     const { run } = makeRunner((_cmd, args) => {
       if (args[1] === "remove") return { exitCode: 0, stdout: "", stderr: "" };

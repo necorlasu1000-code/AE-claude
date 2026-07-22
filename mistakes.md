@@ -1523,3 +1523,29 @@ clearSelection은 xtermSel side에만 / removeAllRanges는 nativeSel side에만 
 **검증**: `_validateAst.test.ts` 42 → 50 cases (+8: this.File / this.system / this.eval / $.evalFile / $.write / unknown global / with(this)). positive 케이스(app.project / comp.layer / KeyframeInterpolationType / ae_create_comp 패턴) 전부 그린 유지. 사이드카 225 tests green + tsc build clean.
 
 **메타 family**: "선언했으나 배선 안 된 방어" — #19(description single source가 dead code만 정정)와 유사하게, 코드가 있다고 방어가 작동하는 게 아님. allow-list Set 존재 ≠ allow-list 강제.
+
+## 2026-07-22 부팅 윈도우 좀비 family — registerMcp 행 + late pty.onExit + fire-and-forget kill (#23)
+
+**문제**: 심층 리뷰에서 발견한 index.ts main() 부팅 시퀀스의 복합 함정. 4 aspect.
+
+- **Aspect A (registerMcp 무한 행)**: `registerWithClaude.ts defaultRunCommand`가 spawn stdio 기본 pipe + 타임아웃 없음. `claude mcp remove/add`가 stdin 입력 대기(최초 실행 신뢰 프롬프트/config lock/auth 대기) 시 `await registerMcpWithClaude(...)`가 영원히 안 끝남. 이 await **뒤에** SIGTERM/SIGINT 핸들러(372), `shutdownRef.fn` 배선(383), 워치독(387), `pty.onExit`(398)이 오므로 행이면 사이드카 전체가 unshutdownable 좀비.
+- **Aspect B (late pty.onExit 미발화)**: PtyHost는 생성자에서 즉시 spawn(196)하는데 `pty.onExit` 구독은 398행(여러 await 뒤). claude가 부팅 중 즉사(잘못된 `--model`, auth 실패)하면 PtyHost의 exit 콜백이 **구독자 0명**인 상태로 소진되고, 이후 398행 등록은 이미 죽은 PTY에 콜백만 얹을 뿐 절대 발화 안 함 → 죽은 PTY 물고 상주.
+- **Aspect C (fire-and-forget kill → taskkill 도달 불능)**: `shutdown()`이 `pty.kill()`을 await 없이 호출 후 즉시 `process.exit(0)`. `PtyHost.kill()`의 `taskkill /F /T` 에스컬레이션은 **1초 setTimeout 뒤** 실행인데 그 전에 exit → 타이머 미발화. "ConPTY는 SIGTERM/SIGKILL 무시 → OS 트리킬 필수"(#4) 규칙이 정상 종료 경로에서 코드상 도달 불가. lock-held abort 경로(exit 2)도 동일 → 중복 기동 시 방금 띄운 claude 누수.
+- **Aspect D (unhandledRejection 부재)**: `uncaughtException`은 shutdown 배선됐으나 rejection은 없음 → Node 기본 즉사 → lock 미해제 + ready 파일 잔존 + claude 좀비.
+
+**Root cause**: **부팅 시퀀스에서 "shutdown을 트리거할 수 있는 모든 배선"이 "shutdown을 트리거할 수 있는 긴 async 작업(registerMcp)"보다 늦게 옴**. 배선 순서 자체가 잘못됨. + PtyHost가 exit를 버퍼링하지 않아 late subscriber 지원 안 함. + kill await 누락.
+
+**Fix**:
+1. **Aspect A**: `defaultRunCommand`에 `stdio: ["ignore","pipe","pipe"]`(stdin ignore → 프롬프트 즉시 EOF) + 15s 타임아웃(초과 시 SIGKILL + exitCode -1 resolve). 추가로 `isEnoent`에 `EINVAL`(Node 20.12+ `.cmd` shim spawn 거부) 포함 → claude-not-found UX로 매핑.
+2. **Aspect B**: PtyHost에 `exited` 버퍼 필드 + 생성자 onExit에서 저장 + `onExit(cb)`가 이미 exit됐으면 즉시 동기 호출. index.ts에서 `pty.onExit` 배선을 registerMcp await **앞으로** 이동.
+3. **Aspect C**: `shutdown()`과 lock-held 경로 둘 다 `await pty.kill()`. forceTimer(10s)가 kill 자체 행에 대한 backstop.
+4. **Aspect D**: `unhandledRejection` 핸들러 추가 → graceful shutdown.
+5. **배선 순서 재구성**: shutdown 정의 + 모든 시그널/rejection 핸들러 + shutdownRef.fn + pty.onExit + 워치독을 **registerMcp await 앞으로 전부 이동**. registerMcp를 부팅 마지막에 배치.
+6. 곁다리 정정: `killHardCapMs` "not consumed yet" 거짓 주석 정정(실제 사용 중), `void isWin` 데드코드 제거, **localhost gate 강제**(§6 — loopback 외 host 값 거부), `routeMessage` try/catch(decode 통과했으나 필드 결손 메시지가 uncaughtException으로 사이드카 다운되는 것 차단).
+
+**검증**:
+- `ptyHost.test.ts`: late onExit subscriber에 버퍼된 exit 전달 (pre-fix 미발화).
+- `registerWithClaude.test.ts`: EINVAL → claude-not-found 매핑.
+- 사이드카 227 tests + tsc build green. 패널 45 + vite build green.
+
+**메타 family**: #16/#21(정책 게이트 lifecycle 일관성)과 인접하나 다름 — 여기는 **부팅 시퀀스의 시간적 순서**가 함정. "트리거를 arm하기 전에 트리거를 유발할 수 있는 긴 작업을 await하지 말 것". #14(dev/prod 분기 family)처럼 aspect 다발로 발현하나, 공통 root는 "async 부팅에서 hazard 작업과 안전망 배선의 순서 역전". 예방: main() 부팅 시퀀스는 (1) 자원 확보 (2) **안전망 배선(핸들러/워치독/exit 구독)** (3) 긴/실패가능 작업 순서 고정. 안전망은 항상 hazard보다 먼저.
