@@ -50,6 +50,9 @@ debug.log
 .scratch/
 *.tmp
 
+# User screenshot dumps (dogfood evidence, per-machine)
+eye/
+
 # Claude Code local settings (per-machine, never share)
 .claude/settings.local.json
 .claude/skills/

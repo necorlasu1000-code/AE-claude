@@ -55,7 +55,7 @@ export interface AeListEffectsOutput {
   nextOffset: number | null;
 }
 
-// Empty result with pagination meta — shared by the "no effect host" and
+// Empty result with pagination meta -- shared by the "no effect host" and
 // "no parade" early returns (Camera/Light/Null layers).
 function emptyEffects(): AeListEffectsOutput {
   return { items: [], total: 0, hasMore: false, nextOffset: null };
@@ -126,7 +126,7 @@ export const ae_list_effects = defineJsxTool<AeListEffectsInput, AeListEffectsOu
     }
     if (!effectsParade) return emptyEffects();
 
-    // ---- Pagination (gate §5) --------------------------------------------
+    // ---- Pagination (gate section 5) -------------------------------------
     // Defaults normally applied by the sidecar zod schema; re-applied here
     // defensively (impl.test.ts calls this directly with raw input).
     var limit = (input && typeof input.limit === "number" && input.limit > 0) ? input.limit : 50;

@@ -440,7 +440,7 @@ export function makeMockNonCompItem(typeName: "Folder" | "Footage", opts?: { nam
 
 export interface MockProjectOpts {
   activeItem?: JsxItemLike | null;
-  /** Phase 5.1.4 — ItemCollection mock. items[0] becomes item(1) (1-based
+  /** Phase 5.1.4 -- ItemCollection mock. items[0] becomes item(1) (1-based
    *  per ExtendScript convention); numItems = items.length. ae_list_comps
    *  test fixtures pass [] for empty project, [comp] for single comp,
    *  [comp, footage] for filter validation. */
@@ -600,7 +600,7 @@ export interface MockAppOpts {
   /** activeItem default = null (no comp selected). Pass `makeMockComp()`
    *  for happy path or `makeMockNonCompItem("Folder")` for negative path. */
   activeItem?: JsxItemLike | null;
-  /** Phase 5.1.4 — see MockProjectOpts.items. */
+  /** Phase 5.1.4 -- see MockProjectOpts.items. */
   items?: JsxItemLike[];
   /** Phase 5.2.1 -- app.version. Default unset when omitted. */
   version?: string;

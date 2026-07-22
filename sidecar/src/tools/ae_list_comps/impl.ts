@@ -44,7 +44,7 @@ export interface AeListCompsOutput {
 
 export const ae_list_comps = defineJsxTool<AeListCompsInput, AeListCompsOutput>(
   function (input, ctx, _h) {
-    // Pagination (gate §5). Defaults are normally applied by the sidecar zod
+    // Pagination (gate section 5). Defaults normally applied by sidecar zod
     // schema, but re-apply here defensively (impl.test.ts calls this directly
     // with raw input, and a future non-validated caller must stay bounded).
     var limit = (input && typeof input.limit === "number" && input.limit > 0) ? input.limit : 50;
