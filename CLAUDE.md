@@ -119,10 +119,10 @@ AE의 `Window > Extensions > AE-Claude` 패널에 Claude Code CLI 터미널을 �
    **server.ts 핸들러가 rawInput 포워딩 필수**: `async (rawInput) => wsClient.exec(name, rawInput ?? {})` — `{}` 하드코딩 시 claude의 limit/offset 유실.
 
 6. **Localhost gate** — WebSocket binding은 `127.0.0.1` only.
-   `0.0.0.0` 사용 시 LAN 공격면. 미래 원격 접속은 인증 모듈 추가 후에만.
+   `0.0.0.0` 사용 시 LAN 공격면. 미래 원격 접속은 인증 모듈 추가 후에만. `index.ts`가 loopback (`127.0.0.1`/`::1`/`localhost`) 이외 host 값은 부팅 시 거부 (2026-07-22).
 
-7. **Mutex gate** — `ToolDispatcher`에서 in-flight tool call 1개 강제 (P4).
-   ExtendScript single-threaded이므로 panel 측 evalScript 큐는 FIFO.
+7. **Mutex gate** — ExtendScript는 single-threaded이므로 AE에 대한 tool 실행은 한 번에 1개. **이 직렬화의 책임 위치는 D-D 결정에 따라 panel 측 `useExtendScriptBridge`의 FIFO 큐** (evalScript는 한 번에 1개만 in-flight). `ToolDispatcher`(sidecar)는 **직렬화하지 않는다** — requestId 발급 / timeout / cancel / latency만 소유하고 동시 in-flight를 허용한다 (`toolDispatcher.test.ts` "does not serialize" 명시). 두 layer, 각자 한 concern (D-D layer-of-responsibility).
+   ⚠️ 과거 이 게이트 문구가 "ToolDispatcher에서 1개 강제"로 잘못 적혀 있어 코드/테스트와 모순이었음 (2026-07-22 정정). 신규 tool은 dispatcher에 mutex를 추가하지 말 것 — 직렬화는 panel FIFO가 담당.
 
 8. **Phase exit gate** — phase 종료 commit 전에 **`npm test` (sidecar + panel 모두 green) AND `npm run build` (production tsc strict + vite build) 둘 다 통과** 강제.
    test만 그린이면 vitest tsx 트랜스파일이 strict 타입 검사를 skip해서 production 빌드에서 늦게 터지는 함정 발생 (mistakes.md #10). 두 게이트는 직렬, 빌드까지 그린 확인 후에만 phase 닫는 commit 작성.

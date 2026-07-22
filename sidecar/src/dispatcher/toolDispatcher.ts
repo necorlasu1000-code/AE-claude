@@ -7,6 +7,14 @@
 // ES-single-thread FIFO serialization. Two layers, one concern each
 // (D-D layer-of-responsibility; mirrored in protocol.ts header jsdoc).
 //
+// MUTEX RESPONSIBILITY (CLAUDE.md gate §7, per D-D): the "one tool at a
+// time against AE" guarantee lives in the PANEL FIFO queue, NOT here. This
+// dispatcher deliberately allows multiple concurrent in-flight execs (each
+// gets its own requestId + timeout) — see toolDispatcher.test.ts "does not
+// serialize". Do NOT add a mutex here; it would double-serialize and stall
+// legitimate parallel dispatch while the panel queue already enforces the
+// single-threaded ExtendScript constraint.
+//
 // Late-result handling: when handleIncoming receives a requestId no
 // longer in `pending` (cancel/timeout already won the race), the
 // message is silently dropped. Test verifies via inflight Map size
