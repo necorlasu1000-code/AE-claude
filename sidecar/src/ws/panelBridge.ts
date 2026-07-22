@@ -284,6 +284,20 @@ export class PanelBridge {
   // ─── Connection lifecycle ────────────────────────────────────────
 
   private handleConnection(ws: WebSocket, req: IncomingMessage): void {
+    // Cross-origin WebSocket gate. Binding loopback does NOT stop a
+    // malicious web page: the user's browser is itself local, and browsers
+    // permit cross-origin WebSocket to ws://127.0.0.1:<port>. Browsers
+    // always attach an http(s) Origin header to WS handshakes; CEP's CEF
+    // panel sends a file:// (or no) Origin and the MCP child (Node `ws`)
+    // sends none. Rejecting http(s) origins therefore blocks drive-by
+    // pages from becoming a panel client (= claude PTY write access)
+    // without affecting either legitimate client.
+    const origin = req.headers.origin;
+    if (typeof origin === "string" && /^https?:\/\//i.test(origin)) {
+      try { ws.close(1008, "origin-not-allowed"); } catch { /* already closed */ }
+      return;
+    }
+
     const role = parseRole(req.url);
 
     // New *panel* client arrived — cancel any pending auto-shutdown grace
@@ -699,9 +713,10 @@ export class PanelBridge {
     return false;
   }
 
-  private broadcast(msg: Msg): void {
+  private broadcast(msg: Msg, roleFilter?: ClientRole): void {
     const data = encode(msg);
-    for (const ws of this.clients.keys()) {
+    for (const [ws, state] of this.clients) {
+      if (roleFilter !== undefined && state.role !== roleFilter) continue;
       if (ws.readyState === WebSocket.OPEN) {
         try { ws.send(data); } catch { /* best-effort */ }
       }
@@ -712,7 +727,10 @@ export class PanelBridge {
 
   private setupPtyForward(): void {
     this.ptyUnsubscribe = this.opts.pty.onData((data) => {
-      this.broadcast({ type: "pty.out", data });
+      // Panel-only: the xterm view lives in the CEP panel. The mcp client
+      // never renders PTY output — sending it there just doubles the WS
+      // traffic for every terminal byte (audit item).
+      this.broadcast({ type: "pty.out", data }, "panel");
     });
   }
 

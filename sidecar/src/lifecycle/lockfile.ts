@@ -83,9 +83,18 @@ export async function acquireLock(content: LockContent): Promise<string> {
     throw err;
   }
 
-  // Stale — unlink + retry exclusive create. Race between two parallel acquires
-  // resolves at the wx step: only one process wins EEXIST avoidance after unlink.
-  await fs.unlink(lockPath).catch(() => { /* another process may have unlinked first */ });
+  // Stale — atomically claim the right to clear it via rename (only ONE
+  // process can succeed on a given source path), then wx-create. A plain
+  // unlink here had a TOCTOU: P1 unlink+wx-create wins, then P2's queued
+  // unlink deletes P1's FRESH lock and P2's wx-create also succeeds —
+  // both sidecars believe they hold the lock. rename moves exactly the
+  // observed stale file; a process whose rename fails (ENOENT — someone
+  // else claimed it) just falls through to wx-create and loses via EEXIST.
+  const staleClaim = lockPath + `.stale-${process.pid}`;
+  try {
+    await fs.rename(lockPath, staleClaim);
+    await fs.unlink(staleClaim).catch(() => { /* best-effort cleanup */ });
+  } catch { /* another process claimed the stale file first */ }
   try {
     await fs.writeFile(lockPath, payload, { flag: "wx", encoding: "utf8" });
     return lockPath;

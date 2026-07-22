@@ -42,6 +42,7 @@ interface WsLike {
   send(data: string): void;
   close(code?: number, reason?: string): void;
   on(event: "message", cb: (raw: { toString(): string }) => void): void;
+  on(event: "close", cb: () => void): void;
   once(event: "open" | "error", cb: (err?: Error) => void): void;
 }
 
@@ -49,6 +50,14 @@ export class McpWsClient {
   private ws: WsLike | undefined;
   private pending = new Map<string, PendingExec>();
   private idCounter = 0;
+  // Reconnect state (audit item): without this, a sidecar restart (panel
+  // reopen, crash recovery) left this MCP child connectionless for the rest
+  // of the claude session — every tool call failed until claude itself was
+  // restarted. On unexpected close we retry with capped backoff; exec()
+  // keeps its fail-fast "not connected" answer between attempts.
+  private closedByUser = false;
+  private reconnectTimer: NodeJS.Timeout | undefined;
+  private reconnectDelayMs = 1_000;
 
   constructor(
     private readonly opts: McpWsClientOptions,
@@ -65,6 +74,21 @@ export class McpWsClient {
       ws.once("error", (e?: Error) => reject(e ?? new Error("ws error")));
     });
     ws.on("message", (raw) => this.handleMessage(raw.toString()));
+    this.reconnectDelayMs = 1_000;   // successful connect resets backoff
+    try {
+      ws.on("close", () => this.scheduleReconnect());
+    } catch { /* injected test mock without close support — no reconnect */ }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closedByUser || this.reconnectTimer) return;
+    const delay = this.reconnectDelayMs;
+    this.reconnectDelayMs = Math.min(delay * 2, 15_000);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.connect().catch(() => this.scheduleReconnect());
+    }, delay);
+    this.reconnectTimer.unref?.();
   }
 
   /** Issue an exec call to the sidecar. Resolves with either ResultMsg
@@ -115,6 +139,8 @@ export class McpWsClient {
   }
 
   close(): void {
+    this.closedByUser = true;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; }
     for (const p of this.pending.values()) clearTimeout(p.timer);
     this.pending.clear();
     try { this.ws?.close(1000, "client close"); } catch { /* best-effort */ }

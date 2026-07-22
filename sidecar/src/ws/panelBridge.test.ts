@@ -29,6 +29,7 @@ function makeMockPty() {
     },
     onExit() { return () => { /* mock never exits */ }; },
     kill() { return Promise.resolve(); },
+    killImmediate() { /* unused */ },
     getRecentOutput() { return [...buffer]; },
     emitData(data: string) {
       for (const cb of dataCbs) cb(data);
@@ -821,5 +822,36 @@ describe("PanelBridge", () => {
     });
     expect(abortFired).toBe(true);
     wsMcp.close();
+  });
+
+  // ── Origin gate (audit item) ─────────────────────────────────────
+  // A malicious web page can open ws://127.0.0.1:<port> from the user's
+  // browser despite the loopback bind. Browsers always attach an http(s)
+  // Origin header; CEP (file:// or none) and the Node mcp client (none)
+  // don't. http(s)-Origin handshakes must be closed with 1008 before the
+  // client is admitted (no sys.version greeting, no client registration).
+  it("rejects browser-origin connections (1008), accepts file:///no-origin", async () => {
+    // Browser-style connection — http Origin header.
+    const evil = new WebSocket(url, { headers: { origin: "http://evil.example" } });
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      evil.once("close", (code: number) => resolve(code));
+      evil.once("error", reject);
+      setTimeout(() => reject(new Error("no close within 3s")), 3_000);
+    });
+    expect(closeCode).toBe(1008);
+
+    // CEP-style connection — file:// Origin is fine.
+    const cep = new WebSocket(url, { headers: { origin: "file://" } }) as Ws;
+    cep.__queue = [];
+    cep.on("message", (raw: WebSocket.RawData) => {
+      try { cep.__queue.push(JSON.parse(raw.toString()) as Msg); } catch { /* skip */ }
+    });
+    await new Promise<void>((resolve, reject) => {
+      cep.once("open", () => resolve());
+      cep.once("error", reject);
+    });
+    const greeting = await nextMessage(cep, (m) => m.type === "sys.version");
+    expect(greeting.type).toBe("sys.version");
+    cep.close();
   });
 });

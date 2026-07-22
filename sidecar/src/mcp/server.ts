@@ -127,4 +127,10 @@ if (isEntry) {
   // emits onclose; McpServer.close() then resolves.
   process.on("SIGTERM", () => { wsClient.close(); process.exit(0); });
   process.on("SIGINT",  () => { wsClient.close(); process.exit(0); });
+  // stdin EOF/close hook (audit item): when claude dies or closes only the
+  // pipe (no signal on Windows), this child would otherwise linger as an
+  // orphan holding its ws connection to the sidecar. Treat stdio teardown
+  // as the shutdown signal it is.
+  process.stdin.on("end",   () => { wsClient.close(); process.exit(0); });
+  process.stdin.on("close", () => { wsClient.close(); process.exit(0); });
 }

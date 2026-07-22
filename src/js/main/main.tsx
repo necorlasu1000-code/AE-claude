@@ -109,6 +109,10 @@ export const App = () => {
     void bridge
       .exec({ requestId: msg.requestId, tool: msg.tool, input: msg.input })
       .then((result: ExecResult) => {
+        // Telemetry entry was written by the bridge:exit emit just before
+        // this resolve; consume-and-delete so production execs don't grow
+        // the Map forever (only the dev spike path read it before).
+        lastBridgeMsRef.current.delete(msg.requestId!);
         const t = terminalRef.current;
         if (!t) return;
         if (result.ok) {
@@ -122,6 +126,19 @@ export const App = () => {
             developerHint: result.developerHint,
           });
         }
+      })
+      .catch(() => {
+        // exec never rejects by contract, but an unforeseen throw inside the
+        // promise executor must not become an unhandled rejection that
+        // leaves the sidecar-side request dangling until its timeout.
+        lastBridgeMsRef.current.delete(msg.requestId!);
+        terminalRef.current?.sendMessage({
+          type: "error",
+          requestId: msg.requestId!,
+          code: "AECrashedError",
+          userMessage: "패널 브리지 내부 오류",
+          developerHint: "bridge.exec rejected unexpectedly — see panel console.",
+        });
       });
   }, [bridge]);
 

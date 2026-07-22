@@ -184,7 +184,11 @@ export class SidecarLauncher {
       };
     } catch (e) {
       // start failed — clean up the spawned process (it may have started but
-      // never emitted ready). Best-effort kill.
+      // never emitted ready). Mark the kill as intentional FIRST: without
+      // this, the SIGKILL fires the 'exit' handler → fireCrash("Sidecar
+      // crashed") overwrites/races the detailed start error (timeout +
+      // captured stderr) the caller is about to receive.
+      this.stoppedNormally = true;
       if (this.proc && this.proc.exitCode === null) {
         try { this.proc.kill("SIGKILL"); } catch { /* */ }
       }
